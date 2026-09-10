@@ -24,7 +24,7 @@ let package = Package(
         // 表示層込み(WashiCore を再輸出)
         .library(name: "Washi", targets: ["Washi"]),
         // cooViewer 用: Washi.framework を組み立てる材料の dylib。両ターゲットを
-        // 1 つの動的ライブラリへまとめる(Scripts/build-washi-framework.sh が使う。
+        // 1 つの動的ライブラリへまとめる(cooViewer の Scripts/build-washi-framework.sh が使う。
         // SwiftPM 利用者は上の automatic ライブラリをそのまま使えばよい)
         .library(name: "WashiDynamic", type: .dynamic,
                  targets: ["WashiCore", "Washi"]),

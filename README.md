@@ -342,10 +342,9 @@ xcodebuild docbuild -scheme Washi -destination 'platform=macOS'
 
 ## 開発体制
 
-このリポジトリは [cooViewer](https://github.com/shunnag/cooViewer) モノレポ内の
-`Washi/` ディレクトリから `git subtree split` で切り出した片方向ミラー。
-開発はモノレポ側で行われ、リリースのたびにここへ反映される。
-Issue / PR は歓迎するが、取り込みはモノレポ側で行った上でミラーに現れる。
+このリポジトリが Washi の正リポジトリであり、開発もここで行う。
+Issue / PR はこのリポジトリで受け付ける。
+[cooViewer](https://github.com/shunnag/cooViewer) は、このパッケージの利用者のひとつ。
 
 ## ライセンス
 
