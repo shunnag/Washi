@@ -268,6 +268,203 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             .allowExpectedLoad)
     }
 
+    /// 完了待ち要求のない go(locator:) と goBack() も保存した文字を探す。
+    /// ページ割りを変え、進行率への移動だけでは成功とみなさない。
+    func testSavedTextAnchorAndHistoryUseExactLandingWithoutContinuation() async throws {
+        let publication = try makePublication()
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+        view.preparePublication(publication)
+        defer { view.unload() }
+        var saved = publication.locator(forSpineIndex: 0, progression: 0.25)
+        saved.textOffset = 420
+        view.settings.fontScale = 1.5
+        view.frame.size.width = 800
+        var offsets: [Int] = []
+        var scripts: [String] = []
+        view.textRangeLocationHandler = { offset, length in
+            offsets.append(offset)
+            XCTAssertEqual(length, 1)
+            return EPUBTextRangeLanding(pageInItem: 7, text: "保存した文",
+                                       rects: [CGRect(x: 10, y: 20, width: 40, height: 20)])
+        }
+        view.scriptEvaluationHandler = { scripts.append($0) }
+
+        view.go(to: saved)
+        await view.textRangeTask?.value
+
+        XCTAssertEqual(offsets, [420])
+        XCTAssertTrue(scripts.isEmpty)
+        XCTAssertEqual(view.currentLocator.textOffset, 420)
+        XCTAssertNil(view.textRangeTask)
+
+        view.go(to: publication.locator(forSpineIndex: 0, progression: 0.9))
+        XCTAssertEqual(scripts, ["__washi.showProgression(0.9);"])
+        scripts.removeAll()
+        view.goBack()
+        await view.textRangeTask?.value
+
+        XCTAssertEqual(offsets, [420, 420])
+        XCTAssertTrue(scripts.isEmpty)
+        XCTAssertEqual(view.currentLocator.textOffset, 420)
+    }
+
+    /// アンカーを探した結果が nil のときだけ、保存済みの進行率へ戻す。
+    func testMissingTextAnchorFallsBackAfterAttemptingExactLanding() async throws {
+        let publication = try makePublication()
+        let view = EPUBReaderView(frame: .zero)
+        view.preparePublication(publication)
+        defer { view.unload() }
+        var saved = publication.locator(forSpineIndex: 0, progression: 0.625)
+        saved.textOffset = 999
+        var attempted = false
+        var scripts: [String] = []
+        view.textRangeLocationHandler = { offset, _ in
+            XCTAssertEqual(offset, 999)
+            attempted = true
+            return nil
+        }
+        view.scriptEvaluationHandler = { script in
+            XCTAssertTrue(attempted)
+            scripts.append(script)
+        }
+
+        view.go(to: saved)
+        await view.textRangeTask?.value
+
+        XCTAssertTrue(attempted)
+        XCTAssertEqual(scripts, ["__washi.showProgression(0.625);"])
+    }
+
+    /// 継続を持つ既存の async API は、正確な着地結果を引き続き返す。
+    func testAsyncTextRangeNavigationStillCompletesWithLanding() async throws {
+        let publication = try makePublication()
+        let view = EPUBReaderView(frame: .zero)
+        view.preparePublication(publication)
+        defer { view.unload() }
+        let landing = EPUBTextRangeLanding(
+            pageInItem: 3, text: "本文", rects: [CGRect(x: 0, y: 0, width: 20, height: 20)])
+        view.textRangeLocationHandler = { offset, length in
+            XCTAssertEqual(offset, 12)
+            XCTAssertEqual(length, 2)
+            return landing
+        }
+        view.scriptEvaluationHandler = { _ in XCTFail("正確に着地できた場合は進行率へ戻さない") }
+
+        let result = await view.go(
+            to: publication.locator(forSpineIndex: 0, progression: 0.4),
+            textRange: (utf16Offset: 12, utf16Length: 2))
+
+        XCTAssertEqual(result?.pageInItem, landing.pageInItem)
+        XCTAssertEqual(result?.text, landing.text)
+        XCTAssertEqual(result?.rects, landing.rects)
+        XCTAssertNil(view.textRangeTask)
+    }
+
+    /// unload より後に返った旧アンカーの応答は、次の本へ fallback を送らない。
+    func testUnloadCancelsInFlightTextAnchorBeforeFallback() async throws {
+        let publication = try makePublication()
+        let view = EPUBReaderView(frame: .zero)
+        view.preparePublication(publication)
+        var saved = publication.locator(forSpineIndex: 0, progression: 0.75)
+        saved.textOffset = 42
+        let started = expectation(description: "アンカー解決を開始")
+        var continuation: CheckedContinuation<EPUBTextRangeLanding?, Never>?
+        var scripts: [String] = []
+        view.textRangeLocationHandler = { _, _ in
+            await withCheckedContinuation {
+                continuation = $0
+                started.fulfill()
+            }
+        }
+        view.scriptEvaluationHandler = { scripts.append($0) }
+        view.go(to: saved)
+        let task = try XCTUnwrap(view.textRangeTask)
+        await fulfillment(of: [started], timeout: 1)
+
+        view.unload()
+        continuation?.resume(returning: nil)
+        await task.value
+
+        XCTAssertTrue(scripts.isEmpty)
+        XCTAssertNil(view.textRangeTask)
+        XCTAssertNil(view.publication)
+    }
+
+    /// 102 のうち、文書の遷移を policy で拒否したものだけを無通知で畳む。
+    /// 現在の読み込みに対応する 102 と他の失敗は通知対象に残す。
+    func testNavigationFailureClassificationDoesNotSuppressCurrentLoad102() {
+        let interrupted = NSError(domain: "WebKitErrorDomain", code: 102)
+        XCTAssertTrue(EPUBReaderView.isExpectedNavigationCancellation(
+            interrupted, hasNavigation: false))
+        XCTAssertFalse(EPUBReaderView.isExpectedNavigationCancellation(
+            interrupted, hasNavigation: true))
+        for hasNavigation in [false, true] {
+            XCTAssertTrue(EPUBReaderView.isExpectedNavigationCancellation(
+                NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled),
+                hasNavigation: hasNavigation))
+            XCTAssertFalse(EPUBReaderView.isExpectedNavigationCancellation(
+                NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotDecodeContentData),
+                hasNavigation: hasNavigation))
+            XCTAssertFalse(EPUBReaderView.isExpectedNavigationCancellation(
+                NSError(domain: "別ドメイン", code: 102), hasNavigation: hasNavigation))
+        }
+
+        let view = EPUBReaderView(frame: .zero)
+        let delegate = ReaderViewDelegateSpy()
+        view.delegate = delegate
+        let cover = NSImageView(frame: .zero)
+        view.installTurnCover(cover, pending: true)
+        view.handleNavigationFailure(interrupted, hasNavigation: false)
+        XCTAssertTrue(delegate.failures.isEmpty)
+        XCTAssertNotNil(view.pendingSpineTurn)
+
+        view.handleNavigationFailure(interrupted, hasNavigation: true)
+        XCTAssertEqual(delegate.failures.count, 1)
+        XCTAssertEqual((delegate.failures.first as? NSError)?.code, 102)
+        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(cover.superview)
+    }
+
+    /// 解決後の fallback が未対応・欠落なら、WebKit の応答を待たず通知する。
+    /// 正規化された XHTML と実在する画像 fallback は従来どおり受理する。
+    func testUnrenderableSpineFallbackReportsFailureBeforeNavigation() throws {
+        for (mediaType, exists, renderable) in [
+            ("image/psd", true, false),
+            ("application/xhtml+xml", false, false),
+            (" Application/XHTML+XML; charset=UTF-8 ", true, true),
+            ("image/png", true, true),
+        ] {
+            var entries = EPUBFixtures.singleSpineEntries(bodyHTML: "<p>本文</p>")
+            let packageIndex = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
+            entries[packageIndex].data = Data(String(decoding: entries[packageIndex].data, as: UTF8.self)
+                .replacingOccurrences(of:
+                    #"<item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/>"#,
+                    with: """
+                        <item id="c" href="foreign.dmg" media-type="application/octet-stream" fallback="fb"/>
+                        <item id="fb" href="fallback" media-type="\(mediaType)"/>
+                        """).utf8)
+            entries.append(("OEBPS/foreign.dmg", Data([0])))
+            if exists { entries.append(("OEBPS/fallback", Data([1]))) }
+            let publication = try EPUBPublication(
+                data: ZipBuilder.build(entries),
+                displayURL: URL(fileURLWithPath: "/tmp/unrenderable-fallback.epub"))
+            let entry = publication.readingOrder[0]
+            let view = EPUBReaderView(frame: .zero)
+            view.preparePublication(publication)
+            let delegate = ReaderViewDelegateSpy()
+            view.delegate = delegate
+
+            XCTAssertEqual(EPUBReaderView.canRenderSpineResource(entry, in: publication), renderable)
+            XCTAssertEqual(view.validateSpineResource(entry, in: publication), renderable)
+            XCTAssertEqual(delegate.failures.count, renderable ? 0 : 1)
+            if !renderable {
+                XCTAssertTrue(String(describing: delegate.failures[0]).contains("no renderable fallback"))
+            }
+            XCTAssertFalse(view.subviews.contains { $0 is WKWebView })
+            view.unload()
+        }
+    }
+
     /// JS へ復元先を適用した直後、最初の pageChanged より前に保存位置を
     /// 読んでも progression を失わない
     func testRestoreLocatorSurvivesSetupTargetApplication() throws {

@@ -169,7 +169,7 @@ public final class EPUBPublication: Sendable {
     /// cooViewer-oxr.8: NCX 補完時は toc と nav 補助一覧の基準文書が異なる。
     private let tocBasePath: String
     private let indexedTOC: [IndexedTOCEntry]
-    /// 本文の UTF-8 データを最大 32 MiB / 512 項目、FIFO で保持する。
+    /// 本文の UTF-8 データを最大 32 MiB、件数は spine 全体を収める枠で FIFO 保持する。
     private let extractedTextCache: ExtractedTextCache
     private let effectiveReadingDirectionCache = EffectiveReadingDirectionCache()
 
@@ -304,7 +304,11 @@ public final class EPUBPublication: Sendable {
 
         var spineIndexByContainerPath: [String: Int] = [:]
         for entry in readingOrder {
-            for path in [entry.containerPath, entry.resolvedContainerPath]
+            // 描画可能な宣言項目でも、代替文書を指す目次・内部リンクを同じ
+            // spine へ対応付ける。連鎖が重なる場合は従来の文書順の先勝ちを守る。
+            let fallbackPaths = Self.fallbackChain(for: entry.item, package: package)
+                .compactMap { ContainerPath.resolve(base: packagePath, href: $0.href) }
+            for path in [entry.containerPath, entry.resolvedContainerPath] + fallbackPaths
             where spineIndexByContainerPath[path] == nil {
                 spineIndexByContainerPath[path] = entry.spineIndex
             }
@@ -354,7 +358,10 @@ public final class EPUBPublication: Sendable {
         self.indexedTOC = Self.indexTOC(
             navigation.toc, basePath: tocBasePath,
             spineIndexByContainerPath: spineIndexByContainerPath)
-        self.extractedTextCache = ExtractedTextCache(byteLimit: 32 * 1024 * 1024)
+        // 全項目の順走査で次に必要な本文を件数だけで追い出さない。
+        // 空章の管理件数は有限のまま、保持本文の安全上限は引き続き 32 MiB とする。
+        self.extractedTextCache = ExtractedTextCache(
+            byteLimit: 32 * 1024 * 1024, entryLimit: max(512, readingOrder.count))
     }
 
     // MARK: - 基本情報
@@ -593,6 +600,13 @@ public final class EPUBPublication: Sendable {
     /// The manifest fallback chain (starting with the item itself; cycles are
     /// broken there. EPUB RS 3.3 §5.4).
     public func fallbackChain(for item: ManifestItem) -> [ManifestItem] {
+        Self.fallbackChain(for: item, package: package)
+    }
+
+    // 初期化中の索引構築も、公開 API と同じ循環・欠落時の打ち切り規則を使う。
+    private static func fallbackChain(
+        for item: ManifestItem, package: EPUBPackage
+    ) -> [ManifestItem] {
         var chain: [ManifestItem] = [item]
         var seen: Set<String> = [item.id]
         var current = item

@@ -63,6 +63,132 @@ final class PublicationTestsTextExtractionSearch: XCTestCase {
         XCTAssertEqual(legacy.utf16Range, 3..<7)
     }
 
+    /// 半角ハングルの畳み込みで書記素数が減っても、後続の錨と抜粋は原文を指す。
+    func testSearchOffsetsAfterWidthFoldingMergesGraphemes() throws {
+        let fillers = String(repeating: "\u{FFA0}", count: 4)
+        let publication = try makePublication(body: "<p>\(fillers)ABCDEFG</p>")
+        let text = try publication.extractText(forSpineIndex: 0)
+
+        for options: EPUBSearchOptions in [[], [.widthSensitive]] {
+            let hit = try XCTUnwrap(publication.search(
+                "ABCDEFG", options: options, snippetRadius: 1).first)
+            XCTAssertEqual(hit.characterOffset, 4)
+            XCTAssertEqual(hit.length, 7)
+            XCTAssertEqual(hit.utf16Range, 4..<11)
+            XCTAssertEqual(hit.snippet, "\u{FFA0}ABCDEFG")
+            XCTAssertEqual((text as NSString).substring(with: NSRange(hit.utf16Range)),
+                           "ABCDEFG")
+
+            let tail = try XCTUnwrap(publication.search(
+                "EFG", options: options, snippetRadius: 0).first)
+            XCTAssertEqual(tail.characterOffset, 8)
+            XCTAssertEqual(tail.utf16Range, 8..<11)
+            XCTAssertEqual(tail.snippet, "EFG")
+        }
+    }
+
+    /// 結合した書記素そのものを含む一致も、元の全文字を覆う範囲へ戻す。
+    func testSearchRangeIncludesAllCharactersMergedByWidthFolding() throws {
+        let fillers = String(repeating: "\u{FFA0}", count: 4)
+        let foldedFillers = String(repeating: "\u{1160}", count: 4)
+        XCTAssertEqual(fillers.count, 4)
+        XCTAssertEqual(foldedFillers.count, 1)
+        let publication = try makePublication(
+            body: "<p>前\(fillers)ＡＢＣ後\(fillers)ＡＢＣ末</p>")
+
+        // ハングルを含む章でも全半角を区別しない意味論を維持し、複数ヒットを戻す。
+        try assertSearchRoundTrips(publication, query: foldedFillers + "ABC",
+                                  options: [.diacriticSensitive],
+                                  expectedSubstrings: [fillers + "ＡＢＣ", fillers + "ＡＢＣ"])
+    }
+
+    /// 全角英数字・半角濁点カナ・合成文字が混在しても、UTF-16 範囲で原文へ往復する。
+    func testSearchMixedWidthJapaneseRangesRoundTrip() throws {
+        let fillers = String(repeating: "\u{FFA0}", count: 4)
+        let publication = try makePublication(
+            body: "<p>前😀e\u{0301}\(fillers)ＡＢ１２ ｶﾞｷﾞ カ\u{3099} 後ＡＢ１２</p>")
+
+        try assertSearchRoundTrips(publication, query: "ab12",
+                                  expectedSubstrings: ["ＡＢ１２", "ＡＢ１２"])
+        try assertSearchRoundTrips(publication, query: "ガギ",
+                                  options: [.diacriticSensitive],
+                                  expectedSubstrings: ["ｶﾞｷﾞ"])
+        try assertSearchRoundTrips(publication, query: "ガ",
+                                  options: [.diacriticSensitive],
+                                  expectedSubstrings: ["ｶﾞ", "カ\u{3099}"])
+        try assertSearchRoundTrips(publication, query: "é",
+                                  options: [.diacriticSensitive],
+                                  expectedSubstrings: ["e\u{0301}"])
+    }
+
+    /// 検索結果の UTF-16 範囲を保存済みハイライトへ渡しても、復元後の錨は原文を指す。
+    func testSearchWidthFoldedHitSurvivesHighlightPersistence() throws {
+        let fillers = String(repeating: "\u{FFA0}", count: 4)
+        let publication = try makePublication(
+            body: "<p>前😀e\u{0301}\(fillers)ｶﾞＡＢ後</p>")
+        let text = try publication.extractText(forSpineIndex: 0)
+        let hit = try XCTUnwrap(publication.search(
+            "ガAB", options: [.diacriticSensitive], snippetRadius: 0).first)
+        XCTAssertEqual(hit.characterOffset, 7)
+        XCTAssertEqual(hit.length, 3)
+        XCTAssertEqual(hit.utf16Range, 9..<13)
+
+        let highlight = EPUBHighlight(
+            id: "width-folded-hit", spineIndex: hit.spineIndex,
+            utf16Offset: hit.utf16Range.lowerBound, utf16Length: hit.utf16Range.count)
+        let saved = try JSONEncoder().encode(highlight)
+        let restored = try JSONDecoder().decode(EPUBHighlight.self, from: saved)
+        XCTAssertEqual(restored, highlight)
+        let restoredRange = NSRange(location: restored.textRange.utf16Offset,
+                                    length: restored.textRange.utf16Length)
+        XCTAssertEqual(restoredRange, NSRange(location: 9, length: 4))
+        XCTAssertEqual((text as NSString).substring(with: restoredRange), "ｶﾞＡＢ")
+    }
+
+    /// 畳み込みの有無や UTF-8 の粗い判定に関係なく、無ヒットは空配列を返す。
+    func testSearchWithoutMatchesAcrossWidthFoldingPaths() throws {
+        let texts = [
+            "Plain English text. 😀 e\u{0301} ガ 日本語",
+            "全角ＡＢ１２と半角ｶﾞ、合成カ\u{3099}、\u{FFA0}\u{FFA0}",
+            // 異体字セレクタにも 0xEF があるが、全角/半角形には該当しない。
+            "字\u{FE0F} 合成e\u{0301}",
+        ]
+        for text in texts {
+            let publication = try makePublication(body: "<p>\(text)</p>")
+            for rawValue in 0..<8 {
+                let options = EPUBSearchOptions(rawValue: rawValue)
+                for query in ["qzxqzx", "ＱＺＸＱＺＸ", "ｾﾞﾛﾋｯﾄ"] {
+                    XCTAssertEqual(publication.search(query, options: options), [],
+                                   "無ヒットの結果が変わった: \(text), \(query), \(rawValue)")
+                }
+            }
+        }
+    }
+
+    /// 初ヒットの判定でも全比較オプションを守り、検索語だけの畳み込みも取りこぼさない。
+    func testSearchFirstMatchPreservesAllSensitivityCombinations() throws {
+        let cases: [(text: String, query: String, matched: String,
+                     requiredInsensitivities: EPUBSearchOptions)] = [
+            ("Café ガ", "café", "Café", [.caseSensitive]),
+            ("Café ガ", "Cafe", "Café", [.diacriticSensitive]),
+            ("Café ガ", "Ｃafé", "Café", [.widthSensitive]),
+            ("Café ガ", "ｶﾞ", "ガ", [.widthSensitive]),
+            ("Ｃafé ｶﾞ", "Café", "Ｃafé", [.widthSensitive]),
+            ("Ｃafé ｶﾞ", "ガ", "ｶﾞ", [.widthSensitive]),
+            ("Ｃafé ｶﾞ", "cafe", "Ｃafé", [.caseSensitive, .diacriticSensitive, .widthSensitive]),
+            ("字\u{FE0F} Café ガ", "Ｃafe", "Café", [.diacriticSensitive, .widthSensitive]),
+        ]
+        for testCase in cases {
+            let publication = try makePublication(body: "<p>\(testCase.text)</p>")
+            for rawValue in 0..<8 {
+                let options = EPUBSearchOptions(rawValue: rawValue)
+                let shouldMatch = options.intersection(testCase.requiredInsensitivities).isEmpty
+                try assertSearchRoundTrips(publication, query: testCase.query, options: options,
+                                          expectedSubstrings: shouldMatch ? [testCase.matched] : [])
+            }
+        }
+    }
+
     /// cooViewer-oxr.89: SVG メタデータと MathML 注釈を捨て、可視 text は残す。
     func testExtractTextSkipsSVGMetadataAndMathMLAnnotations() throws {
         let body = """
@@ -94,6 +220,39 @@ final class PublicationTestsTextExtractionSearch: XCTestCase {
             body: "", mediaType: "application/json", resourceData: xmlShapedJSON)
 
         XCTAssertEqual(try publication.extractText(forSpineIndex: 0), "")
+    }
+
+    /// 期待する原文から位置を独立に求め、文字単位と UTF-16 単位の両方で切り出す。
+    private func assertSearchRoundTrips(
+        _ publication: EPUBPublication,
+        query: String,
+        options: EPUBSearchOptions = [],
+        expectedSubstrings: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let text = try publication.extractText(forSpineIndex: 0)
+        let hits = publication.search(query, options: options, snippetRadius: 0)
+        XCTAssertEqual(hits.count, expectedSubstrings.count, file: file, line: line)
+        var searchStart = text.startIndex
+        for (hit, expected) in zip(hits, expectedSubstrings) {
+            let range = try XCTUnwrap(text.range(
+                of: expected, options: .literal, range: searchStart..<text.endIndex),
+                file: file, line: line)
+            let expectedUTF16Range = NSRange(range, in: text)
+            XCTAssertEqual(hit.characterOffset,
+                           text.distance(from: text.startIndex, to: range.lowerBound),
+                           file: file, line: line)
+            XCTAssertEqual(hit.length, text.distance(from: range.lowerBound, to: range.upperBound),
+                           file: file, line: line)
+            XCTAssertEqual(NSRange(hit.utf16Range), expectedUTF16Range, file: file, line: line)
+            XCTAssertEqual((text as NSString).substring(with: NSRange(hit.utf16Range)),
+                           expected, file: file, line: line)
+            XCTAssertEqual(String(text.dropFirst(hit.characterOffset).prefix(hit.length)),
+                           expected, file: file, line: line)
+            XCTAssertEqual(hit.snippet, expected, file: file, line: line)
+            searchStart = range.upperBound
+        }
     }
 
     private func makePublication(

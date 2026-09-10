@@ -116,6 +116,28 @@ final class PublicationTestsNavigationCache: XCTestCase {
         XCTAssertEqual(reader.readCount(for: path), 1)
     }
 
+    /// 512 を大きく超える spine でも、予算内の本文は全体の順走査後に再利用する。
+    /// 所要時間に依存せず、本文読み取りが各項目につき一度だけであることを確認する。
+    func testLongSpineKeepsExtractedTextAcrossSequentialScans() throws {
+        let count = 2048
+        let reader = CountingContainerReader(entries: makeEntries(nav: nil, contentCount: count))
+        let publication = try EPUBPublication(
+            url: URL(fileURLWithPath: "/tmp/long-spine-cache.epub"), reader: reader)
+        XCTAssertEqual(publication.readingOrder.count, count)
+
+        for _ in 0..<2 {
+            for index in publication.readingOrder.indices {
+                XCTAssertEqual(try publication.extractText(forSpineIndex: index),
+                               "第\(index + 1)章の本文")
+            }
+        }
+        XCTAssertEqual(publication.search("本文").count, count)
+        XCTAssertEqual(publication.estimatedPageCounts(), Array(repeating: 1, count: count))
+        for index in 1...count {
+            XCTAssertEqual(reader.readCount(for: "OEBPS/text/ch\(index).xhtml"), 1)
+        }
+    }
+
     private var ncxDocument: String {
         """
         <?xml version="1.0" encoding="UTF-8"?>

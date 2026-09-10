@@ -20,6 +20,7 @@ final class EPUBPaginationCensus {
     private var window: NSWindow?
     private var webView: WKWebView?
     private var schemeHandler: EPUBSchemeHandler?
+    // navigationDelegate は弱参照なので、解決後も保持して外部遷移を遮断する。
     private var pendingNavigationWaiter: NavigationWaiter?
     private var configuredAllowsScriptedContent: Bool?
     private let idleReleaseTimer: EPUBOffscreenIdleReleaseTimer
@@ -111,10 +112,6 @@ final class EPUBPaginationCensus {
             do {
                 try await waiter.wait(timeout: .seconds(15))
             } catch {
-                if pendingNavigationWaiter === waiter {
-                    pendingNavigationWaiter = nil
-                }
-                webView.navigationDelegate = nil
                 if error is CancellationError || Task.isCancelled
                     || Self.mustAbortMeasurement(for: error) {
                     webView.stopLoading()
@@ -125,20 +122,26 @@ final class EPUBPaginationCensus {
                 counts.append(1)
                 continue
             }
-            if pendingNavigationWaiter === waiter {
-                pendingNavigationWaiter = nil
-            }
-            webView.navigationDelegate = nil
-            withExtendedLifetime(waiter) {}
             if Task.isCancelled { return nil }
             // 本番の runSetup と同タイミング(didFinish 直後)で測ることで、
             // フォント・画像の遅延読み込みによる誤差の出方まで揃える
-            let result = try? await webView.callAsyncJavaScript(
-                "return __washi.setup(\(plan.optionsJSON));",
-                arguments: [:], in: nil, contentWorld: EPUBReaderView.washiWorld)
-            guard !Task.isCancelled,
-                  let dict = result as? [String: Any],
-                  let count = dict["pageCount"] as? Int else { return nil }
+            let result = await waitForOffscreenJavaScript { completion in
+                webView.callAsyncJavaScript(
+                    "return __washi.setup(\(plan.optionsJSON));",
+                    arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
+                    completionHandler: { result in
+                        completion(result.map {
+                            ($0 as? [String: Any])?["pageCount"] as? Int
+                        })
+                    })
+            }
+            if Task.isCancelled { return nil }
+            guard let result else {
+                // JS 応答の期限切れはこの項目だけ 1 ページに縮退して先へ進む。
+                counts.append(1)
+                continue
+            }
+            guard let count = try? result.get() else { return nil }
             counts.append(max(1, count))
         }
         return counts
@@ -185,6 +188,8 @@ final class EPUBPaginationCensus {
         if let configuredAllowsScriptedContent,
            configuredAllowsScriptedContent != allowsScriptedContent {
             // cooViewer-oxr.75: WebKit の著者スクリプト設定は構成後に変えられない。
+            pendingNavigationWaiter?.cancel()
+            pendingNavigationWaiter = nil
             webView?.stopLoading()
             webView?.navigationDelegate = nil
             webView = nil

@@ -626,6 +626,78 @@ final class PublicationTests: XCTestCase {
         XCTAssertNoThrow(try publication.fixedLayoutInfo(forSpineIndex: 2))
     }
 
+    /// 宣言画像を描画できる場合も、中間・終端の fallback 文書を同じ spine に結ぶ。
+    func testSpineIndexResolvesEveryFallbackChainMember() throws {
+        let publication = try makePublication(
+            manifest: """
+                <item id="page" href="images/page.png" media-type="image/png" fallback="foreign"/>
+                <item id="foreign" href="foreign/page.json" media-type="application/json" fallback="doc"/>
+                <item id="doc" href="text/fallback.xhtml" media-type="application/xhtml+xml" fallback="tail"/>
+                <item id="tail" href="text/last%20page.xhtml" media-type="application/xhtml+xml"/>
+                <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+                """,
+            spine: "<itemref idref=\"page\"/>",
+            resources: [
+                ("OEBPS/images/page.png", EPUBFixtures.tinyPNG),
+                ("OEBPS/foreign/page.json", Data("{}".utf8)),
+                ("OEBPS/text/fallback.xhtml", Data(EPUBFixtures.chapterXHTML(
+                    title: "代替本文", body: "<p id=\"target\">本文</p>").utf8)),
+                ("OEBPS/text/last page.xhtml", Data(EPUBFixtures.chapterXHTML(
+                    title: "最終代替", body: "<p>本文</p>").utf8)),
+                ("OEBPS/nav.xhtml", Data("""
+                    <html xmlns="http://www.w3.org/1999/xhtml"
+                          xmlns:epub="http://www.idpf.org/2007/ops"><body>
+                      <nav epub:type="toc"><ol>
+                        <li><a href="text/fallback.xhtml#target">代替本文の章</a></li>
+                      </ol></nav>
+                    </body></html>
+                    """.utf8)),
+            ])
+        let entry = try XCTUnwrap(publication.readingOrder.first)
+        XCTAssertEqual(entry.resolvedItem.id, "page")
+        XCTAssertEqual(publication.fallbackChain(for: entry.item).map(\.id),
+                       ["page", "foreign", "doc", "tail"])
+        for href in ["images/page.png", "foreign/page.json",
+                     "text/fallback.xhtml", "text/last%20page.xhtml"] {
+            let path = try XCTUnwrap(publication.containerPath(
+                forHref: href, relativeTo: publication.package.path))
+            XCTAssertEqual(publication.spineIndex(forContainerPath: path), 0, href)
+            XCTAssertEqual(publication.spineIndex(forHref: href + "#target"), 0, href)
+        }
+        let navItem = try XCTUnwrap(publication.navigation.toc.first)
+        XCTAssertEqual(publication.spineIndex(forNavItem: navItem), 0)
+        XCTAssertEqual(publication.chapterTitle(forSpineIndex: 0), "代替本文の章")
+    }
+
+    /// 循環は打ち切り、共有する代替文書は文書順の先勝ちを維持する。
+    /// 存在しない fallback ID から架空のパスを登録しない。
+    func testFallbackSpineIndexHandlesCyclesSharedTargetsAndMissingIDs() throws {
+        let publication = try makePublication(
+            manifest: """
+                <item id="first" href="first.png" media-type="image/png" fallback="shared"/>
+                <item id="second" href="second.png" media-type="image/png" fallback="shared"/>
+                <item id="shared" href="shared.xhtml" media-type="application/xhtml+xml" fallback="first"/>
+                <item id="third" href="third.png" media-type="image/png" fallback="missing"/>
+                """,
+            spine: "<itemref idref=\"first\"/><itemref idref=\"second\"/><itemref idref=\"third\"/>",
+            resources: [
+                ("OEBPS/first.png", EPUBFixtures.tinyPNG),
+                ("OEBPS/second.png", EPUBFixtures.tinyPNG),
+                ("OEBPS/third.png", EPUBFixtures.tinyPNG),
+                ("OEBPS/shared.xhtml", Data(EPUBFixtures.chapterXHTML(
+                    title: "共有本文", body: "<p>本文</p>").utf8)),
+            ])
+        XCTAssertEqual(publication.spineIndex(forContainerPath: "OEBPS/first.png"), 0)
+        XCTAssertEqual(publication.spineIndex(forContainerPath: "OEBPS/second.png"), 1)
+        XCTAssertEqual(publication.spineIndex(forContainerPath: "OEBPS/shared.xhtml"), 0)
+        XCTAssertEqual(publication.spineIndex(forContainerPath: "OEBPS/third.png"), 2)
+        XCTAssertNil(publication.spineIndex(forContainerPath: "OEBPS/missing.xhtml"))
+        XCTAssertEqual(publication.fallbackChain(for: publication.readingOrder[1].item)
+            .map(\.id), ["second", "shared", "first"])
+        XCTAssertEqual(publication.fallbackChain(for: publication.readingOrder[2].item)
+            .map(\.id), ["third"])
+    }
+
     private func makeSVGSpinePublication(_ svg: String) throws -> EPUBPublication {
         try makePublication(
             manifest: """

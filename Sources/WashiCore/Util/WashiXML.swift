@@ -36,12 +36,15 @@ enum WashiXML {
         // ※ CDATA/コメント内の見かけ実体も置換されるが、従来の catch 経路と同じ
         //   既知の制限(実在 EPUB では稀)。
         let source = containsNamedEntity(data) ? sanitizeEntities(data) : data
+        try validateStructure(source)
         let document: XMLDocument
         do {
             document = try XMLDocument(data: source, options: options)
         } catch {
             // 前処理で拾えない実体・別の整形不良は従来どおり sanitize で再挑戦
-            document = try XMLDocument(data: sanitizeEntities(data), options: options)
+            let sanitized = sanitizeEntities(data)
+            try validateStructure(sanitized)
+            document = try XMLDocument(data: sanitized, options: options)
         }
         try validateDepth(document)
         return document
@@ -54,6 +57,46 @@ enum WashiXML {
     /// (nav の入れ子リスト・NCX navPoint・SMIL seq 等)をスタック
     /// オーバーフロー(SIGSEGV)させる攻撃とみなして拒否する
     private static let maxElementDepth = 512
+
+    /// 小さな XML から大量の DOM ノードが作られることによるメモリ枯渇を防ぐ
+    private static let maxElementCount = 1_000_000
+
+    private static func validateStructure(_ data: Data) throws {
+        // Foundation の木の構築・解体は再帰的で、深い木は throw による
+        // 巻き戻し中にもスタックを使い切る。DOM を作る前に SAX で制限する。
+        let parser = XMLParser(data: data)
+        let validator = StructureValidator()
+        parser.delegate = validator
+        // 外部実体は解決しない(shouldResolveExternalEntities は既定の false)。
+        // 整形不良による失敗は判定せず、従来の DOM 解析・実体救済に任せる。
+        _ = parser.parse()
+        if let error = validator.error { throw error }
+    }
+
+    private final class StructureValidator: NSObject, XMLParserDelegate {
+        private var depth = 0
+        private var elementCount = 0
+        private(set) var error: EPUBError?
+
+        func parser(_ parser: XMLParser, didStartElement elementName: String,
+                    namespaceURI: String?, qualifiedName qName: String?,
+                    attributes attributeDict: [String: String]) {
+            guard error == nil else { return }
+            depth += 1
+            elementCount += 1
+            if depth > maxElementDepth {
+                error = .malformed("XML のネストが深すぎる(\(maxElementDepth) 超)")
+            } else if elementCount > maxElementCount {
+                error = .malformed("XML の要素数が多すぎる(\(maxElementCount) 超)")
+            }
+            if error != nil { parser.abortParsing() }
+        }
+
+        func parser(_ parser: XMLParser, didEndElement elementName: String,
+                    namespaceURI: String?, qualifiedName qName: String?) {
+            depth -= 1
+        }
+    }
 
     private static func validateDepth(_ document: XMLDocument) throws {
         guard let root = document.rootElement() else { return }

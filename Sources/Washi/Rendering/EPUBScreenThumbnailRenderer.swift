@@ -15,6 +15,7 @@ final class EPUBScreenThumbnailRenderer {
     private var window: NSWindow?
     private var webView: WKWebView?
     private var schemeHandler: EPUBSchemeHandler?
+    // navigationDelegate は弱参照なので、解決後も保持して外部遷移を遮断する。
     private var pendingNavigationWaiter: NavigationWaiter?
     private var configuredAllowsScriptedContent: Bool?
     private var fxlRasterizer: EPUBPageRasterizer?
@@ -167,49 +168,65 @@ final class EPUBScreenThumbnailRenderer {
             do {
                 try await waiter.wait(timeout: .seconds(15))
             } catch {
-                if pendingNavigationWaiter === waiter {
-                    pendingNavigationWaiter = nil
-                }
-                webView.navigationDelegate = nil
                 if error is CancellationError || Task.isCancelled {
                     webView.stopLoading()
                 }
                 return nil
             }
-            if pendingNavigationWaiter === waiter {
-                pendingNavigationWaiter = nil
-            }
-            webView.navigationDelegate = nil
-            withExtendedLifetime(waiter) {}
             guard !Task.isCancelled, !isInvalidated else { return nil }
             // census と同じく didFinish 直後に測る(ページ数の一致が最優先。
             // 描画の確定は takeSnapshot(afterScreenUpdates: true)が担う)
-            let result = try? await webView.callAsyncJavaScript(
-                "return __washi.setup(\(optionsJSON));",
-                arguments: [:], in: nil, contentWorld: EPUBReaderView.washiWorld)
-            guard result != nil, !Task.isCancelled, !isInvalidated else {
+            let didSetup = await waitForOffscreenJavaScript { completion in
+                webView.callAsyncJavaScript(
+                    "return __washi.setup(\(optionsJSON));",
+                    arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
+                    completionHandler: { result in
+                        completion((try? result.get()) != nil)
+                    })
+            }
+            guard didSetup == true, !Task.isCancelled, !isInvalidated else {
                 return nil
             }
             loadedSpineIndex = spineIndex
             loadedOptionsJSON = optionsJSON
         }
         // 指定画面へジャンプ(描画確定は afterScreenUpdates が担う)
-        _ = try? await webView.callAsyncJavaScript(
-            "__washi.showPage(\(pageInItem)); return true;",
-            arguments: [:], in: nil, contentWorld: EPUBReaderView.washiWorld)
-        guard !Task.isCancelled, !isInvalidated else { return nil }
+        let didShowPage = await waitForOffscreenJavaScript { completion in
+            webView.callAsyncJavaScript(
+                "__washi.showPage(\(pageInItem)); return true;",
+                arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
+                completionHandler: { _ in completion(true) })
+        }
+        guard didShowPage == true, !Task.isCancelled, !isInvalidated else {
+            loadedSpineIndex = nil
+            loadedOptionsJSON = nil
+            return nil
+        }
         // 画像を含むページ(表紙・挿絵)はデコード完了を待ってから撮る。
         // 新規 webview の初回スナップショットは img が未デコードのまま
         // 白紙に写ることがある(実測)。img.decode() は Promise ベースで
-        // rAF/可視性に依存しないため、非表示ウインドウでも確実に完了する
-        _ = try? await webView.callAsyncJavaScript(
-            """
-            await Promise.all(Array.from(document.images).map(
-                image => image.decode().catch(() => {})));
-            return true;
-            """,
-            arguments: [:], in: nil, contentWorld: EPUBReaderView.washiWorld)
-        guard !Task.isCancelled, !isInvalidated else { return nil }
+        // rAF/可視性に依存しない。ラスタライザと同じ 1500ms の JS 側上限に
+        // Swift 側 5 秒の上限を重ね、デコードも WebKit 自体の無応答も打ち切る。
+        let didDecode = await waitForOffscreenJavaScript { completion in
+            webView.callAsyncJavaScript(
+                """
+                return await Promise.race([
+                    Promise.all(Array.from(document.images).map(
+                        image => image.decode().catch(() => {}))).then(() => true),
+                    new Promise(resolve => setTimeout(() => resolve(false), 1500))
+                ]);
+                """,
+                arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
+                completionHandler: { result in
+                    // JS エラーは従来どおり許容し、期限切れの false は失敗にする。
+                    completion((try? result.get()) as? Bool != false)
+                })
+        }
+        guard didDecode == true, !Task.isCancelled, !isInvalidated else {
+            loadedSpineIndex = nil
+            loadedOptionsJSON = nil
+            return nil
+        }
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = true
         configuration.snapshotWidth = NSNumber(value: Double(snapshotWidth))

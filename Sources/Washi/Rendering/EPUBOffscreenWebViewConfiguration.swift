@@ -65,3 +65,56 @@ func waitForOffscreenPredecessor(_ predecessor: Task<Void, Never>?) async
     observer.cancel()
     return completed && !Task.isCancelled
 }
+
+/// WebKit の応答と Swift 側の打ち切りのうち、先着だけを採用する。
+@MainActor
+private final class EPUBOffscreenJavaScriptRace<Value: Sendable> {
+    private var isFinished = false
+    private var result: Value?
+    private var continuation: CheckedContinuation<Value?, Never>?
+
+    func wait() async -> Value? {
+        if isFinished { return result }
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func finish(_ result: Value?) {
+        guard !isFinished else { return }
+        isFinished = true
+        self.result = result
+        let continuation = self.continuation
+        self.continuation = nil
+        continuation?.resume(returning: result)
+    }
+}
+
+/// JS の完了コールバックを有界に待つ。タイムアウト・キャンセル時は nil。
+/// 非同期版を子 Task に閉じ込めると、キャンセル非対応の WebKit 待ちが
+/// WebView を保持し続けるため、応答側は競合状態への弱参照だけを持つ。
+@MainActor
+func waitForOffscreenJavaScript<Value: Sendable>(
+    // ラスタライザと同じ 5 秒で打ち切り、JS 側のタイマごと WebKit が
+    // 無応答でも FIFO と要求の defer を進め、20 秒のアイドル解放を可能にする。
+    timeout: Duration = .seconds(5),
+    timeoutScheduler: EPUBOffscreenIdleReleaseTimer.Scheduler =
+        EPUBOffscreenIdleReleaseTimer.continuousScheduler,
+    start: (_ completion: @escaping @MainActor @Sendable (Value) -> Void) -> Void
+) async -> Value? {
+    guard !Task.isCancelled else { return nil }
+    let race = EPUBOffscreenJavaScriptRace<Value>()
+    let cancelTimeout = timeoutScheduler(timeout) { [weak race] in
+        race?.finish(nil)
+    }
+    defer { cancelTimeout() }
+    return await withTaskCancellationHandler {
+        guard !Task.isCancelled else { return nil }
+        start { [weak race] result in
+            race?.finish(result)
+        }
+        return await race.wait()
+    } onCancel: {
+        Task { @MainActor in race.finish(nil) }
+    }
+}

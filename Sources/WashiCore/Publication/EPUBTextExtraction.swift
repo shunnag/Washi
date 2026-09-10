@@ -266,19 +266,19 @@ extension EPUBPublication {
     }
 
     /// cooViewer-oxr.11: query の出現位置を全て返す。比較指定に応じて大小・
-    /// 濁点・全半角・半角濁点カナを
-    /// 無視する。畳み込みは 1 文字→1 文字なので、畳み文字列上のオフセットは
-    /// 元テキストのオフセットにそのまま一致する(写像不要)
+    /// 濁点・全半角・半角濁点カナを無視する。畳み込み後に隣接書記素が
+    /// 結合する場合も、検索位置は元テキストの文字境界へ写像して返す。
     private static func matches(of needle: String, in text: String,
                                 spineIndex: Int,
                                 options searchOptions: EPUBSearchOptions,
                                 snippetRadius: Int) -> [EPUBSearchHit] {
-        let chars = Array(text)
         let widthSensitive = searchOptions.contains(.widthSensitive)
-        let foldedText = widthSensitive
-            ? text : String(chars.map(Self.foldForSearch))
+        // 全角/半角形の UTF-8 は必ず 0xEF で始まる。不在なら畳み込みと配列化を省く。
+        let foldedChars = !widthSensitive && text.utf8.contains(0xEF)
+            ? text.map(Self.foldForSearch) : nil
+        let foldedText = foldedChars.map { String($0) } ?? text
         let foldedNeedle = widthSensitive
-            ? needle : String(Array(needle).map(Self.foldForSearch))
+            ? needle : String(needle.map(Self.foldForSearch))
         guard !foldedNeedle.isEmpty else { return [] }
         var comparisonOptions: String.CompareOptions = []
         if !searchOptions.contains(.caseSensitive) {
@@ -290,30 +290,53 @@ extension EPUBPublication {
         if !widthSensitive {
             comparisonOptions.insert(.widthInsensitive)
         }
-        // cooViewer-oxr.11: 文字位置と UTF-16 位置を同時に返すため前方和を作る。
+        // 初ヒットがなければ、原文の文字配列と位置写像は不要。
+        // 畳み込み済みの本文・検索語と同じ比較指定で判定し、偽陰性を生まない。
+        guard var range = foldedText.range(of: foldedNeedle, options: comparisonOptions)
+        else { return [] }
+        let chars = Array(text)
+        // 元の文字ごとに、原文と畳み込み後の UTF-16 前方和を対応付ける。
+        // 半角ハングル等は連結後に書記素が結合するため、文字数では対応を保てない。
         var utf16Offsets: [Int] = [0]
         utf16Offsets.reserveCapacity(chars.count + 1)
         for character in chars {
-            utf16Offsets.append(utf16Offsets.last! + String(character).utf16.count)
+            utf16Offsets.append(utf16Offsets.last! + character.utf16.count)
+        }
+        let foldedUTF16Offsets: [Int]
+        if let foldedChars {
+            var offsets: [Int] = [0]
+            offsets.reserveCapacity(foldedChars.count + 1)
+            for character in foldedChars {
+                offsets.append(offsets.last! + character.utf16.count)
+            }
+            foldedUTF16Offsets = offsets
+        } else {
+            foldedUTF16Offsets = utf16Offsets
         }
         var hits: [EPUBSearchHit] = []
         var searchStart = foldedText.startIndex
-        // オフセットは前回マッチ末尾からの距離だけ足して増分計算(毎回
-        // startIndex から数え直すと高頻度クエリ×長い項目で O(M·n) になる)
-        var baseOffset = 0
-        while let range = foldedText.range(of: foldedNeedle,
-                                           options: comparisonOptions,
-                                           range: searchStart..<foldedText.endIndex) {
-            let offset = baseOffset
-                + foldedText.distance(from: searchStart, to: range.lowerBound)
-            let length = foldedText.distance(from: range.lowerBound,
-                                             to: range.upperBound)
-            // 1:1 畳み込みなので offset/length は元テキストの chars にそのまま対応
+        // UTF-16 位置と写像の走査位置を増分で進め、各ヒットで先頭から数え直さない。
+        var baseUTF16Offset = 0
+        var offset = 0
+        var matchEnd = 0
+        while true {
+            let foldedLower = baseUTF16Offset
+                + foldedText.utf16.distance(from: searchStart, to: range.lowerBound)
+            let foldedUpper = foldedLower
+                + foldedText.utf16.distance(from: range.lowerBound, to: range.upperBound)
+            // 公開 API の錨は原文上の位置なので、全半角を区別しない検索を維持したまま
+            // 元の文字範囲へ戻す。境界が文字の内部なら、その文字全体を含める。
+            while offset < chars.count, foldedUTF16Offsets[offset + 1] <= foldedLower {
+                offset += 1
+            }
+            while matchEnd < chars.count, foldedUTF16Offsets[matchEnd] < foldedUpper {
+                matchEnd += 1
+            }
+            let length = matchEnd - offset
             let lower = offset - min(offset, snippetRadius)
-            let matchEnd = offset + length
             let upper = matchEnd + min(chars.count - matchEnd, snippetRadius)
             let snippet = String(chars[lower..<upper])
-            let utf16Range = utf16Offsets[offset]..<utf16Offsets[offset + length]
+            let utf16Range = utf16Offsets[offset]..<utf16Offsets[matchEnd]
             hits.append(EPUBSearchHit(spineIndex: spineIndex,
                                       characterOffset: offset,
                                       length: length,
@@ -321,7 +344,12 @@ extension EPUBPublication {
                                       snippet: snippet))
             // 次の探索は今回のマッチ末尾から(ゼロ幅は起きない=needle 非空)
             searchStart = range.upperBound
-            baseOffset = offset + length
+            baseUTF16Offset = foldedUpper
+            guard let nextRange = foldedText.range(of: foldedNeedle,
+                                                   options: comparisonOptions,
+                                                   range: searchStart..<foldedText.endIndex)
+            else { break }
+            range = nextRange
         }
         return hits
     }

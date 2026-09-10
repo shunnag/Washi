@@ -247,7 +247,10 @@ public final class EPUBReaderView: NSView {
         let continuation: CheckedContinuation<EPUBTextRangeLanding?, Never>
     }
     private var pendingTextRangeRequest: PendingTextRangeRequest?
-    private var textRangeTask: Task<Void, Never>?
+    private(set) var textRangeTask: Task<Void, Never>?
+    // JS との境界だけを差し替え、実 WebKit なしでアンカー移動と取消を検証する。
+    var textRangeLocationHandler: ((Int, Int) async -> EPUBTextRangeLanding?)?
+    var scriptEvaluationHandler: ((String) -> Void)?
     private var isSettingUp = false
     /// spine 項目の読み込み中(旧文書から届く境界イベントを捨てて
     /// 章の飛び越しを防ぐ)
@@ -777,48 +780,8 @@ public final class EPUBReaderView: NSView {
     /// Opens a book. Pass a locator to resume from the previous position.
     /// Host-added overlay subviews keep their z-order across web view rebuilds.
     public func load(publication: EPUBPublication, at locator: EPUBLocator? = nil) {
-        mediaOverlayCommandGeneration &+= 1
-        let request = beginNavigationRequest()
-        cancelPendingTextRangeRequest()
-        setCurrentSelection(nil)
-        guard request == navigationRequestGeneration else { return }
-        printPageMarkers.removeAll()
-        setCurrentPrintPage(nil)
-        guard request == navigationRequestGeneration else { return }
-        accessibilityAnnouncementTask?.cancel()
-        accessibilityAnnouncementTask = nil
-        lastAnnouncedPage = nil
-        // 別の本を開くのでメディアオーバーレイ再生は止める(本に紐づく)
-        mediaOverlayController?.stop()
-        guard request == navigationRequestGeneration else { return }
-        mediaOverlayController = nil
-        self.publication = publication
-        updateAccessibilityMetadata()
-        webContentReloadTask?.cancel()
-        webContentReloadTask = nil
-        pendingWebContentReloadDelay = nil
-        webContentReloadLimiter.reset()
-        webContentReloadRequestCount = 0
-        webContentReloadAttemptCount = 0
-        columnAxisSupported = true
-        fxlViewportCache.removeAll()
-        fxlDeviceSizedViewportItems.removeAll()
-        // 旧本あての再ページ割り予約を破棄(新 webView に古い設定同期由来の
-        // repaginate が発火しないように)
-        repaginateWork?.cancel()
-        pendingRepaginate = false
-        // census は本に紐づく(scheme handler ごと作り直す)
-        censusTask?.cancel()
-        censusTask = nil
-        censusEngine?.invalidate()  // 旧本のオフスクリーンを確実に畳む
-        censusEngine = nil
-        censusCache.removeAll()
-        censusFailures.clear()
-        censusKey = nil
-        thumbnailRenderer?.invalidate()  // サムネイルレンダラも本に紐づく
-        thumbnailRenderer = nil
         let hadPageCensus = pageCensus != nil
-        pageCensus = nil
+        guard let request = preparePublication(publication) else { return }
         // 保存位置は idref で突き合わせる(改版で spine が並べ替わった本でも
         // 別の章を無言で開かない。該当 idref が消えた本は先頭から)
         let resolved = locator.flatMap { publication.resolve($0) }
@@ -838,6 +801,102 @@ public final class EPUBReaderView: NSView {
         if hadPageCensus {
             delegate?.readerViewDidUpdatePageCensus(self)
         }
+    }
+
+    /// 本を閉じ、再生・描画処理と本に紐づく参照・キャッシュを解放する。
+    /// ビューは再利用でき、次の本は `load(publication:at:)` で開ける。
+    /// 設定と delegate は保持する。
+    ///
+    /// Closes the book and releases playback, rendering work, and book-related
+    /// references and caches. The view can be reused with `load(publication:at:)`.
+    /// Settings and the delegate are preserved.
+    public func unload() {
+        let hadPageCensus = pageCensus != nil
+        guard let request = preparePublication(nil) else { return }
+        // 破棄前に開始した setup・めくりの応答も、次の本へ持ち越さない。
+        spineLoadGeneration += 1
+        webView?.navigationDelegate = nil
+        webView?.uiDelegate = nil
+        webView?.stopLoading()
+        webView?.removeFromSuperview()
+        webView = nil
+        schemeHandler = nil
+        messageProxy?.owner = nil
+        messageProxy = nil
+        currentNavigation = nil
+        spineNavigationGate = SpineNavigationGate()
+        isLoadingSpineItem = false
+        isSettingUp = false
+        pendingTarget = .start
+        pendingRestoreLocator = nil
+        pendingVisibleLayout = false
+        lastLaidOutSize = .zero
+        currentSpineIndex = 0
+        pageInItem = 0
+        pageCountInItem = 1
+        pagesPerScreen = 1
+        isFixedLayoutItem = false
+        isImagePage = false
+        firstPageOnRight = false
+        highlights.removeAll()
+        clearPendingSpineTurn()
+        for overlay in turnOverlays { foldTurnCover(overlay) }
+        updateFurniture()
+        clearNavigationHistory()
+        // 通知からの再入で開いた本を、外側の unload で再び閉じない。
+        guard request == navigationRequestGeneration else { return }
+        if hadPageCensus {
+            delegate?.readerViewDidUpdatePageCensus(self)
+        }
+    }
+
+    /// WebView の構築・破棄に先立つ共通の後始末。
+    /// 本の状態遷移を分離し、実 WebKit を起動せずに解放の不変条件を検証する。
+    @discardableResult
+    func preparePublication(_ publication: EPUBPublication?) -> UInt? {
+        mediaOverlayCommandGeneration &+= 1
+        let request = beginNavigationRequest()
+        cancelPendingTextRangeRequest()
+        setCurrentSelection(nil)
+        guard request == navigationRequestGeneration else { return nil }
+        printPageMarkers.removeAll()
+        setCurrentPrintPage(nil)
+        guard request == navigationRequestGeneration else { return nil }
+        accessibilityAnnouncementTask?.cancel()
+        accessibilityAnnouncementTask = nil
+        lastAnnouncedPage = nil
+        // 本の差し替え・終了では位置も不要なので再生を完全に止める。
+        mediaOverlayController?.stop()
+        guard request == navigationRequestGeneration else { return nil }
+        mediaOverlayController = nil
+        self.publication = publication
+        updateAccessibilityMetadata()
+        webContentReloadTask?.cancel()
+        webContentReloadTask = nil
+        pendingWebContentReloadDelay = nil
+        webContentReloadLimiter.reset()
+        webContentReloadRequestCount = 0
+        webContentReloadAttemptCount = 0
+        columnAxisSupported = true
+        fxlViewportCache.removeAll()
+        fxlDeviceSizedViewportItems.removeAll()
+        // 旧本あての再ページ割り予約を破棄(新 webView に古い設定同期由来の
+        // repaginate が発火しないように)
+        repaginateWork?.cancel()
+        repaginateWork = nil
+        pendingRepaginate = false
+        // census は本に紐づく(scheme handler ごと作り直す)
+        censusTask?.cancel()
+        censusTask = nil
+        censusEngine?.invalidate()  // 旧本のオフスクリーンを確実に畳む
+        censusEngine = nil
+        censusCache.removeAll()
+        censusFailures.clear()
+        censusKey = nil
+        thumbnailRenderer?.invalidate()  // サムネイルレンダラも本に紐づく
+        thumbnailRenderer = nil
+        pageCensus = nil
+        return request
     }
 
     private func reloadCurrentPublication() {
@@ -1101,8 +1160,7 @@ public final class EPUBReaderView: NSView {
         pendingTarget = target
         // cooViewer-oxr.23: pageChanged 前の保存にも、読み込み先の意図した
         // progression を返せるよう locator として保持する。
-        pendingRestoreLocator = publication.locator(
-            forSpineIndex: index, progression: progression(for: target))
+        pendingRestoreLocator = locator(for: target, at: index)
         pageInItem = 0
         pageCountInItem = 1
         isImagePage = false
@@ -1130,8 +1188,10 @@ public final class EPUBReaderView: NSView {
         // ページ割りしないようにする。
         webView.frame = contentFrame
         updateFurniture()
+        guard validateSpineResource(entry, in: publication) else { return }
         guard let url = schemeHandler.url(forReadingOrderItem: entry) else {
-            if isTextRangeTarget { cancelPendingTextRangeRequest() }
+            reportNavigationFailure(EPUBError.malformed(
+                "Cannot load spine resource: \(entry.resolvedContainerPath)"))
             return
         }
         webView.alphaValue = 0
@@ -1141,6 +1201,33 @@ public final class EPUBReaderView: NSView {
             spineNavigationGate.cancelExpectation(for: entry.resolvedContainerPath)
         }
         currentNavigation = navigation
+    }
+
+    /// Core の公開 API を変えず、既に fallback 解決された項目の形式と実在性を
+    /// 確認する。対応形式は Core の解決条件と揃え、未知形式を推測で許可しない。
+    static func canRenderSpineResource(
+        _ entry: ReadingOrderItem, in publication: EPUBPublication
+    ) -> Bool {
+        let mediaType = entry.resolvedItem.mediaType
+            .split(separator: ";", maxSplits: 1).first.map {
+                String($0).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            } ?? ""
+        return (mediaType == EPUBMediaType.xhtml
+                || EPUBMediaType.coreImageTypes.contains(mediaType))
+            && publication.resourceExists(at: entry.resolvedContainerPath)
+    }
+
+    /// 描画可能な fallback がない項目は、WebKit が無通知の 102 にする前に
+    /// ホストへ失敗を伝える。判定と通知は実 WebKit なしで検証できる。
+    func validateSpineResource(
+        _ entry: ReadingOrderItem, in publication: EPUBPublication
+    ) -> Bool {
+        guard Self.canRenderSpineResource(entry, in: publication) else {
+            reportNavigationFailure(EPUBError.malformed(
+                "Cannot display spine resource: \(entry.containerPath) (no renderable fallback)"))
+            return false
+        }
+        return true
     }
 
     // MARK: - ナビゲーション API
@@ -1266,11 +1353,7 @@ public final class EPUBReaderView: NSView {
         // cooViewer-oxr.23: 読み込み中は旧文書由来のページカウンタでなく、
         // load/go が最後に予約した target を現在位置として答える。
         if isLoadingSpineItem {
-            let progression = progression(for: pendingTarget)
-            return publication?.locator(
-                forSpineIndex: currentSpineIndex, progression: progression)
-                ?? EPUBLocator(spineIndex: currentSpineIndex,
-                               progression: progression)
+            return locator(for: pendingTarget, at: currentSpineIndex)
         }
         // 復元がまだ適用されていない間は復元先を答える(開いてすぐ閉じたときに
         // 保存済み位置を (0,0) で潰さない)
@@ -1802,22 +1885,24 @@ public final class EPUBReaderView: NSView {
             callWashiAsync("return __washi.showFragment(id);",
                            arguments: ["id": fragment])
         case .textRange(let utf16Offset, let utf16Length, let fallbackProgression):
-            // 要求が既に消えている(先行キャンセル・失敗)のに spine 読込後のターゲット
-            // として消費された場合、何も適用しないと新章がページ 0 のまま
-            // pageChanged も出ない(cooViewer-7cn)。locator の進行率へ落として
-            // 通常のページ表示と didMoveTo を保証する
-            guard let requestID = pendingTextRangeRequest?.id else {
-                let safeProgression = Self.clampedProgression(fallbackProgression)
-                evaluate("__washi.showProgression(\(safeProgression));")
-                return
-            }
+            // go(locator:) / goBack() は継続を持たないが、保存したアンカーは
+            // 同じように解決する。実際に見つからなかったときだけ進行率へ戻す。
+            let requestID = pendingTextRangeRequest?.id
             textRangeTask?.cancel()
             textRangeTask = Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, !Task.isCancelled else { return }
                 let landing = await self.locateTextRange(
                     utf16Offset: utf16Offset, utf16Length: utf16Length)
                 guard !Task.isCancelled else { return }
-                self.finishTextRangeRequest(id: requestID, landing: landing)
+                if landing == nil {
+                    let safeProgression = Self.clampedProgression(fallbackProgression)
+                    self.evaluate("__washi.showProgression(\(safeProgression));")
+                }
+                if let requestID {
+                    self.finishTextRangeRequest(id: requestID, landing: landing)
+                } else {
+                    self.textRangeTask = nil
+                }
             }
         }
     }
@@ -1825,6 +1910,10 @@ public final class EPUBReaderView: NSView {
     /// cooViewer-oxr.19: spine 読み込み中の同一項目ナビゲーションは旧 DOM へ
     /// 適用せず、進行中の setup が最後の target を一度だけ消費する。
     private func applyOrQueueTarget(_ target: PendingTarget) {
+        if case .textRange = target {
+            // 着地前の保存・戻る履歴にもアンカーを残し、進行率だけへ劣化させない。
+            pendingRestoreLocator = locator(for: target, at: currentSpineIndex)
+        }
         guard isLoadingSpineItem else {
             applyTarget(target)
             return
@@ -1835,9 +1924,15 @@ public final class EPUBReaderView: NSView {
             cancelPendingTextRangeRequest()
         }
         pendingTarget = target
-        pendingRestoreLocator = publication?.locator(
-            forSpineIndex: currentSpineIndex,
-            progression: progression(for: target))
+        pendingRestoreLocator = locator(for: target, at: currentSpineIndex)
+    }
+
+    private func locator(for target: PendingTarget, at index: Int) -> EPUBLocator {
+        let progression = progression(for: target)
+        var locator = publication?.locator(forSpineIndex: index, progression: progression)
+            ?? EPUBLocator(spineIndex: index, progression: progression)
+        if case .textRange(let offset, _, _) = target { locator.textOffset = offset }
+        return locator
     }
 
     private func progression(for target: PendingTarget) -> Double {
@@ -1854,6 +1949,10 @@ public final class EPUBReaderView: NSView {
     }
 
     private func evaluate(_ script: String) {
+        if let scriptEvaluationHandler {
+            scriptEvaluationHandler(script)
+            return
+        }
         webView?.evaluateJavaScript(script, in: nil, in: Self.washiWorld)
     }
 
@@ -1881,6 +1980,9 @@ public final class EPUBReaderView: NSView {
     private func locateTextRange(
         utf16Offset: Int, utf16Length: Int
     ) async -> EPUBTextRangeLanding? {
+        if let textRangeLocationHandler {
+            return await textRangeLocationHandler(utf16Offset, utf16Length)
+        }
         guard let webView else { return nil }
         let result = await callWashiAsync(
             "return __washi.locateAndShow(o, l);",
@@ -2427,14 +2529,15 @@ public final class EPUBReaderView: NSView {
 
     /// 指定した画面のサムネイル(表示中のビューや census と同じページ割りで、
     /// 現在のテーマに合わせた配色でオフスクリーン描画する)。`width` は
-    /// 出力幅(pt)。失敗時は nil。
+    /// 出力幅(pt)。失敗時、ウインドウから外れている間、非表示中は nil。
     ///
     /// Thumbnail of a given screen (the same pagination as the live view and the
     /// census; rendered offscreen, colored to match the current theme). `width`
-    /// is the output width in pt. Nil on failure.
+    /// is the output width in pt. Nil on failure, while detached, or while hidden.
     public func screenThumbnail(spineIndex: Int, pageInItem: Int,
                                 width: CGFloat) async -> CGImage? {
-        guard let publication else { return nil }
+        // 破棄後に届くホストの先読みで、不可視 WebKit を作り直さない。
+        guard allowsVisibleRenderingWork, let publication else { return nil }
         let renderer = thumbnailRenderer
             ?? EPUBScreenThumbnailRenderer(publication: publication)
         thumbnailRenderer = renderer
@@ -2479,13 +2582,15 @@ public final class EPUBReaderView: NSView {
     /// オフスクリーンの実測を停止し、不可視ウインドウと WebContent プロセスを
     /// 破棄する。ホストが cancelPageCensus を明示的に使わなくても、リソースが
     /// 漏れないようにする。再表示された場合は、次回の runSetup / layout で
-    /// census が自動的に再開する。
+    /// census が自動的に再開する。メディアオーバーレイは位置を保って
+    /// 一時停止し、ホストから再開できる。
     ///
     /// When detached from a window (close, view removal), stops the offscreen
     /// measurement and tears down the invisible window and WebContent process.
     /// A safeguard so that even a host unaware of the explicit cancelPageCensus
     /// does not leak. If shown again, the next runSetup / layout naturally
-    /// resumes the census.
+    /// resumes the census. Media overlays pause, preserving their position
+    /// so the host can resume playback.
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateNativeKeyMonitor()
@@ -2499,13 +2604,14 @@ public final class EPUBReaderView: NSView {
         censusEngine = nil
         thumbnailRenderer?.invalidate()
         thumbnailRenderer = nil
+        // 遅れて届く再生開始の JS 応答も無効化し、非表示中の再生復活を防ぐ。
+        pauseMediaOverlay()
     }
 
     public override func viewDidHide() {
         super.viewDidHide()
-        guard webView != nil else { return }
         // cooViewer-oxr.54: 進行中の計測も隠れたビューのために継続しない。
-        pendingVisibleLayout = true
+        pendingVisibleLayout = webView != nil
         repaginateWork?.cancel()
         repaginateWork = nil
         pendingRepaginate = false
@@ -2514,6 +2620,9 @@ public final class EPUBReaderView: NSView {
         // WKWebView へ新旧 census を並走させないよう、エンジンごと交換する。
         censusEngine?.invalidate()
         censusEngine = nil
+        thumbnailRenderer?.invalidate()
+        thumbnailRenderer = nil
+        pauseMediaOverlay()
     }
 
     public override func viewDidUnhide() {
@@ -2540,6 +2649,8 @@ public final class EPUBReaderView: NSView {
     var isPageCensusScheduled: Bool { censusTask != nil }
 
     var isRepaginationScheduled: Bool { repaginateWork != nil }
+
+    var hasScreenThumbnailRenderer: Bool { thumbnailRenderer != nil }
 
     // MARK: - ネイティブキー横取り(forwardsKeyEventsNatively)
 
@@ -3358,6 +3469,11 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
             return (.cancel, preferences)
         }
         if url.scheme?.lowercased() == EPUBSchemeHandler.scheme {
+            // コンテナ内 iframe は spine の期待値を消費せず、そのフレーム内で
+            // 読み込む。外部スキームにはこの例外を適用せず、従来どおり遮断する。
+            guard navigationAction.targetFrame?.isMainFrame != false else {
+                return (.allow, preferences)
+            }
             guard let path = schemeHandler?.containerPath(for: url) else {
                 return (.cancel, preferences)
             }
@@ -3399,20 +3515,33 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    /// 連続ページ送りで前のナビゲーションが破棄されたときのキャンセル
-    /// (NSURLErrorCancelled / WKError.frameLoadInterrupted)は正常系。
-    /// 本物の失敗はコンテンツを見せたまま(alpha 復帰)通知する
-    private func handleNavigationFailure(_ error: any Error) {
+    /// 102 は表示不能な応答でも届くため、文書発行の遷移を拒否した
+    /// navigation == nil の場合だけ正常なキャンセルとする。現在の読み込みに
+    /// 属する 102 は、MIME 宣言が描画可能でも失敗通知を優先する。
+    static func isExpectedNavigationCancellation(
+        _ error: any Error, hasNavigation: Bool
+    ) -> Bool {
         let nsError = error as NSError
-        let isCancellation =
-            (nsError.domain == NSURLErrorDomain
+        return (nsError.domain == NSURLErrorDomain
                 && nsError.code == NSURLErrorCancelled)
-            // WebKitErrorFrameLoadInterruptedByPolicyChange(102): 別ナビゲーション
-            // による中断(公開 enum に定数がないためドメイン+コードで判定)
-            || (nsError.domain == "WebKitErrorDomain" && nsError.code == 102)
-        guard !isCancellation else { return }
+            || (nsError.domain == "WebKitErrorDomain" && nsError.code == 102
+                && !hasNavigation)
+    }
+
+    func handleNavigationFailure(_ error: any Error, hasNavigation: Bool) {
+        guard !Self.isExpectedNavigationCancellation(error, hasNavigation: hasNavigation)
+        else { return }
+        reportNavigationFailure(error)
+    }
+
+    /// 事前検証と WebKit の失敗通知を同じ経路で畳み、読み込み中の白紙状態や
+    /// めくりカバーを残さない。通知前に後始末を終え、delegate の再入を保護する。
+    private func reportNavigationFailure(_ error: any Error) {
         cancelPendingTextRangeRequest()
         isLoadingSpineItem = false
+        currentNavigation = nil
+        spineNavigationGate = SpineNavigationGate()
+        webView?.stopLoading()
         clearPendingSpineTurn()
         webView?.alphaValue = 1
         delegate?.readerView(self, didFailWith: error)
@@ -3423,7 +3552,7 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
         // 別 spine へ移った後に届く古い失敗は無視(新文書の状態を壊さない)
         guard webView === self.webView,
               navigation == nil || navigation === currentNavigation else { return }
-        handleNavigationFailure(error)
+        handleNavigationFailure(error, hasNavigation: navigation != nil)
     }
 
     public func webView(_ webView: WKWebView,
@@ -3431,7 +3560,7 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
                         withError error: any Error) {
         guard webView === self.webView,
               navigation == nil || navigation === currentNavigation else { return }
-        handleNavigationFailure(error)
+        handleNavigationFailure(error, hasNavigation: navigation != nil)
     }
 
     /// Web コンテンツのプロセスがクラッシュした場合、現在位置で開き直す。

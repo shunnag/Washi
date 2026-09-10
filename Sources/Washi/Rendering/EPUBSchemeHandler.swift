@@ -31,6 +31,7 @@ import WebKit
 public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
     public static let scheme = "washi-epub"
     private static let imageWrapperQueryName = "washi-wrap"
+    static let rangeResourceCacheByteLimit = 32 * 1024 * 1024
 
     let publication: EPUBPublication
     /// この Web ビューインスタンスのホスト名(本ごとに一意 = オリジン分離)
@@ -46,12 +47,27 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
     /// 保持し、同一パスの後続 Range は再展開せず slice して返す。非 Range
     /// (XHTML/画像)は再要求されないので載せず、メディアと thrash させない。
     /// @MainActor なのでロック不要
-    var cachedRangeResource: (path: String, data: Data, mediaType: String)?
+    private(set) var cachedRangeResource: (path: String, data: Data, mediaType: String)?
+    private var rangeResourceCacheGeneration: UInt = 0
 
     public init(publication: EPUBPublication, allowsScripts: Bool = false) {
         self.publication = publication
         self.instanceID = UUID().uuidString.lowercased()
         self.allowsScripts = allowsScripts
+    }
+
+    /// 抽出本文キャッシュと同様に、予算を超える単一リソースは保持しない。
+    /// 大きなメディアも応答自体は妨げず、要求ごとに展開して必要範囲を返す。
+    func cacheRangeResource(path: String, data: Data, mediaType: String) {
+        guard data.count <= Self.rangeResourceCacheByteLimit else { return }
+        cachedRangeResource = (path, data, mediaType)
+    }
+
+    /// 保持中の展開データを破棄する。処理中の応答は継続するが、破棄前に始めた
+    /// 展開が完了しても再保持しないよう世代を進める。
+    func clearRangeResourceCache() {
+        cachedRangeResource = nil
+        rangeResourceCacheGeneration &+= 1
     }
 
     /// コンテナ内パスを、この本の URL に変換する。
@@ -65,14 +81,13 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
         return components.url
     }
 
-    /// URL for loading a reading-order entry in WebKit. Raster image spine
-    /// items are represented by a generated XHTML document so the reflowable
-    /// reader can apply its normal single-image-page layout.
+    /// 読書順の項目を WebKit で開く URL。ラスタ画像 spine には単一画像の
+    /// ページレイアウトを適用できる合成 XHTML を使う。
     func url(forReadingOrderItem entry: ReadingOrderItem) -> URL? {
         guard var components = url(forContainerPath: entry.resolvedContainerPath)
             .flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) })
         else { return nil }
-        guard Self.isImageMediaType(entry.resolvedItem.mediaType) else {
+        guard Self.requiresImageWrapper(entry.resolvedItem.mediaType) else {
             return components.url
         }
         // cooViewer-oxr.15: 生画像を main resource として読む代わりに、
@@ -103,11 +118,12 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         let rangeHeader = urlSchemeTask.request.value(forHTTPHeaderField: "Range")
         let publication = self.publication
+        let cacheGeneration = rangeResourceCacheGeneration
         liveTasks[id] = Task { [weak self] in
             if Self.isImageWrapperURL(url),
                let entry = publication.readingOrder.first(where: {
                    $0.resolvedContainerPath == path
-                       && Self.isImageMediaType($0.resolvedItem.mediaType)
+                       && Self.requiresImageWrapper($0.resolvedItem.mediaType)
                }),
                let resourceURL = self?.url(forContainerPath: path),
                let wrapper = Self.imageWrapperData(
@@ -140,8 +156,10 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
             }
             // Range 要求(メディアのシーク)は同一ファイルへ繰り返し来るので、
             // 展開結果を1件だけ保持する(cooViewer-ebm)。非 Range は載せない
-            if rangeHeader != nil {
-                self.cachedRangeResource = (path, payload.data, payload.mediaType)
+            if rangeHeader != nil,
+               self.rangeResourceCacheGeneration == cacheGeneration {
+                self.cacheRangeResource(path: path, data: payload.data,
+                                        mediaType: payload.mediaType)
             }
             self.reply(to: urlSchemeTask, url: url,
                        data: payload.data, mediaType: payload.mediaType,
@@ -184,10 +202,13 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
             ?? false
     }
 
-    private static func isImageMediaType(_ value: String) -> Bool {
-        value.split(separator: ";", maxSplits: 1).first?
+    private static func requiresImageWrapper(_ value: String) -> Bool {
+        let mediaType = value.split(separator: ";", maxSplits: 1).first?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased().hasPrefix("image/") == true
+            .lowercased() ?? ""
+        // SVG は外部 CSS・画像・フォントを参照するコンテンツ文書なので、
+        // 画像モードに制限する <img> へ包まず main resource として配信する。
+        return mediaType.hasPrefix("image/") && mediaType != EPUBMediaType.svg
     }
 
     static func imageWrapperData(imageURL: URL, title: String) -> Data? {

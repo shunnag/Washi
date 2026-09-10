@@ -456,14 +456,90 @@ final class HardeningTests: XCTestCase {
         XCTAssertNoThrow(try WashiXML.document(from: Data(xml.utf8)))
     }
 
-    /// 異常に深い要素ネストは(下流の再帰ウォーカーが走る前に)拒否される
-    func testDeepNestingRejected() throws {
-        let deep = String(repeating: "<a>", count: 5000)
-            + String(repeating: "</a>", count: 5000)
-        XCTAssertThrowsError(try WashiXML.document(from: Data(deep.utf8)))
-        let normal = String(repeating: "<a>", count: 50)
-            + String(repeating: "</a>", count: 50)
-        XCTAssertNoThrow(try WashiXML.document(from: Data(normal.utf8)))
+    /// 上限直後も 2,000 段以上も、スタックの小さい協調スレッドで
+    /// DOM の構築・解体によるクラッシュを起こさず拒否される。
+    @MainActor
+    func testDeepNestingRejected() async {
+        for depth in [513, 2_000, 5_000] {
+            let deep = String(repeating: "<a>", count: depth)
+                + String(repeating: "</a>", count: depth)
+            let result = await Task.detached {
+                Result { _ = try WashiXML.document(from: Data(deep.utf8)) }
+            }.value
+            XCTAssertThrowsError(try result.get()) { error in
+                guard case EPUBError.malformed = error else {
+                    return XCTFail("深さ \(depth) の拒否が malformed ではない: \(error)")
+                }
+            }
+        }
+    }
+
+    /// 名前付き実体を先に救済したバイト列にも、DOM 構築前のガードが働く。
+    @MainActor
+    func testDeepNestingWithNamedEntityRejected() async {
+        let deep = String(repeating: "<a>", count: 2_000) + "&nbsp;"
+            + String(repeating: "</a>", count: 2_000)
+        let result = await Task.detached {
+            Result { _ = try WashiXML.document(from: Data(deep.utf8)) }
+        }.value
+        XCTAssertThrowsError(try result.get()) { error in
+            guard case EPUBError.malformed = error else {
+                return XCTFail("名前付き実体の救済後の拒否が malformed ではない: \(error)")
+            }
+        }
+    }
+
+    /// 未知の符号化宣言で最初の解析が失敗しても、再試行の UTF-8 バイト列を
+    /// 前パスで検査し、深い木を作る前に拒否する。
+    @MainActor
+    func testDeepNestingOnSanitizeRetryRejected() async {
+        let deep = "<?xml version=\"1.0\" encoding=\"Washi-Unknown\"?>"
+            + String(repeating: "<a>", count: 2_000)
+            + String(repeating: "</a>", count: 2_000)
+        let result = await Task.detached {
+            Result { _ = try WashiXML.document(from: Data(deep.utf8)) }
+        }.value
+        XCTAssertThrowsError(try result.get()) { error in
+            guard case EPUBError.malformed = error else {
+                return XCTFail("再試行時の拒否が malformed ではない: \(error)")
+            }
+        }
+    }
+
+    /// ルートも数え、上限をちょうど 1 個超える 1,000,001 要素だけで拒否する。
+    func testExcessiveElementCountRejected() {
+        let xml = "<r>" + String(repeating: "<a/>", count: 1_000_000) + "</r>"
+        XCTAssertThrowsError(try WashiXML.document(from: Data(xml.utf8))) { error in
+            guard case EPUBError.malformed = error else {
+                return XCTFail("要素数超過の拒否が malformed ではない: \(error)")
+            }
+        }
+    }
+
+    /// 深さ 500 と上限の 512 は、要素数も上限内なら従来どおり解析できる。
+    func testNestingWithinLimitAccepted() throws {
+        for depth in [500, 512] {
+            let xml = String(repeating: "<a>", count: depth)
+                + String(repeating: "</a>", count: depth)
+            let document = try WashiXML.document(from: Data(xml.utf8))
+            XCTAssertEqual(document.rootElement()?.name, "a")
+        }
+    }
+
+    /// 深さ 500 の正常文書も、名前付き実体の救済後に本文を失わず解析できる。
+    func testNamedEntitiesWithinDepthLimitRecovered() throws {
+        let xml = String(repeating: "<a>", count: 500) + "猫&nbsp;&hellip;本文"
+            + String(repeating: "</a>", count: 500)
+        let document = try WashiXML.document(from: Data(xml.utf8))
+        XCTAssertEqual(document.rootElement()?.stringValue, "猫\u{00A0}…本文")
+    }
+
+    /// 前パスの一般的なパースエラーで救済を妨げず、未知の符号化宣言を
+    /// sanitize が UTF-8 に書き換える従来の再試行で解析できる。
+    func testPreflightParseErrorStillAllowsSanitizeRetry() throws {
+        let xml = "<?xml version=\"1.0\" encoding=\"Washi-Unknown\"?><r>猫</r>"
+        let document = try WashiXML.document(from: Data(xml.utf8))
+        XCTAssertEqual(document.rootElement()?.stringValue, "猫")
     }
 
     /// 比率検査(1032:1)を通る「本物の高圧縮 deflate」でも、宣言サイズが

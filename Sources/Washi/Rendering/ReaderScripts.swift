@@ -12,6 +12,22 @@ import Foundation
 /// 行の途中でページが割れないのは multicol の断片化が行ボックス境界で
 /// 起きるため(縦書きの行=縦の1行が丸ごと次ページへ送られる)
 enum ReaderScripts {
+    // 両方の注入スクリプトで、タグ名と Washi の作成印を同じ基準で確認する。
+    // id は既存 CSS との互換性のため維持し、同名の著者要素は変更しない。
+    private static let styleOwnershipScript = #"""
+        function isOwnedStyle(el) {
+            return !!el && el.localName === 'style' && el.dataset?.washiOwned === '1';
+        }
+
+        function findOwnedStyle(id) {
+            const candidate = document.getElementById(id);
+            if (isOwnedStyle(candidate)) { return candidate; }
+            // 著者要素が先に見つかる場合も、前回作った要素を再利用する。
+            return Array.from(document.querySelectorAll('style[data-washi-owned="1"]'))
+                .find(el => el.id === id && isOwnedStyle(el)) || null;
+        }
+    """#
+
     /// atDocumentStart で washi コンテンツワールドへ入れる本体スクリプト。
     /// 本の JS(scripted コンテンツ)からは見えない・触れない
     static let pageScript = #"""
@@ -72,11 +88,14 @@ enum ReaderScripts {
             catch (e) { /* ハンドラ未登録(ラスタライザ等)は黙って無視 */ }
         }
 
+        \#(styleOwnershipScript)
+
         function ensureStyle(id) {
-            let el = document.getElementById(id);
+            let el = findOwnedStyle(id);
             if (!el) {
                 el = document.createElement('style');
                 el.id = id;
+                el.dataset.washiOwned = '1';
                 // runtime style API は navigation 完了後にだけ呼ばれるため head は存在する。
                 // root へ退避すると著者の構造 selector を壊すので許可しない。
                 document.head.appendChild(el);
@@ -89,14 +108,11 @@ enum ReaderScripts {
         function installDefaultFontCSS(css) {
             // setup は navigation 完了後に実行されるため、root へは挿入しない。
             const container = document.head;
-            let el = document.getElementById('washi-default-font');
-            if (!el) {
-                el = document.createElement('style');
-                el.id = 'washi-default-font';
-            }
+            const el = ensureStyle('washi-default-font');
             el.textContent = css || '';
             const firstBookSheet = Array.from(container.children).find(node => {
-                if (node === el || internalStyleIDs.has(node.id || '')) { return false; }
+                if (node === el || (internalStyleIDs.has(node.id || '')
+                    && isOwnedStyle(node))) { return false; }
                 if (node.localName === 'style') { return true; }
                 return node.localName === 'link'
                     && (node.getAttribute('rel') || '').toLowerCase()
@@ -104,7 +120,7 @@ enum ReaderScripts {
             });
             // 著者 sheet がない文書でも washi-base の直後へ置き、基礎 CSS を
             // head の先頭に保つ。著者 sheet があれば従来どおりその直前へ置く。
-            const baseStyle = document.getElementById('washi-base');
+            const baseStyle = findOwnedStyle('washi-base');
             const firstAfterBase = baseStyle && baseStyle.parentNode === container
                 ? baseStyle.nextSibling : container.firstChild;
             const insertionPoint = firstBookSheet || firstAfterBase;
@@ -140,7 +156,7 @@ enum ReaderScripts {
             }
             for (const sheet of Array.from(document.styleSheets)) {
                 const ownerID = sheet.ownerNode && sheet.ownerNode.id || '';
-                if (internalStyleIDs.has(ownerID)) { continue; }
+                if (internalStyleIDs.has(ownerID) && isOwnedStyle(sheet.ownerNode)) { continue; }
                 try {
                     if (matchingRule(sheet.cssRules)) { return true; }
                 } catch (e) { /* 別 origin の stylesheet は著者指定のまま尊重 */ }
@@ -150,7 +166,7 @@ enum ReaderScripts {
 
         function applyFontScale(value) {
             const s = ensureStyle('washi-font-scale');
-            const userStyle = document.getElementById('washi-user');
+            const userStyle = findOwnedStyle('washi-user');
             if (userStyle && userStyle.parentNode === s.parentNode) {
                 // 著者 CSS → 倍率 → host userCSS の従来優先順を維持する。
                 s.parentNode.insertBefore(s, userStyle);
@@ -2063,14 +2079,17 @@ enum ReaderScripts {
             .replacingOccurrences(of: "`", with: "\\`")
         return """
         (function () {
+            \(styleOwnershipScript)
+
             let observer = null;
             function install() {
                 const head = document.head;
                 if (!head) { return false; }
-                let el = document.getElementById('washi-base');
+                let el = findOwnedStyle('washi-base');
                 if (!el) {
                     el = document.createElement('style');
                     el.id = 'washi-base';
+                    el.dataset.washiOwned = '1';
                     el.textContent = `\(escaped)`;
                 }
                 if (el.parentNode !== head || el !== head.firstChild) {

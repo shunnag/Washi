@@ -50,6 +50,144 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
             "document.querySelector('.-epub-media-overlay-active')?.id || ''") as? String
     }
 
+    /// 範囲外 index で実 WebKit を作らず renderer の保持だけを開始する。
+    /// hide・祖先の hide・detach の後は解放され、遅配した要求でも復活しない。
+    func testInvisibleThumbnailRequestsDoNotRecreateRenderer() async throws {
+        for transition in ["hide", "hideAncestor", "detach"] {
+            let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+            let parent = NSView(frame: view.frame)
+            let window = window(for: view)
+            window.contentView = parent
+            parent.addSubview(view)
+            defer { view.unload(); window.contentView = nil; window.close() }
+            view.preparePublication(try silentOverlayPublication())
+            let initial = await view.screenThumbnail(spineIndex: Int.max, pageInItem: 0, width: 100)
+            XCTAssertNil(initial)
+            XCTAssertTrue(view.hasScreenThumbnailRenderer)
+
+            switch transition {
+            case "hide": view.isHidden = true
+            case "hideAncestor": parent.isHidden = true
+            default: view.removeFromSuperview()
+            }
+            XCTAssertFalse(view.hasScreenThumbnailRenderer, transition)
+            let late = await view.screenThumbnail(spineIndex: Int.max, pageInItem: 0, width: 100)
+            XCTAssertNil(late)
+            XCTAssertFalse(view.hasScreenThumbnailRenderer, transition)
+        }
+    }
+
+    /// 描画を始めない共通の準備経路で本を保持し、unload の解放と冪等性を検証する。
+    func testUnloadReleasesBookStateAndPreservesReusableViewConfiguration() async throws {
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+        let window = window(for: view)
+        defer { view.unload(); window.contentView = nil; window.close() }
+        let delegate = OverlayAuditDelegate()
+        view.delegate = delegate
+        view.settings.fontScale = 1.4
+        let settings = view.settings
+        let hostOverlay = NSView(frame: .zero)
+        view.addSubview(hostOverlay)
+        let cover = NSImageView(frame: .zero)
+        view.installTurnCover(cover, pending: true)
+        view.scheduleSpineTurnTimeout(for: cover)
+        weak var retainedBook: EPUBPublication?
+        weak var retainedController: MediaOverlayController?
+        do {
+            let book = try silentOverlayPublication()
+            retainedBook = book
+            view.preparePublication(book)
+            let key = EPUBScreenMetrics(viewportSize: view.bounds.size, settings: view.settings).cacheKey
+            XCTAssertTrue(view.importCensus(EPUBCensusRecord(
+                metricsKey: key, counts: [3], releaseIdentifier: book.metadata.releaseIdentifier)))
+            view.go(to: book.locator(forSpineIndex: 0, progression: 0.5))
+            view.playMediaOverlay(atSpineIndex: 0, parIndex: 1)
+            retainedController = view.mediaOverlayController
+        }
+        let thumbnail = await view.screenThumbnail(spineIndex: Int.max, pageInItem: 0, width: 100)
+        XCTAssertNil(thumbnail)
+        XCTAssertNotNil(retainedBook)
+        XCTAssertNotNil(retainedController)
+        XCTAssertTrue(view.canGoBack)
+        XCTAssertTrue(view.hasScreenThumbnailRenderer)
+
+        view.unload()
+        view.unload()
+
+        XCTAssertNil(view.publication)
+        XCTAssertNil(retainedBook)
+        XCTAssertNil(view.mediaOverlayController)
+        XCTAssertNil(retainedController)
+        XCTAssertNil(view.mediaOverlayPosition)
+        XCTAssertFalse(view.isPlayingMediaOverlay)
+        XCTAssertFalse(view.hasScreenThumbnailRenderer)
+        XCTAssertNil(view.pageCensus)
+        XCTAssertNil(view.exportCensus())
+        XCTAssertFalse(view.canGoBack)
+        XCTAssertFalse(view.hasDeferredVisibleLayout)
+        XCTAssertFalse(view.hasPendingWebContentReload)
+        XCTAssertFalse(view.isRepaginationScheduled)
+        XCTAssertFalse(view.isPageCensusScheduled)
+        XCTAssertTrue(view.turnOverlays.isEmpty)
+        XCTAssertTrue(view.spineTurnTimeouts.isEmpty)
+        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(cover.superview)
+        XCTAssertTrue(hostOverlay.superview === view)
+        XCTAssertEqual(view.settings, settings)
+        XCTAssertTrue(view.delegate === delegate)
+        XCTAssertEqual(view.currentLocator, EPUBLocator(spineIndex: 0))
+
+        let next = try silentOverlayPublication()
+        view.preparePublication(next)
+        XCTAssertTrue(view.publication === next)
+    }
+
+    /// WebView を持たない状態でも、非表示への遷移は位置を残して一時停止する。
+    /// 無音クリップを使うため、音声デバイスや WebKit の応答を必要としない。
+    func testHideAndDetachPauseMediaOverlayWithoutLosingPosition() throws {
+        for hides in [true, false] {
+            let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+            let window = window(for: view)
+            defer { view.unload(); window.contentView = nil; window.close() }
+            view.preparePublication(try silentOverlayPublication())
+            XCTAssertTrue(view.playMediaOverlay(atSpineIndex: 0, parIndex: 1))
+            XCTAssertTrue(view.isPlayingMediaOverlay)
+            let command = view.mediaOverlayCommandGeneration
+
+            if hides { view.isHidden = true } else { view.removeFromSuperview() }
+
+            XCTAssertFalse(view.isPlayingMediaOverlay)
+            XCTAssertEqual(view.mediaOverlayPosition?.spineIndex, 0)
+            XCTAssertEqual(view.mediaOverlayPosition?.parIndex, 1)
+            XCTAssertGreaterThan(view.mediaOverlayCommandGeneration, command)
+            // 復帰後にホストから再開しても、クリップの先頭位置を捨てて章頭へ戻らない。
+            if hides { view.isHidden = false } else { window.contentView = view }
+            view.playMediaOverlay()
+            XCTAssertTrue(view.isPlayingMediaOverlay)
+            XCTAssertEqual(view.mediaOverlayPosition?.parIndex, 1)
+        }
+    }
+
+    /// 再生停止の delegate 通知から新しい本を準備した場合、新しい要求を優先する。
+    func testReentrantBookReplacementSupersedesUnload() throws {
+        let view = EPUBReaderView(frame: .zero)
+        view.preparePublication(try silentOverlayPublication())
+        let delegate = OverlayAuditDelegate()
+        view.delegate = delegate
+        let replacement = try silentOverlayPublication()
+        view.playMediaOverlay()
+        delegate.onPlayingChanged = { view, playing in
+            if !playing { view.preparePublication(replacement) }
+        }
+
+        view.unload()
+
+        XCTAssertTrue(view.publication === replacement)
+        delegate.onPlayingChanged = nil
+        view.unload()
+        XCTAssertNil(view.publication)
+    }
+
     func testImportRejectsInvalidCountsWithoutReplacingValidCensus() throws {
         let book = try publication(EPUBFixtures.verticalNovelEntries())
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
