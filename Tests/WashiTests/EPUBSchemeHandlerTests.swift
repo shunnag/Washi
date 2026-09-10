@@ -9,8 +9,9 @@ final class EPUBSchemeHandlerTests: XCTestCase {
     /// 単一リソースの予算超過は保持せず、境界値までは再利用できる。
     func testRangeResourceCacheEnforcesByteLimit() throws {
         let handler = EPUBSchemeHandler(publication: try Self.makeImageSpinePublication())
-        let limit = EPUBSchemeHandler.rangeResourceCacheByteLimit
-        XCTAssertEqual(limit, 32 * 1024 * 1024)
+        XCTAssertEqual(handler.rangeResourceCacheByteLimit, 32 * 1024 * 1024)
+        let limit = 4 * 1024
+        handler.rangeResourceCacheByteLimit = limit
         handler.cacheRangeResource(path: "large.mp4",
                                    data: Data(repeating: 0, count: limit + 1),
                                    mediaType: "video/mp4")
@@ -25,10 +26,12 @@ final class EPUBSchemeHandlerTests: XCTestCase {
 
     /// 実際の Range 応答経路でも予算超過を保持せず、要求範囲だけを返す。
     func testOversizedRangeResourceIsServedWithoutCaching() async throws {
-        let data = Data(repeating: 0x5a, count: EPUBSchemeHandler.rangeResourceCacheByteLimit + 1)
+        let limit = 4 * 1024
+        let data = Data(repeating: 0x5a, count: limit + 1)
         let publication = try Self.makeImageSpinePublication(
             path: "media/large.mp4", mediaType: "video/mp4", data: data)
         let handler = EPUBSchemeHandler(publication: publication)
+        handler.rangeResourceCacheByteLimit = limit
         let url = try XCTUnwrap(handler.url(forContainerPath: "OEBPS/media/large.mp4"))
         var request = URLRequest(url: url)
         request.setValue("bytes=0-3", forHTTPHeaderField: "Range")
