@@ -99,7 +99,7 @@ final class OffscreenWebViewConfigurationTests: XCTestCase {
         do {
             try await waiter.wait(timeout: .seconds(15))
         } catch {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
 
         let expected = Array(repeating: "undefined", count: 6).joined(separator: ",")

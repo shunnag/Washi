@@ -8,25 +8,50 @@
 # Scripts/build-washi-framework.sh はこの出荷構成で Washi.framework をビルドする。
 # xcode-27 は現時点ではプレビュー扱いの arm64 専用イメージ。
 # macos-26 の既定 Xcode が 27 になったら、重複する xcode-27 は畳んでよい。
+# タグも CI の対象とするが、これは結果の可視化であり、公開そのものは止めない。
+# 予防は運用側で行い、タグを打つ前に対象 commit の CI が緑であることを確認する。
+# 1.18.0 では push とタグ作成が同時に行われ、CI が失敗した commit d099ba2 が
+# 結果を待たずにそのまま公開済みタグになった。
+# macos-15 系の役割は古い Swift (6.1.2) での検査。DEVELOPER_DIR を固定し、
+# ランナーの既定 Xcode のドリフトで、この役割が静かに失われるのを防ぐ。
+# /Applications/Xcode_16.4.app の実在は未確認のため、各ジョブの冒頭で存在を確認する。
+# macos-15 系は将来廃止予定。その際は README.md と Package.swift が宣言する下限
+# (macOS 14) を検査できる環境がなくなるため、代替環境または下限の見直しが必要。
 name: CI
 on:
   push:
     branches: [main]
+    tags: ['*']
   pull_request:
 jobs:
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      DEVELOPER_DIR: ${{ matrix.developer_dir }}
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - macos-26
-          - macos-26-intel
-          - macos-15
-          - macos-15-intel
-          - xcode-27
+        include:
+          - os: macos-26
+            developer_dir: ''
+          - os: macos-26-intel
+            developer_dir: ''
+          - os: macos-15
+            developer_dir: /Applications/Xcode_16.4.app
+          - os: macos-15-intel
+            developer_dir: /Applications/Xcode_16.4.app
+          - os: xcode-27
+            developer_dir: ''
     steps:
+      - name: Verify selected Xcode exists
+        shell: bash
+        run: |
+          if [ -n "$DEVELOPER_DIR" ] && [ ! -d "$DEVELOPER_DIR" ]; then
+            echo "::error::指定された DEVELOPER_DIR が存在しません: $DEVELOPER_DIR"
+            ls -d /Applications/Xcode*.app || true
+            exit 1
+          fi
       - uses: actions/checkout@v4
       - run: swift --version
       - run: swift build
@@ -34,11 +59,27 @@ jobs:
   release-artifact:
     name: Release artifact (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      DEVELOPER_DIR: ${{ matrix.developer_dir }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-26, xcode-27, macos-15]
+        include:
+          - os: macos-26
+            developer_dir: ''
+          - os: xcode-27
+            developer_dir: ''
+          - os: macos-15
+            developer_dir: /Applications/Xcode_16.4.app
     steps:
+      - name: Verify selected Xcode exists
+        shell: bash
+        run: |
+          if [ -n "$DEVELOPER_DIR" ] && [ ! -d "$DEVELOPER_DIR" ]; then
+            echo "::error::指定された DEVELOPER_DIR が存在しません: $DEVELOPER_DIR"
+            ls -d /Applications/Xcode*.app || true
+            exit 1
+          fi
       - uses: actions/checkout@v4
       - run: swift --version
       - name: Build release artifact
@@ -62,3 +103,19 @@ jobs:
             fi
             printf '%s\n' "$interfaces"
           done
+  corpus:
+    name: Public EPUB corpus
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache EPUB corpus
+        uses: actions/cache@v4
+        with:
+          path: .build/epub-corpus
+          key: ${{ runner.os }}-epub-corpus-${{ hashFiles('Tests/Corpus/manifest.json') }}
+      - name: Fetch and verify EPUB corpus
+        run: python3 Scripts/fetch-epub-corpus.py .build/epub-corpus
+      - name: Test public EPUB corpus
+        env:
+          WASHI_CORPUS_DIR: ${{ github.workspace }}/.build/epub-corpus
+        run: swift test --filter CorpusSmokeTests

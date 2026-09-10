@@ -5,17 +5,6 @@ import WashiCore
 final class CorpusSmokeTests: XCTestCase {
     private static let perBookBudget: TimeInterval = 20
 
-    // W3C EPUB 3 Tests の ID をキーにする。ocf-zip-mult は本来
-    // 「分割 ZIP をエラーとする」ことを確認する負のテスト。展開後の
-    // 再 ZIP では通常の ZIP になるため、成功した場合は通常の smoke pass を行う。
-    private static let expectedFailures = [
-        "ocf-zip-mult": "W3C EPUB 3 Tests: ocf-zip-mult (multiple ZIP disks)",
-        // 現行の W3C フィクスチャは EPUB/page_2.png を宣言するが、
-        // 実際のアーカイブ内パスは EPUB/images/page_2.png。
-        "lay-pp-spine-overrides_image-spine-reflow":
-            "W3C EPUB 3 Tests: lay-pp-spine-overrides_image-spine-reflow (missing declared resource)",
-    ]
-
     private static let japaneseSamplePrefixes = [
         "kusamakura-japanese-vertical-writing",
         "jlreq-in-japanese",
@@ -26,6 +15,12 @@ final class CorpusSmokeTests: XCTestCase {
         "horizontally-scrollable-emakimono",
     ]
 
+    // 2026-09 時点で ocf-zip-mult と
+    // lay-pp-spine-overrides_image-spine-reflow の両方が完走することを実測で確認した。
+    // 期待失敗が残っていないため、テーブルと特例処理を廃止し、全冊に通常の smoke pass を行う。
+    // ocf-zip-mult は本来「分割 ZIP をエラーとする」負のテストだが、展開後の
+    // 再 ZIP では通常の ZIP になるため、成功を受理する設計は維持する。
+    // 両サンプルを含め、将来また失敗した場合はテストを赤くし、退行や上流の破損を検出する。
     func testPublicCorpusSmoke() throws {
         let root = try Self.corpusDirectory()
         let books = Self.books(in: root)
@@ -34,8 +29,7 @@ final class CorpusSmokeTests: XCTestCase {
         }
 
         var opened = 0
-        var expectedFailures = 0
-        var unexpectedFailures = 0
+        var failures = 0
 
         for bookURL in books {
             let name = Self.bookName(bookURL)
@@ -61,21 +55,9 @@ final class CorpusSmokeTests: XCTestCase {
                     _ = try publication.resource(at: path)
                 }
                 opened += 1
-                if let expectedFailure = Self.expectedFailure(for: bookURL) {
-                    print(
-                        "[Washi corpus] 期待失敗対象を完走: \(name) " +
-                        "(再 ZIP 済みまたは修正済みとして受理; \(expectedFailure))")
-                }
             } catch {
-                if let expectedFailure = Self.expectedFailure(for: bookURL) {
-                    expectedFailures += 1
-                    print(
-                        "[Washi corpus] 期待失敗: \(name): \(error) " +
-                        "(\(expectedFailure))")
-                } else {
-                    unexpectedFailures += 1
-                    XCTFail("\(name): WashiCore smoke pass が失敗しました: \(error)")
-                }
+                failures += 1
+                XCTFail("\(name): WashiCore smoke pass が失敗しました: \(error)")
             }
 
             let elapsed = Date().timeIntervalSince(startedAt)
@@ -87,7 +69,7 @@ final class CorpusSmokeTests: XCTestCase {
 
         print(
             "[Washi corpus] 合計 \(books.count) 冊、成功 \(opened) 冊、" +
-            "期待失敗 \(expectedFailures) 冊、予期しない失敗 \(unexpectedFailures) 冊")
+            "失敗 \(failures) 冊")
     }
 
     func testKnownJapaneseSamples() throws {
@@ -199,10 +181,5 @@ final class CorpusSmokeTests: XCTestCase {
         url.pathExtension.lowercased() == "epub"
             ? url.deletingPathExtension().lastPathComponent
             : url.lastPathComponent
-    }
-
-    private static func expectedFailure(for url: URL) -> String? {
-        let name = bookName(url)
-        return expectedFailures.first { name == $0.key }?.value
     }
 }

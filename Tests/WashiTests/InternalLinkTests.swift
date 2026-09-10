@@ -214,7 +214,7 @@ final class InternalLinkTests: XCTestCase {
         defer { close(window, view: view) }
         view.load(publication: publication)
         guard await waitUntil({ delegate.moveCount > 0 }) else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
 
         let moveCountBeforeFollowing = delegate.moveCount
@@ -266,7 +266,7 @@ final class InternalLinkTests: XCTestCase {
         defer { close(window, view: view) }
         view.load(publication: publication)
         guard await waitUntil({ delegate.moveCount > 0 }) else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
         let link = EPUBInternalLink(
             href: "#n1",
@@ -379,7 +379,7 @@ final class InternalLinkTests: XCTestCase {
         defer { close(window, view: view) }
         view.load(publication: publication)
         guard await waitUntil({ delegate.moveCount > 0 }) else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
         let visiblePageCount = view.pageCountInItem
         XCTAssertGreaterThan(visiblePageCount, 1)

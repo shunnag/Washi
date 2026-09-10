@@ -743,7 +743,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
 
         let didFinishInitialSetup = await waitUntil { delegate.moveCount > 0 }
         guard didFinishInitialSetup else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
         let originalCount = view.pageCountInItem
         var updated = view.settings
@@ -770,7 +770,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         view.load(publication: publication)
         let didFinishInitialSetup = await waitUntil { delegate.moveCount > 0 }
         guard didFinishInitialSetup else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
 
         var updated = view.settings
@@ -852,7 +852,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         defer { close(window, view: view) }
         view.load(publication: publication)
         guard await waitUntil({ delegate.moveCount > 0 }) else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
 
         var updated = view.settings

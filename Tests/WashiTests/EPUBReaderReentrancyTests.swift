@@ -216,6 +216,8 @@ final class EPUBReaderReentrancyTests: XCTestCase {
     }
 
     func testPageChangeCallbackOpeningAnotherBookCancelsInFlightAnimation() async throws {
+        // 現行の CI ではこの条件で恒常的にスキップされ、ページめくりアニメーションの
+        // 取り消し経路は検査されていないとみられる。
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             throw XCTSkip("Animations are disabled by Reduce Motion")
         }
@@ -243,7 +245,7 @@ final class EPUBReaderReentrancyTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         guard delegate.moveCount > 0 else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
         XCTAssertGreaterThan(view.pageCountInItem, 1)
         delegate.onMove = { view in
@@ -264,6 +266,8 @@ final class EPUBReaderReentrancyTests: XCTestCase {
     }
 
     func testScheduledAnimatedTurnDoesNotAdvanceReplacementBook() async throws {
+        // 現行の CI ではこの条件で恒常的にスキップされ、ページめくりアニメーションの
+        // 取り消し経路は検査されていないとみられる。
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             throw XCTSkip("Animations are disabled by Reduce Motion")
         }
@@ -286,7 +290,7 @@ final class EPUBReaderReentrancyTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         guard delegate.moveCount > 0 else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
         let replacement = try publication("replacement-fxl", fixed: true)
 
