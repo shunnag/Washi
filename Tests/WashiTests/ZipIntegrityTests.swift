@@ -87,4 +87,11 @@ final class ZipIntegrityTests: XCTestCase {
         let zip = try ZipArchive(data: ZipBuilder.build([("payload.bin", payload)], method: 8))
         XCTAssertEqual(try zip.data(forEntry: "payload.bin"), payload)
     }
+
+    func testDeflateRoundTripBeyondPreallocationLimit() throws {
+        // 4 MiB の事前確保上限を超えても、出力全体が元の内容と一致することを確認する。
+        let payload = Data((0..<(5 << 20)).map { UInt8(truncatingIfNeeded: $0 * 31) })
+        let zip = try ZipArchive(data: ZipBuilder.build([("payload.bin", payload)], method: 8))
+        XCTAssertEqual(try zip.data(forEntry: "payload.bin"), payload)
+    }
 }

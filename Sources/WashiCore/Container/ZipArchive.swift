@@ -431,6 +431,8 @@ public final class ZipArchive: Sendable {
                 stream.src_ptr = source
                 stream.src_size = compressed.count
                 var result = Data()
+                // 宣言サイズは偽装され得るため、巨大な事前確保を避けて 4 MiB を上限とする。
+                result.reserveCapacity(min(uncompressedSize, 4 << 20))
                 while true {
                     let previousInputSize = stream.src_size
                     stream.dst_ptr = destination.baseAddress!
