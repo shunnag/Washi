@@ -1,6 +1,8 @@
 # EPUB audit — September 2026
 
-Status: in progress. The release gate includes the rendering/lifetime audit,
+Status: in progress; sanitizer, consumer compatibility, and memory measurement
+gates have been run. Release remains pending.
+The release gate includes the rendering/lifetime audit,
 consumer compatibility, sanitizer/stress results, and a published Washi release.
 
 ## Baseline and reproducibility
@@ -108,3 +110,74 @@ StackNest isolates Washi behind `WashiEPUBAdapter` and explicitly uses
 Its pinned dependency is `7829f940aa810d28a8dcf61e67f49ae3e5cdc73b`.
 Consumer compatibility will be tested against the revised Washi implementation
 while preserving those adapter contracts.
+
+## Sanitizer verification
+
+- AddressSanitizer: `swift test --sanitize=address`, with `WASHI_CORPUS_DIR`
+  pointing to the corpus, passed all 450 tests with 0 failures and 0 skips.
+  There were no sanitizer reports.
+- ThreadSanitizer: `swift test --sanitize=thread` passed all 450 tests with
+  0 failures and 0 warnings.
+
+## Consumer compatibility verification
+
+### StackNest
+
+In a clone of StackNest at revision `79837f4`, the Washi dependency in
+`Package.swift` was changed from pinned revision `7829f940` to local Washi HEAD.
+`swift build --target WashiEPUBAdapter` succeeded with 0 warnings and 0 errors.
+`swift build --target WashiEPUBAdapterTests` also succeeded.
+
+The full StackNest test suite could not be run. StackNest's own
+`Sources/LibraryStore/LibraryImporter.swift` declares a `ProgressReporter`
+protocol that is ambiguous with a same-named Foundation type in the macOS 27
+SDK, causing the build of `Sources/AppCore` to fail. The dependencies of
+`AppCore` are `LibraryStore`, `ArchiveAdapter`, `Carchive`, `LibraryServerAPI`,
+`StackroomFormat`, and `EPUBAdapter`; `AppCore` was confirmed not to depend on
+Washi. This build failure is independent of Washi.
+
+### cooViewer
+
+After rebuilding `Frameworks/Washi.framework`, cooViewer's Debug build succeeded
+and 629 tests passed.
+
+## Memory measurement
+
+A validation harness outside the repository repeatedly opened and parsed the
+251-book public corpus, recording RSS, malloc statistics, and `vmmap` output.
+
+### Observations
+
+- Across 12 passes over all 251 books, RSS grew linearly without reaching a
+  plateau: +98.9 MiB, approximately 8.6 MiB per pass.
+- `leaks` reported only one 112-byte item. No unreachable leaks were found.
+- The bytes in use reported by `malloc_zone_statistics` stayed flat at
+  1.0–1.4 MiB.
+- Calling `malloc_zone_pressure_relief` on each pass did not return a single
+  byte of RSS.
+- `vmmap --summary` showed the number of `Malloc Large (empty)` regions
+  increasing across passes: 10 → 13 → 18 → 22. The regions remained dirty.
+
+### Isolation results
+
+Two proposed primary causes were ruled out:
+
+- Capped preallocation of the ZIP decompression output buffer (commit
+  `977ce44`) reduced RSS growth over 12 passes from 98.9 MiB to 89.0 MiB.
+  This was an improvement, but output-buffer growth was not the primary cause.
+- The read strategy did not affect the result. With `.mappedIfSafe`, RSS grew
+  by 57.2 MiB over 8 passes; `.alwaysCopy` was equivalent. Holding the entire
+  archive in one `Data` was not the primary cause.
+
+The decisive observation was that opening the same book 251 times per
+pass kept RSS flat at 15.2 MiB across 6 passes, with an increase of only
+0.6 MiB. Growth depended on opening distinct files, not on the number of opens.
+
+### Conclusion
+
+The observed RSS growth was allocator fragmentation caused by different
+allocation sizes for different books, not a failure to free allocations.
+In these measurements, macOS malloc retained freed large blocks and did not
+release them in response to `malloc_zone_pressure_relief`. Completely
+eliminating this behavior within Washi is difficult. The capped preallocation
+change in `977ce44` is retained.
