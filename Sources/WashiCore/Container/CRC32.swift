@@ -34,14 +34,18 @@ enum CRC32 {
                     fromByteOffset: offset, as: UInt32.self)) ^ crc
                 let second = UInt32(littleEndian: bytes.loadUnaligned(
                     fromByteOffset: offset + 4, as: UInt32.self))
-                crc = tables[7 * 256 + Int(first & 0xFF)]
-                    ^ tables[6 * 256 + Int((first >> 8) & 0xFF)]
-                    ^ tables[5 * 256 + Int((first >> 16) & 0xFF)]
-                    ^ tables[4 * 256 + Int(first >> 24)]
-                    ^ tables[3 * 256 + Int(second & 0xFF)]
-                    ^ tables[2 * 256 + Int((second >> 8) & 0xFF)]
-                    ^ tables[256 + Int((second >> 16) & 0xFF)]
-                    ^ tables[Int(second >> 24)]
+                // 古いツールチェーンで型チェックが時間切れになるため、式を分けておく。
+                let t0: UInt32 = tables[1792 + Int(first & 0xFF)]
+                let t1: UInt32 = tables[1536 + Int((first >> 8) & 0xFF)]
+                let t2: UInt32 = tables[1280 + Int((first >> 16) & 0xFF)]
+                let t3: UInt32 = tables[1024 + Int(first >> 24)]
+                let t4: UInt32 = tables[768 + Int(second & 0xFF)]
+                let t5: UInt32 = tables[512 + Int((second >> 8) & 0xFF)]
+                let t6: UInt32 = tables[256 + Int((second >> 16) & 0xFF)]
+                let t7: UInt32 = tables[Int(second >> 24)]
+                let firstCRC: UInt32 = t0 ^ t1 ^ t2 ^ t3
+                let secondCRC: UInt32 = t4 ^ t5 ^ t6 ^ t7
+                crc = firstCRC ^ secondCRC
                 offset += 8
             }
             // 末尾の 0〜7 バイトは従来の 1 バイト処理で畳み込む。
