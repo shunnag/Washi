@@ -1,5 +1,8 @@
-# Washi リポジトリ用 CI。テストは全て解析レベル(WebKit 不使用)
-# なので GitHub の macOS ランナーでそのまま動く
+# Washi リポジトリ用 CI。古い Swift (macos-15) と新しい Swift (macos-26) の
+# 両方を回す。片方でしか出ない互換性問題や退行があるため、両方を維持する。
+# 2026-09、CRC32 の式は Swift 6.4 では通ったが、Swift 6.1.2 でのみ
+# 型チェックが時間切れとなり、公開済みタグ 1.18.0 がビルド不能になった。
+# 表示層の WebKit を使うテストも GitHub の macOS ランナーで実行する。
 name: CI
 on:
   push:
@@ -7,7 +10,16 @@ on:
   pull_request:
 jobs:
   test:
-    runs-on: macos-15
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-26
+          - macos-26-intel
+          - macos-15
+          - macos-15-intel
     steps:
       - uses: actions/checkout@v4
       - run: swift --version
