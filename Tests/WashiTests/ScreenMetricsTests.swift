@@ -5,6 +5,85 @@ import XCTest
 
 /// 見開き判定(usesSpread)の検証
 final class ScreenMetricsTests: XCTestCase {
+    @MainActor
+    func testAtlasCountsCacheEvictsInInsertionOrderAfterSixteenMetrics() async throws {
+        let census = MetricsCacheCensus()
+        let publication = try EPUBPublication(
+            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries()),
+            displayURL: URL(fileURLWithPath: "/tmp/washi-atlas-cache.epub"))
+        let atlas = EPUBScreenAtlas(publication: publication, census: census)
+        defer { atlas.invalidate() }
+        let metrics = (0..<17).map { index in
+            EPUBScreenMetrics(
+                viewportSize: CGSize(width: 400 + index, height: 600),
+                settings: EPUBReaderSettings())
+        }
+        for metric in metrics.prefix(16) {
+            let plan = await atlas.screenPlan(metrics: metric)
+            XCTAssertEqual(plan?.counts, [2, 3, 4])
+        }
+        let originalKeys = Set(metrics.prefix(16).map(\.cacheKey))
+        XCTAssertEqual(atlas.cachedMeasureKeys(), originalKeys)
+
+        // ヒットしても挿入順は変えず、失敗した実測では既存値を追い出さない。
+        _ = await atlas.screenPlan(metrics: metrics[0])
+        XCTAssertEqual(census.measuredKeys.count, 16)
+        census.result = nil
+        let failed = await atlas.screenPlan(metrics: metrics[16])
+        XCTAssertNil(failed)
+        XCTAssertEqual(atlas.cachedMeasureKeys(), originalKeys)
+
+        census.result = [2, 3, 4]
+        _ = await atlas.screenPlan(metrics: metrics[16])
+        XCTAssertEqual(atlas.cachedMeasureKeys(), Set(metrics.dropFirst().map(\.cacheKey)))
+        for metric in metrics.dropFirst() {
+            _ = await atlas.screenPlan(metrics: metric)
+        }
+        XCTAssertEqual(census.measuredKeys.count, 18)
+
+        // 最古のキーだけ再計測となり、次に古いキーが追い出される。
+        let remeasured = await atlas.screenPlan(metrics: metrics[0])
+        XCTAssertEqual(remeasured?.counts, [2, 3, 4])
+        XCTAssertEqual(census.measuredKeys.count, 19)
+        XCTAssertEqual(atlas.cachedMeasureKeys().count, 16)
+        XCTAssertFalse(atlas.cachedMeasureKeys().contains(metrics[1].cacheKey))
+        XCTAssertTrue(atlas.cachedMeasureKeys().contains(metrics[0].cacheKey))
+    }
+
+    @MainActor
+    func testAtlasInvalidationClearsCountsAndIgnoresLateMeasurement() async throws {
+        let census = MetricsCacheCensus()
+        let publication = try EPUBPublication(
+            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries()),
+            displayURL: URL(fileURLWithPath: "/tmp/washi-atlas-invalidate.epub"))
+        let atlas = EPUBScreenAtlas(publication: publication, census: census)
+        let first = EPUBScreenMetrics(
+            viewportSize: CGSize(width: 400, height: 600),
+            settings: EPUBReaderSettings())
+        let second = EPUBScreenMetrics(
+            viewportSize: CGSize(width: 500, height: 600),
+            settings: EPUBReaderSettings())
+        _ = await atlas.screenPlan(metrics: first)
+        XCTAssertEqual(atlas.cachedMeasureKeys(), [first.cacheKey])
+
+        let started = expectation(description: "保留する実測が開始した")
+        census.suspendNextMeasurement = true
+        census.didSuspend = { started.fulfill() }
+        let pending = Task { await atlas.screenPlan(metrics: second) }
+        await fulfillment(of: [started], timeout: 2)
+        atlas.invalidate()
+        XCTAssertTrue(atlas.cachedMeasureKeys().isEmpty)
+
+        // キャンセルを無視して値を返す census でも、キャッシュを復活させない。
+        census.resumeMeasurement()
+        let lateResult = await pending.value
+        XCTAssertNil(lateResult)
+        XCTAssertTrue(atlas.cachedMeasureKeys().isEmpty)
+        let afterInvalidation = await atlas.screenPlan(metrics: first)
+        XCTAssertNil(afterInvalidation)
+        XCTAssertEqual(census.measuredKeys.count, 2)
+    }
+
     /// cooViewer-oxr.25: 旧形式の census キーは現行エンジンと一致しない。
     func testPaginationVersionIsEncodedAndRejectsLegacyKey() throws {
         let metrics = EPUBScreenMetrics(
@@ -14,9 +93,8 @@ final class ScreenMetricsTests: XCTestCase {
         let options = try XCTUnwrap(
             JSONSerialization.jsonObject(with: data) as? [String: Any])
 
-        // cooViewer-oxr.56/57/58/59/60/61/76/77: pagination math の
-        // 変更で lifecycle batch の version 2 も再計測する。
-        XCTAssertEqual(EPUBScreenMetrics.paginationVersion, 3)
+        // 配信時 CSS ポリフィルが行組みを変えるため、版 3 も再計測する。
+        XCTAssertEqual(EPUBScreenMetrics.paginationVersion, 4)
         XCTAssertEqual(options["engine"] as? Int,
                        EPUBScreenMetrics.paginationVersion)
         XCTAssertTrue(EPUBScreenMetrics.usesCurrentPaginationVersion(
@@ -27,6 +105,8 @@ final class ScreenMetricsTests: XCTestCase {
             #"{"engine":1,"spread":true,"width":800}"#))
         XCTAssertFalse(EPUBScreenMetrics.usesCurrentPaginationVersion(
             #"{"engine":2,"spread":true,"width":800}"#))
+        XCTAssertFalse(EPUBScreenMetrics.usesCurrentPaginationVersion(
+            #"{"engine":3,"spread":true,"width":800}"#))
         XCTAssertFalse(EPUBScreenMetrics.usesCurrentPaginationVersion(
             #"{"engine":2.9,"spread":true,"width":800}"#))
     }
@@ -213,5 +293,38 @@ final class ScreenMetricsTests: XCTestCase {
         XCTAssertEqual(single.contentSize.width, 1_160, accuracy: 0.5)
         XCTAssertEqual(single.contentSize.height, 880, accuracy: 0.5)
         XCTAssertEqual(base.cacheKey, baseKey)
+    }
+}
+
+/// キャッシュの寿命と追い出しを、実 WebKit を起動せず検証するための差替。
+@MainActor
+private final class MetricsCacheCensus: ScreenPageCensusing {
+    private(set) var measuredKeys: [String] = []
+    var result: [Int]? = [2, 3, 4]
+    var suspendNextMeasurement = false
+    var didSuspend: (() -> Void)?
+    private var pending: CheckedContinuation<[Int]?, Never>?
+
+    func measure(publication: EPUBPublication, optionsJSON: String,
+                 contentSize: CGSize) async -> [Int]? {
+        measuredKeys.append(optionsJSON)
+        if suspendNextMeasurement {
+            suspendNextMeasurement = false
+            return await withCheckedContinuation {
+                pending = $0
+                didSuspend?()
+            }
+        }
+        return result
+    }
+
+    func invalidate() {
+        // 遅延完了の回帰テスト用に、ここでは保留中の継続を解放しない。
+    }
+
+    func resumeMeasurement() {
+        let continuation = pending
+        pending = nil
+        continuation?.resume(returning: result)
     }
 }

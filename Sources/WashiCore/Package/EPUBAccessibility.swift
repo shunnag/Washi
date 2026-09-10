@@ -123,29 +123,16 @@ extension EPUBMetadata {
                 + accessibilityCertifierCredentialLinks)
     }
 
-    /// 主な著者。MARC の役割が `aut` の作成者を選び、役割の指定がない場合は
-    /// 全作成者を使う。全員が `display-seq` を宣言している場合だけその順に並べ、
-    /// それ以外は文書順とする。file-as ではなく表示名を返す。
+    /// 主な著者。MARC の役割が `aut` の作成者を選び、該当者がいなければ
+    /// 全作成者を使う。`display-seq` にかかわらず文書順とし、
+    /// file-as ではなく表示名を返す。
     ///
-    /// The primary authors — creators whose MARC role is `aut`, or, when no
-    /// creator is role-tagged, all creators. Ordered by `display-seq` only when
-    /// every creator declares it; otherwise document order. Display names (not file-as).
+    /// The primary authors — creators whose MARC role is `aut`, or all creators
+    /// when none has that role. Uses document order regardless of
+    /// `display-seq`, returning display names (not file-as).
     public var authors: [String] {
-        // cooViewer-oxr.49: creator 全員に display-seq があるときだけ
-        // 安定ソートし、部分指定なら文書順を保つ。
-        let ordered: [EPUBCreator]
-        if !creators.isEmpty,
-           creators.allSatisfy({ $0.displaySeq != nil }) {
-            ordered = creators.enumerated().sorted { lhs, rhs in
-                let l = lhs.element.displaySeq ?? 0
-                let r = rhs.element.displaySeq ?? 0
-                return l != r ? l < r : lhs.offset < rhs.offset
-            }.map(\.element)
-        } else {
-            ordered = creators
-        }
-        let authored = ordered.filter { $0.role == "aut" }
-        let chosen = authored.isEmpty ? ordered : authored
+        let authored = creators.filter { $0.role == "aut" }
+        let chosen = authored.isEmpty ? creators : authored
         return chosen.map(\.value)
     }
 

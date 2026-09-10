@@ -45,6 +45,9 @@ public final class EPUBScreenAtlas {
     private var renderer: (any ScreenThumbnailRendering)?
     /// メトリクスキー → 項目別ページ数
     private var countsCache: [String: [Int]] = [:]
+    /// 大きな CSS を含むキーの蓄積を防ぐ。小さな上限なので挿入順で追い出す。
+    private static let countsCacheLimit = 16
+    private var countsCacheKeys: [String] = []
     /// 実測中の合流(同一メトリクスの並行要求で census を二重に走らせない)
     private var measuring: [String: Task<[Int]?, Never>] = [:]
     /// 異なるメトリクスキー間の FIFO 直列化(census は共有 WKWebView を使う
@@ -77,6 +80,9 @@ public final class EPUBScreenAtlas {
     /// 決定論的に待つため
     func inFlightMeasureKeys() -> Set<String> { Set(measuring.keys) }
 
+    /// テスト用: 実測キャッシュの追い出しと解放を WebKit なしで検証する。
+    func cachedMeasureKeys() -> Set<String> { Set(countsCache.keys) }
+
     /// 画面外のリソース(census とレンダラの不可視ウインドウおよび
     /// WebContent プロセス)を明示的に解放する。**アトラスを手放すとき
     /// (キャッシュからの追い出しなど)は必ず呼ぶこと**。進行中の実測や描画を
@@ -95,6 +101,8 @@ public final class EPUBScreenAtlas {
         isInvalidated = true
         for task in measuring.values { task.cancel() }
         measuring.removeAll()
+        countsCache.removeAll()
+        countsCacheKeys.removeAll()
         newestRequestedKey = nil
         census.invalidate()
         renderer?.invalidate()
@@ -121,7 +129,9 @@ public final class EPUBScreenAtlas {
         // 表示中の最新要求へ戻す
         newestRequestedKey = key
         if let running = measuring[key] {
-            if let counts = await running.value {
+            let counts = await running.value
+            guard !isInvalidated else { return nil }
+            if let counts {
                 return (counts, m.pagesPerScreen)
             }
             // cooViewer-oxr.55: 完了済み nil/cancelled タスクへ合流した最新要求は、
@@ -131,7 +141,8 @@ public final class EPUBScreenAtlas {
             } else if let replacement = measuring[key] {
                 // cooViewer-oxr.55: 別要求が既に始めた生きた再計測へ合流する。
                 // その再計測自体の失敗は無限再試行を避けて呼び出し元へ返す。
-                guard let counts = await replacement.value else { return nil }
+                guard let counts = await replacement.value, !isInvalidated
+                else { return nil }
                 return (counts, m.pagesPerScreen)
             }
             guard !isInvalidated, newestRequestedKey == key else { return nil }
@@ -148,8 +159,16 @@ public final class EPUBScreenAtlas {
         lastMeasure = Task(priority: .userInitiated) { _ = await task.value }
         let counts = await task.value
         if measuring[key] == task { measuring[key] = nil }
-        if let counts { countsCache[key] = counts }
-        guard let counts else { return nil }
+        // キャンセルに応じない実測が遅れて完了しても、解放済みキャッシュを
+        // 復活させない。失敗した実測はキャッシュの追い出しにも影響させない。
+        guard !isInvalidated, let counts else { return nil }
+        if countsCache[key] == nil {
+            if countsCacheKeys.count == Self.countsCacheLimit {
+                countsCache.removeValue(forKey: countsCacheKeys.removeFirst())
+            }
+            countsCacheKeys.append(key)
+        }
+        countsCache[key] = counts
         return (counts, m.pagesPerScreen)
     }
 

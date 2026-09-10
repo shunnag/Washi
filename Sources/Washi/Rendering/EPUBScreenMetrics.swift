@@ -18,10 +18,15 @@ import Foundation
 public struct EPUBScreenMetrics: Sendable, Equatable {
     /// キャッシュと census のキーに埋め込むページ割りアルゴリズムの版。
     /// 変更すると、古いエンジンで実測して保存した値が無効になる。
+    /// EPUBPrefixedCSS など配信時のリソース変換でページ割りが変わる場合も
+    /// この版を上げる。版 4 は配信時 CSS ポリフィル導入前の実測値を無効化する。
     ///
     /// Version of the pagination algorithm encoded in cache and census keys.
     /// A change invalidates persisted measurements made by older engines.
-    public static let paginationVersion = 3
+    /// Bump this version when resource transformations at delivery time, such as
+    /// EPUBPrefixedCSS, affect pagination. Version 4 invalidates measurements
+    /// made before the delivery-time CSS polyfills were introduced.
+    public static let paginationVersion = 4
 
     /// 余白(insets)を差し引いた内容寸法。実際の WKWebView の大きさに当たる。
     ///

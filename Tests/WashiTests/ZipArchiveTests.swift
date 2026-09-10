@@ -11,6 +11,81 @@ final class ZipArchiveTests: XCTestCase {
         ("OEBPS/empty.txt", Data()),
     ]
 
+    /// 空データと 1〜8 バイトの境界、および標準ベクタを固定値で検証する。
+    func testCRC32KnownVectors() {
+        let input = Data("123456789".utf8)
+        let expected: [UInt32] = [
+            0x0000_0000, 0x83DC_EFB7, 0x4F53_44CD, 0x8848_63D2,
+            0x9BE3_E0A3, 0xCBF5_3A1C, 0x0972_D361, 0x5003_699F,
+            0x9AE0_DAAF, 0xCBF4_3926,
+        ]
+        for (length, checksum) in expected.enumerated() {
+            XCTAssertEqual(CRC32.checksum(input.prefix(length)), checksum,
+                           "入力長: \(length)")
+        }
+        XCTAssertEqual(CRC32.checksum(Data((0..<256).map { UInt8($0) })),
+                       0x2905_8C73)
+    }
+
+    /// テーブルを使わない独立した計算と照合し、各端数と非整列スライスを通す。
+    func testCRC32MatchesBitwiseReferenceAcrossSliceBoundaries() {
+        let input = Data((0..<4_112).map { UInt8(truncatingIfNeeded: $0 * 73 + 19) })
+        let lengths = Array(0...64) + [
+            127, 128, 129, 255, 256, 257, 511, 512, 513,
+            1_023, 1_024, 1_025, 4_095, 4_096, 4_097,
+        ]
+        for offset in 0..<8 {
+            for length in lengths {
+                let slice = input[offset..<(offset + length)]
+                XCTAssertEqual(CRC32.checksum(slice), bitwiseCRC32(slice),
+                               "開始位置: \(offset)、入力長: \(length)")
+            }
+        }
+    }
+
+    private func bitwiseCRC32(_ data: Data) -> UInt32 {
+        var crc: UInt32 = 0xFFFF_FFFF
+        for byte in data {
+            crc ^= UInt32(byte)
+            for _ in 0..<8 {
+                crc = crc & 1 == 0 ? crc >> 1 : (crc >> 1) ^ 0xEDB8_8320
+            }
+        }
+        return crc ^ 0xFFFF_FFFF
+    }
+
+    /// 内容が同じでも重複名は拒否し、リーダーごとの採用順に依存させない。
+    func testDuplicateEntryNamesAreRejectedAtInitialization() {
+        let name = "OEBPS/content.opf"
+        for method: UInt16 in [0, 8] {
+            for zip64 in [false, true] {
+                for second in ["FIRST", "SECOND"] {
+                    let zip = ZipBuilder.build([
+                        (name, Data("FIRST".utf8)),
+                        ("OEBPS/chapter.xhtml", Data("chapter".utf8)),
+                        (name, Data(second.utf8)),
+                    ], method: method, forceZip64: zip64)
+                    XCTAssertThrowsError(try ZipArchive(data: zip)) { error in
+                        XCTAssertEqual(error as? ZipError,
+                                       .truncated("duplicate entry: \(name)"))
+                    }
+                }
+            }
+        }
+    }
+
+    func testEntryNamesRemainCaseSensitive() throws {
+        let entries = [("A.xhtml", Data("upper".utf8)),
+                       ("a.xhtml", Data("lower".utf8))]
+        let archive = try ZipArchive(data: ZipBuilder.build(entries))
+        XCTAssertEqual(archive.entries.map(\.name), entries.map { $0.0 })
+        for (name, data) in entries {
+            XCTAssertTrue(archive.contains(name))
+            XCTAssertEqual(archive.info(for: name)?.name, name)
+            XCTAssertEqual(try archive.data(forEntry: name), data)
+        }
+    }
+
     func testStoredRoundTrip() throws {
         let archive = try ZipArchive(data: ZipBuilder.build(sample, method: 0))
         XCTAssertEqual(archive.entries.count, 4)

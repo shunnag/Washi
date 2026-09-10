@@ -310,11 +310,11 @@ public struct EPUBMetadata: Sendable {
         self.language = language
     }
 
-    /// 表示用タイトル(title-type=main を優先し、なければ最初のタイトル)。
+    /// 表示用タイトル(文書順の最初のタイトル。title-type によらない)。
     ///
-    /// Display title (prefers title-type=main, otherwise the first title).
+    /// Display title (the first title in document order, regardless of title-type).
     public var mainTitle: String? {
-        titles.first { $0.type == "main" }?.value ?? titles.first?.value
+        titles.first?.value
     }
 
     /// リリース識別子(unique-identifier + modified、EPUB 3.3 §5.2.3)。

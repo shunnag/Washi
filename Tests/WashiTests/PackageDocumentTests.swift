@@ -263,7 +263,8 @@ final class PackageDocumentTests: XCTestCase {
                        .both)
     }
 
-    func testDisplaySeqOrdersTitles() throws {
+    /// display-seq が全タイトルにあっても、RS 3.3 §5.3 の文書順を優先する。
+    func testDisplaySeqPreservesTitleDocumentOrder() throws {
         let opf = """
         <?xml version="1.0"?>
         <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
@@ -280,7 +281,63 @@ final class PackageDocumentTests: XCTestCase {
         </package>
         """
         let package = try parse(opf)
-        XCTAssertEqual(package.metadata.titles.map(\.value), ["主題", "副題"])
+        XCTAssertEqual(package.metadata.titles.map(\.value), ["副題", "主題"])
+        XCTAssertEqual(package.metadata.titles.map(\.displaySeq), [2, 1])
+        XCTAssertEqual(package.metadata.mainTitle, "副題")
+    }
+
+    func testMainTitleUsesFirstTitleDespiteLaterMainRefinement() throws {
+        let opf = """
+        <package xmlns="http://www.idpf.org/2007/opf" version="3.0"
+                 unique-identifier="uid">
+          <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <dc:identifier id="uid">x</dc:identifier>
+            <dc:title id="series">シリーズ名</dc:title>
+            <meta refines="#series" property="title-type">collection</meta>
+            <dc:title id="book">書名</dc:title>
+            <meta refines="#book" property="title-type">main</meta>
+            <dc:language>ja</dc:language>
+          </metadata>
+          <manifest><item id="a" href="a.xhtml"
+            media-type="application/xhtml+xml"/></manifest>
+          <spine><itemref idref="a"/></spine>
+        </package>
+        """
+
+        let metadata = try parse(opf).metadata
+        XCTAssertEqual(metadata.mainTitle, "シリーズ名")
+        XCTAssertEqual(metadata.titles.map(\.type), ["collection", "main"])
+    }
+
+    /// 作成者の文書順と詳細指定を保ち、著者を選んだ後も再ソートしない。
+    func testDisplaySeqPreservesCreatorAndAuthorDocumentOrder() throws {
+        let opf = """
+        <package xmlns="http://www.idpf.org/2007/opf" version="3.0"
+                 unique-identifier="uid">
+          <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <dc:identifier id="uid">x</dc:identifier><dc:title>t</dc:title>
+            <dc:creator id="first">First Author</dc:creator>
+            <dc:creator id="translator">Translator</dc:creator>
+            <dc:creator id="second">Second Author</dc:creator>
+            <meta refines="#first" property="role">aut</meta>
+            <meta refines="#translator" property="role">trl</meta>
+            <meta refines="#second" property="role">aut</meta>
+            <meta refines="#first" property="display-seq">3</meta>
+            <meta refines="#translator" property="display-seq">2</meta>
+            <meta refines="#second" property="display-seq">1</meta>
+            <dc:language>en</dc:language>
+          </metadata>
+          <manifest><item id="a" href="a.xhtml"
+            media-type="application/xhtml+xml"/></manifest>
+          <spine><itemref idref="a"/></spine>
+        </package>
+        """
+
+        let metadata = try parse(opf).metadata
+        XCTAssertEqual(metadata.creators.map(\.value),
+                       ["First Author", "Translator", "Second Author"])
+        XCTAssertEqual(metadata.creators.map(\.displaySeq), [3, 2, 1])
+        XCTAssertEqual(metadata.authors, ["First Author", "Second Author"])
     }
 
     /// cooViewer-oxr.49: display-seq が一部にしかない title は

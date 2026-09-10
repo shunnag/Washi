@@ -7,6 +7,37 @@ import XCTest
 /// navigator.epubReadingSystem を提供する(RS 3.3 §6.4 MUST)。
 @MainActor
 final class ReadingSystemTests: XCTestCase {
+    /// RS 3.3 の表示優先順位は、パーサを経由しない公開モデルでも保持する。
+    func testMetadataMainTitleUsesFirstTitleRegardlessOfRefinements() {
+        var metadata = EPUBMetadata()
+        XCTAssertNil(metadata.mainTitle)
+        metadata.titles = [
+            EPUBTitle(value: "シリーズ名", type: "collection", displaySeq: 2),
+            EPUBTitle(value: "書名", type: "main", displaySeq: 1),
+        ]
+        XCTAssertEqual(metadata.mainTitle, "シリーズ名")
+        XCTAssertEqual(metadata.titles.map(\.displaySeq), [2, 1])
+    }
+
+    func testMetadataAuthorsPreserveCreatorOrderWithAndWithoutAuthorRoles() {
+        var metadata = EPUBMetadata()
+        XCTAssertEqual(metadata.authors, [])
+        metadata.creators = [
+            EPUBCreator(value: "First", fileAs: "Z", displaySeq: 3),
+            EPUBCreator(value: "Translator", role: "trl", displaySeq: 2),
+            EPUBCreator(value: "Second", fileAs: "A", displaySeq: 1),
+        ]
+        XCTAssertEqual(metadata.authors, ["First", "Translator", "Second"])
+
+        metadata.creators = [
+            EPUBCreator(value: "First", role: "aut", displaySeq: 3),
+            EPUBCreator(value: "Translator", role: "trl", displaySeq: 2),
+            EPUBCreator(value: "Second", role: "aut", displaySeq: 1),
+        ]
+        XCTAssertEqual(metadata.authors, ["First", "Second"])
+        XCTAssertEqual(metadata.creators.map(\.displaySeq), [3, 2, 1])
+    }
+
     private func webView(allowsScripts: Bool) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()

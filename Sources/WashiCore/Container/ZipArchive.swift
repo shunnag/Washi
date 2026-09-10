@@ -119,7 +119,7 @@ public final class ZipArchive: Sendable {
 
     private let data: Data
     public let entries: [ZipEntryInfo]
-    /// 正確な名前 → entries 添字(OCF はケースセンシティブ。重複名は先勝ち)
+    /// 正確な名前 → entries 添字(OCF はケースセンシティブ。重複名は拒否する)
     private let index: [String: Int]
     /// 1 エントリの展開後サイズ上限(超えると entryTooLarge)
     private let maxEntrySize: Int
@@ -149,10 +149,13 @@ public final class ZipArchive: Sendable {
         var offset = eocd.centralDirectoryOffset
         for _ in 0..<eocd.entryCount {
             let (entry, next) = try Self.parseCentralDirectoryEntry(reader, at: offset)
-            if index[entry.name] == nil {
-                index[entry.name] = entries.count
-                entries.append(entry)
+            // 同名エントリは読む実装によって内容が変わるため、安全側で
+            // 曖昧なアーカイブ全体を拒否する。
+            guard index[entry.name] == nil else {
+                throw ZipError.truncated("duplicate entry: \(entry.name)")
             }
+            index[entry.name] = entries.count
+            entries.append(entry)
             offset = next
         }
         self.entries = entries

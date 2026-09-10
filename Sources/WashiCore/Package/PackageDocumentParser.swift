@@ -244,7 +244,9 @@ enum PackageDocumentParser {
             return refinesByID[id]?.first { $0.property == property }?.value
         }
 
-        // dc:* 要素の走査(EPUB 2 互換の opf:* 属性・dc-metadata ラッパーも拾う)
+        // dc:* 要素の走査(EPUB 2 互換の opf:* 属性・dc-metadata ラッパーも拾う)。
+        // title / creator の優先順位は文書順で決まる(EPUB RS 3.3 §5.3)。
+        // display-seq は詳細情報として保持するが、配列の並べ替えには使わない。
         for child in children {
             guard child.uri == XMLNamespace.dc || child.name?.hasPrefix("dc:") == true,
                   let localName = child.localName else { continue }
@@ -315,11 +317,6 @@ enum PackageDocumentParser {
                 break
             }
         }
-
-        // cooViewer-oxr.49: display-seq は全要素に指定があるときだけ
-        // 安定ソートし、一部指定なら文書順を保つ(EPUB 3.3 D.3.5)。
-        metadata.titles = stableOrdered(metadata.titles, seq: \.displaySeq)
-        metadata.creators = stableOrdered(metadata.creators, seq: \.displaySeq)
 
         // 文書全体 meta(refines なし)の解釈
         var seenRenditionProperties: Set<String> = []
@@ -416,16 +413,6 @@ enum PackageDocumentParser {
         return sawAny ? result : nil
     }
 
-    /// 全要素に display-seq がある場合だけ、指定順で並べる。
-    private static func stableOrdered<T>(
-        _ items: [T], seq: KeyPath<T, Int?>) -> [T] {
-        guard !items.isEmpty,
-              items.allSatisfy({ $0[keyPath: seq] != nil }) else { return items }
-        return items.enumerated().sorted {
-            ($0.element[keyPath: seq] ?? 0, $0.offset)
-                < ($1.element[keyPath: seq] ?? 0, $1.offset)
-        }.map(\.element)
-    }
     /// 明示の rendition:layout 宣言があるか(旧世代表明より優先する判断に使う)
     static func declaresRenditionLayout(_ metaItems: [EPUBMetaItem]) -> Bool {
         metaItems.contains { $0.refines == nil && $0.property == "rendition:layout" }

@@ -4,6 +4,30 @@ import XCTest
 
 /// census 永続化レコードの検証
 final class CensusRecordTests: XCTestCase {
+    /// 同一の本・表示条件でも、配信時 CSS ポリフィル導入前の保存値を拒否する。
+    func testPersistedCensusRequiresCurrentCSSPaginationVersion() throws {
+        let metrics = EPUBScreenMetrics(
+            viewportSize: CGSize(width: 800, height: 600),
+            settings: EPUBReaderSettings())
+        var legacyOptions = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(metrics.cacheKey.utf8)) as? [String: Any])
+        legacyOptions["engine"] = 3
+        let legacyKey = String(decoding: try JSONSerialization.data(
+            withJSONObject: legacyOptions, options: [.sortedKeys]), as: UTF8.self)
+
+        for (key, accepted) in [(legacyKey, false), (metrics.cacheKey, true)] {
+            let record = EPUBCensusRecord(
+                metricsKey: key, counts: [3, 5, 2],
+                releaseIdentifier: "urn:uuid:x@2026-01-01")
+            let decoded = try JSONDecoder().decode(
+                EPUBCensusRecord.self, from: JSONEncoder().encode(record))
+            XCTAssertEqual(decoded, record)
+            XCTAssertEqual(EPUBScreenMetrics.usesCurrentPaginationVersion(
+                decoded.metricsKey), accepted)
+        }
+        XCTAssertNotEqual(legacyKey, metrics.cacheKey)
+    }
+
     func testCodableRoundTrip() throws {
         let record = EPUBCensusRecord(
             metricsKey: "{\"spread\":true}", counts: [3, 5, 2],
