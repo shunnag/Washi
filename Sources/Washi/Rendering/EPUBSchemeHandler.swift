@@ -31,7 +31,8 @@ import WebKit
 public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
     public static let scheme = "washi-epub"
     private static let imageWrapperQueryName = "washi-wrap"
-    static let rangeResourceCacheByteLimit = 32 * 1024 * 1024
+    /// 既定は 32 MiB。テストではインスタンスごとに小さい予算で境界条件を検証する。
+    var rangeResourceCacheByteLimit = 32 * 1024 * 1024
 
     let publication: EPUBPublication
     /// この Web ビューインスタンスのホスト名(本ごとに一意 = オリジン分離)
@@ -59,7 +60,7 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
     /// 抽出本文キャッシュと同様に、予算を超える単一リソースは保持しない。
     /// 大きなメディアも応答自体は妨げず、要求ごとに展開して必要範囲を返す。
     func cacheRangeResource(path: String, data: Data, mediaType: String) {
-        guard data.count <= Self.rangeResourceCacheByteLimit else { return }
+        guard data.count <= rangeResourceCacheByteLimit else { return }
         cachedRangeResource = (path, data, mediaType)
     }
 
