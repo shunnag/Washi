@@ -3,6 +3,11 @@
 # 2026-09、CRC32 の式は Swift 6.4 では通ったが、Swift 6.1.2 でのみ
 # 型チェックが時間切れとなり、公開済みタグ 1.18.0 がビルド不能になった。
 # 表示層の WebKit を使うテストも GitHub の macOS ランナーで実行する。
+# 出荷構成 (release + library evolution + module interface) は debug のテストとは別物で、
+# debug のテストだけが緑でも配布物が壊れうる。cooViewer の
+# Scripts/build-washi-framework.sh はこの出荷構成で Washi.framework をビルドする。
+# xcode-27 は現時点ではプレビュー扱いの arm64 専用イメージ。
+# macos-26 の既定 Xcode が 27 になったら、重複する xcode-27 は畳んでよい。
 name: CI
 on:
   push:
@@ -20,8 +25,41 @@ jobs:
           - macos-26-intel
           - macos-15
           - macos-15-intel
+          - xcode-27
     steps:
       - uses: actions/checkout@v4
       - run: swift --version
       - run: swift build
       - run: swift test
+  release-artifact:
+    name: Release artifact (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-26, xcode-27, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      - name: Build release artifact
+        run: |
+          swift build -c release --product WashiDynamic \
+              -Xswiftc -enable-library-evolution \
+              -Xswiftc -emit-module-interface \
+              -Xswiftc -verify-emitted-module-interface
+      - name: Verify module interfaces were emitted
+        shell: bash
+        run: |
+          bin_path="$(swift build -c release --product WashiDynamic \
+              -Xswiftc -enable-library-evolution \
+              -Xswiftc -emit-module-interface \
+              -Xswiftc -verify-emitted-module-interface \
+              --show-bin-path)"
+          for module in Washi WashiCore; do
+            interfaces="$(find "$bin_path" -type f -name "${module}.swiftinterface" -print)"
+            if [ -z "$interfaces" ]; then
+              echo "::error::Missing ${module}.swiftinterface under ${bin_path}"
+              exit 1
+            fi
+            printf '%s\n' "$interfaces"
+          done
