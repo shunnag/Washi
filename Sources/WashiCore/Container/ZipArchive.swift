@@ -126,7 +126,7 @@ public final class ZipArchive: Sendable {
     }
 
     /// Inflates the entry and returns it. Store copies the slice; deflate is
-    /// decoded in one shot. The result is always verified against its CRC-32, so
+    /// decoded through its end marker. The result is always verified against its CRC-32, so
     /// silent corruption is caught reliably before it surfaces as an EPUB parse
     /// failure.
     public func data(forEntry name: String) throws -> Data {
@@ -360,25 +360,58 @@ public final class ZipArchive: Sendable {
 
     // MARK: - deflate 展開
 
-    /// raw deflate ストリームの一括展開(Compression の COMPRESSION_ZLIB は
-    /// zlib ヘッダなしの raw deflate を指す)。展開後サイズは中央ディレクトリの
-    /// 値を信頼して一発確保する(EPUB のリソース規模なら問題ない)
+    /// raw deflate を終端まで検証する。decode_buffer は出力領域が満杯なら
+    /// その長さを返すため、宣言サイズと CRC が「先頭部分だけ」を指す不正な
+    /// ZIP を検出できない。ストリーム API で余分な出力・未終端を
+    /// 拒否し、出力は実際に得られたぶんだけ確保する。
     private static func inflate(_ compressed: Data, uncompressedSize: Int,
                                 entryName: String) throws -> Data {
-        guard uncompressedSize > 0 else { return Data() }
-        var result = Data(count: uncompressedSize)
-        let written = result.withUnsafeMutableBytes { (dst: UnsafeMutableRawBufferPointer) -> Int in
-            compressed.withUnsafeBytes { (src: UnsafeRawBufferPointer) -> Int in
-                guard let dstBase = dst.baseAddress, let srcBase = src.baseAddress,
-                      !compressed.isEmpty else { return 0 }
-                return compression_decode_buffer(
-                    dstBase.assumingMemoryBound(to: UInt8.self), uncompressedSize,
-                    srcBase.assumingMemoryBound(to: UInt8.self), compressed.count,
-                    nil, COMPRESSION_ZLIB)
+        try compressed.withUnsafeBytes { (rawSource: UnsafeRawBufferPointer) -> Data in
+            guard !compressed.isEmpty,
+                  let source = rawSource.bindMemory(to: UInt8.self).baseAddress else {
+                throw ZipError.corruptEntry(entryName)
+            }
+            // 空のエントリにも 1 バイトの出力領域を渡し、偽装されたデータを
+            // 検出する。巨大な宣言値だけでメモリを確保しない。
+            var buffer = [UInt8](repeating: 0, count: min(max(uncompressedSize, 1), 64 * 1024))
+            return try buffer.withUnsafeMutableBufferPointer { destination in
+                var stream = compression_stream(
+                    dst_ptr: destination.baseAddress!, dst_size: 0,
+                    src_ptr: source, src_size: 0, state: nil)
+                guard compression_stream_init(
+                    &stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB
+                ) == COMPRESSION_STATUS_OK else {
+                    throw ZipError.corruptEntry(entryName)
+                }
+                defer { compression_stream_destroy(&stream) }
+                stream.src_ptr = source
+                stream.src_size = compressed.count
+                var result = Data()
+                while true {
+                    let previousInputSize = stream.src_size
+                    stream.dst_ptr = destination.baseAddress!
+                    stream.dst_size = destination.count
+                    let status = compression_stream_process(
+                        &stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
+                    let produced = destination.count - stream.dst_size
+                    guard produced <= uncompressedSize - result.count else {
+                        throw ZipError.corruptEntry(entryName)
+                    }
+                    result.append(destination.baseAddress!, count: produced)
+                    if status == COMPRESSION_STATUS_END {
+                        guard result.count == uncompressedSize else {
+                            throw ZipError.corruptEntry(entryName)
+                        }
+                        return result
+                    }
+                    // FINALIZE と進捗検査を併用し、壊れた入力で永久ループしない。
+                    guard status == COMPRESSION_STATUS_OK,
+                          produced > 0 || stream.src_size < previousInputSize else {
+                        throw ZipError.corruptEntry(entryName)
+                    }
+                }
             }
         }
-        guard written == uncompressedSize else { throw ZipError.corruptEntry(entryName) }
-        return result
     }
 }
 

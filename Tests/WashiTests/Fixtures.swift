@@ -24,7 +24,8 @@ extension Data {
 /// Washi 本体はリーダーしか持たないため、テスト側で正しい ZIP を手組みする
 enum ZipBuilder {
     static func deflate(_ data: Data) -> Data {
-        guard !data.isEmpty else { return Data() }
+        // Even an empty deflated entry needs a final block and end marker.
+        guard !data.isEmpty else { return Data([0x03, 0x00]) }
         var dst = Data(count: data.count + 4096)
         let capacity = dst.count
         let written = dst.withUnsafeMutableBytes { (d: UnsafeMutableRawBufferPointer) in

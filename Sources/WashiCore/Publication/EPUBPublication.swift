@@ -4,20 +4,22 @@ import ImageIO
 
 // cooViewer-oxr.67 / cooViewer-oxr.71: 本文抽出結果を spine 単位で再利用する。
 // EPUBPublication は Sendable のため、可変状態は NSLock の内側だけで扱う。
-private final class ExtractedTextCache: @unchecked Sendable {
+final class ExtractedTextCache: @unchecked Sendable {
     private struct Entry {
         let text: String
-        let characterCount: Int
+        let byteCount: Int
     }
 
     private let lock = NSLock()
-    private let characterLimit: Int
+    private let byteLimit: Int
+    private let entryLimit: Int
     private var entries: [Int: Entry] = [:]
     private var insertionOrder: [Int] = []
-    private var totalCharacterCount = 0
+    private var totalByteCount = 0
 
-    init(characterLimit: Int) {
-        self.characterLimit = characterLimit
+    init(byteLimit: Int, entryLimit: Int = 512) {
+        self.byteLimit = max(0, byteLimit)
+        self.entryLimit = max(0, entryLimit)
     }
 
     func value(for spineIndex: Int) -> String? {
@@ -27,22 +29,25 @@ private final class ExtractedTextCache: @unchecked Sendable {
     }
 
     func insert(_ text: String, for spineIndex: Int) {
-        let characterCount = text.count
-        guard characterCount <= characterLimit else { return }
+        // A grapheme can contain arbitrarily many combining scalars, so a
+        // character-count limit does not bound retained memory. Extracted text
+        // uses Swift's UTF-8 storage; also cap the bookkeeping for empty chapters.
+        let byteCount = text.utf8.count
+        guard byteCount <= byteLimit, entryLimit > 0 else { return }
 
         lock.lock()
         defer { lock.unlock() }
         guard entries[spineIndex] == nil else { return }
-        while totalCharacterCount + characterCount > characterLimit,
+        while (byteCount > byteLimit - totalByteCount || entries.count >= entryLimit),
               let oldest = insertionOrder.first {
             insertionOrder.removeFirst()
             if let removed = entries.removeValue(forKey: oldest) {
-                totalCharacterCount -= removed.characterCount
+                totalByteCount -= removed.byteCount
             }
         }
-        entries[spineIndex] = Entry(text: text, characterCount: characterCount)
+        entries[spineIndex] = Entry(text: text, byteCount: byteCount)
         insertionOrder.append(spineIndex)
-        totalCharacterCount += characterCount
+        totalByteCount += byteCount
     }
 }
 
@@ -132,7 +137,7 @@ public final class EPUBPublication: Sendable {
     /// cooViewer-oxr.8: NCX 補完時は toc と nav 補助一覧の基準文書が異なる。
     private let tocBasePath: String
     private let indexedTOC: [IndexedTOCEntry]
-    /// cooViewer-oxr.67 / cooViewer-oxr.71: 約 800 万文字を上限に FIFO で保持する。
+    /// 本文の UTF-8 データを最大 32 MiB / 512 項目、FIFO で保持する。
     private let extractedTextCache: ExtractedTextCache
     private let effectiveReadingDirectionCache = EffectiveReadingDirectionCache()
 
@@ -302,7 +307,7 @@ public final class EPUBPublication: Sendable {
         self.indexedTOC = Self.indexTOC(
             navigation.toc, basePath: tocBasePath,
             spineIndexByContainerPath: spineIndexByContainerPath)
-        self.extractedTextCache = ExtractedTextCache(characterLimit: 8_000_000)
+        self.extractedTextCache = ExtractedTextCache(byteLimit: 32 * 1024 * 1024)
     }
 
     // MARK: - 基本情報

@@ -1,0 +1,1524 @@
+{
+  "sources": {
+    "idpf": {
+      "repository": "https://github.com/IDPF/epub3-samples",
+      "release": "20230704",
+      "license": "CC-BY-SA-3.0 unless otherwise noted in the sample table and publication",
+      "licenseURL": "https://github.com/IDPF/epub3-samples/blob/main/README.md#licensing"
+    },
+    "w3c": {
+      "repository": "https://github.com/w3c/epub-tests",
+      "revision": "2d3b96756423189c0008eff95f0e98beda7cc5fe",
+      "license": "W3C Software and Document License",
+      "licenseURL": "https://github.com/w3c/epub-tests/blob/main/LICENSE.md"
+    }
+  },
+  "books": [
+    {
+      "path": "idpf/GhV-oeb-page.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/GhV-oeb-page.epub",
+      "sha256": "c679ef8b13f12541927f0a292dc8ab72296151720ebd330c14475cbe4b4d4516",
+      "bytes": 2703785
+    },
+    {
+      "path": "idpf/WCAG.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/WCAG.epub",
+      "sha256": "19fe9e1e1c431c3b631877b54cfebba34b80aca87709c8e6162d07c465f05f5c",
+      "bytes": 4259507
+    },
+    {
+      "path": "idpf/accessible_epub_3.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/accessible_epub_3.epub",
+      "sha256": "67f75b8e3cd1abe4bb143d91d5424191d5af3115c9d26ff029a38e19f8d16feb",
+      "bytes": 4051892
+    },
+    {
+      "path": "idpf/cc-shared-culture.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/cc-shared-culture.epub",
+      "sha256": "7bec3acf5ca153fd8a3b8bba50549c5cde3cb617ddd74c1d3b26fbc5eb9eebdf",
+      "bytes": 31662481
+    },
+    {
+      "path": "idpf/childrens-literature.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/childrens-literature.epub",
+      "sha256": "191d14d07bcaefde647e494256f73d789f265c8edc46c404320641b23c86b76a",
+      "bytes": 161291
+    },
+    {
+      "path": "idpf/childrens-media-query.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/childrens-media-query.epub",
+      "sha256": "3b8220ff87c5b31438fc904f9a447c972de783d7ccae2509af796b3304b7ad4c",
+      "bytes": 139449
+    },
+    {
+      "path": "idpf/cole-voyage-of-life-tol.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/cole-voyage-of-life-tol.epub",
+      "sha256": "b0027cc7f216b53e4c549029f761d9896d87628660dd161051a313ec3ce94f59",
+      "bytes": 1002693
+    },
+    {
+      "path": "idpf/cole-voyage-of-life.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/cole-voyage-of-life.epub",
+      "sha256": "e38ed606ff604e638f737efaf66e0fd0b2997c3eab7432bcba9a00a81a925cf3",
+      "bytes": 970980
+    },
+    {
+      "path": "idpf/epub30-spec.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/epub30-spec.epub",
+      "sha256": "def6a7a1d2302689c77d7c04585f9eb2da825a7ef546888cfe2f5fbba92d51ce",
+      "bytes": 227821
+    },
+    {
+      "path": "idpf/figure-gallery-bindings.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/figure-gallery-bindings.epub",
+      "sha256": "2cfbf16c36e814052db66dd203a66c45fa6b3922389c13aba40390ef23061b2b",
+      "bytes": 434907
+    },
+    {
+      "path": "idpf/georgia-cfi.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/georgia-cfi.epub",
+      "sha256": "85d17e1ee1d39d3e9f59ee959e92a808456c5c371036cba560634c01292c5e06",
+      "bytes": 546028
+    },
+    {
+      "path": "idpf/georgia-pls-ssml.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/georgia-pls-ssml.epub",
+      "sha256": "1247a5dbd2f123b62f4185ad74bfcda69123540ca1145c74ba77158d0847130a",
+      "bytes": 546598
+    },
+    {
+      "path": "idpf/haruko-ahl.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/haruko-ahl.epub",
+      "sha256": "97f0a426b016474cefd00f8a851c65b905c9830cb81652b6802007e1aa1d1676",
+      "bytes": 2260442
+    },
+    {
+      "path": "idpf/haruko-html-jpeg.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/haruko-html-jpeg.epub",
+      "sha256": "87b5eaff288e238864d817ea54b4600dc8c6f96789d0efb946b8545d7ad2f0c0",
+      "bytes": 2247393
+    },
+    {
+      "path": "idpf/haruko-jpeg.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/haruko-jpeg.epub",
+      "sha256": "5e9fc05e366d99607acc4b312c76b6e8928578ced0121fd5d8befa85e219703e",
+      "bytes": 2268455
+    },
+    {
+      "path": "idpf/hefty-water.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/hefty-water.epub",
+      "sha256": "1133a872bbe50df15b9a4928c33f693fd264f83276041b478aa6b076b1183fb3",
+      "bytes": 3683
+    },
+    {
+      "path": "idpf/horizontally-scrollable-emakimono.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/horizontally-scrollable-emakimono.epub",
+      "sha256": "579e951eb3354c3ce3af83a9ed2768cd4e2c63d424b5749a7bfb7173fe2bd849",
+      "bytes": 5283701
+    },
+    {
+      "path": "idpf/indexing-for-eds-and-auths-3f.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/indexing-for-eds-and-auths-3f.epub",
+      "sha256": "6aa6b2b10bdf1395722c93d7d4df55dece8887c1ca7b0f7f42fcad62248a824a",
+      "bytes": 1722708
+    },
+    {
+      "path": "idpf/indexing-for-eds-and-auths-3md.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/indexing-for-eds-and-auths-3md.epub",
+      "sha256": "0207b4e40988498d768f1cb3a246d40e759b668a0e3f6c48a1dd597d8aefba7a",
+      "bytes": 1723990
+    },
+    {
+      "path": "idpf/internallinks.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/internallinks.epub",
+      "sha256": "deaf03a1843f52cc5e4cedb226ca8659610efe1be5e810fccf615bcb549238aa",
+      "bytes": 663694
+    },
+    {
+      "path": "idpf/israelsailing.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/israelsailing.epub",
+      "sha256": "10c397036d2eb54db172d05c9e3cda4382d04e8e9ce3ddd8741ba7058c3dcd4a",
+      "bytes": 1358190
+    },
+    {
+      "path": "idpf/jlreq-in-english.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/jlreq-in-english.epub",
+      "sha256": "3599b1b40ff3e9f9c9d040116fe13c90e7a36ecf7a8cb4084f5615a75e1577f4",
+      "bytes": 8402185
+    },
+    {
+      "path": "idpf/jlreq-in-japanese.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/jlreq-in-japanese.epub",
+      "sha256": "22ab584f27026c653057d0b88e3168dc57a4badbc86585dd68d789cf6de630a3",
+      "bytes": 8352424
+    },
+    {
+      "path": "idpf/kusamakura-japanese-vertical-writing.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/kusamakura-japanese-vertical-writing.epub",
+      "sha256": "6d4d4ed5eda3f612e3263c54fa0f74ccfa87260f43e81bb58ea658636e52eeb7",
+      "bytes": 17940673
+    },
+    {
+      "path": "idpf/kusamakura-preview-embedded.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/kusamakura-preview-embedded.epub",
+      "sha256": "3264675235acced8188969b55ba419f7355c4db61725a3cf2bf1470d2eb99dbe",
+      "bytes": 17940892
+    },
+    {
+      "path": "idpf/kusamakura-preview.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/kusamakura-preview.epub",
+      "sha256": "805582bc9680a92deef0bcfef218f5ed91b93c9a686db68c8b7431d97fc37a3b",
+      "bytes": 9995446
+    },
+    {
+      "path": "idpf/linear-algebra.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/linear-algebra.epub",
+      "sha256": "87e523d8e16c2d1f4b211b47c0495841687a3573c828d3ef36b1f77f91b2abd4",
+      "bytes": 1075489
+    },
+    {
+      "path": "idpf/mahabharata.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/mahabharata.epub",
+      "sha256": "fd1b19a1258857fe31081e2a22b3013e84663501c731d88a27bc06cf476a8a06",
+      "bytes": 11118097
+    },
+    {
+      "path": "idpf/moby-dick-mo.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/moby-dick-mo.epub",
+      "sha256": "749a9de094c26bc79351722a2bf320845dc5f6af2d5bf41a96d720d723b29a4c",
+      "bytes": 10627796
+    },
+    {
+      "path": "idpf/moby-dick.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/moby-dick.epub",
+      "sha256": "81bc079841a38e91a02a7776d04786a2fc311cfd300064e9fc533ce7c54cf7b4",
+      "bytes": 1628868
+    },
+    {
+      "path": "idpf/mymedia_lite.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/mymedia_lite.epub",
+      "sha256": "6623732b1aa7cefed26e2db95f7ac14c80360b99d328ed927b93548a96990c62",
+      "bytes": 267252
+    },
+    {
+      "path": "idpf/page-blanche-bitmaps-in-spine.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/page-blanche-bitmaps-in-spine.epub",
+      "sha256": "343501373d73c660f5632a715e72ef11d305ae06402202f47b354abbafec7e90",
+      "bytes": 3132235
+    },
+    {
+      "path": "idpf/page-blanche.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/page-blanche.epub",
+      "sha256": "d2efb562f17d43cef50578d4d67dd7fd991f8f254b6f5a7c28bde7461ea783eb",
+      "bytes": 3136922
+    },
+    {
+      "path": "idpf/quiz-bindings.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/quiz-bindings.epub",
+      "sha256": "42fbc32c960d6a500de9cf151d1f8287c8eed9297faad6ad2e1a6a0e3d3ab69d",
+      "bytes": 150952
+    },
+    {
+      "path": "idpf/regime-anticancer-arabic.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/regime-anticancer-arabic.epub",
+      "sha256": "5d10bf6a73f461b7b23294b6e34b72f2a1184c9543a424b4a0f737ed33967e96",
+      "bytes": 110694
+    },
+    {
+      "path": "idpf/sous-le-vent.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/sous-le-vent.epub",
+      "sha256": "1ac68b0a334d19ac97338574d6ad0d7a30723315c668c6d74021540b6b3f816d",
+      "bytes": 1156166
+    },
+    {
+      "path": "idpf/sous-le-vent_svg-in-spine.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/sous-le-vent_svg-in-spine.epub",
+      "sha256": "be7d9b735474f7d433e0a842f089b12647975dcaaf0314a8ef09c5ea0664f6bc",
+      "bytes": 1455424
+    },
+    {
+      "path": "idpf/svg-in-spine.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/svg-in-spine.epub",
+      "sha256": "ed6b1b9e99245ac7747ced1a2f90bad1acab558280cffc7daed3e54ee48e49bb",
+      "bytes": 687362
+    },
+    {
+      "path": "idpf/trees.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/trees.epub",
+      "sha256": "4fbaa5713555ea104b2aed8fc6182700225416b0ab5369f0cb7293d486bb718f",
+      "bytes": 75717
+    },
+    {
+      "path": "idpf/vertically-scrollable-manga.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/vertically-scrollable-manga.epub",
+      "sha256": "7ae9b49244218947a45c43f1d22ece95b52ea09f470edf239cd179a346c00269",
+      "bytes": 5826314
+    },
+    {
+      "path": "idpf/wasteland-otf-obf.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/wasteland-otf-obf.epub",
+      "sha256": "f941572da9c8c816549f68163fbcb632d6f9857af42aa0a618b86e8c9c3895be",
+      "bytes": 745225
+    },
+    {
+      "path": "idpf/wasteland-otf.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/wasteland-otf.epub",
+      "sha256": "d99ea3b847d713a84cfd9cba9cccafb550fcd6af1ca6767b2dade182457deebc",
+      "bytes": 743824
+    },
+    {
+      "path": "idpf/wasteland-woff-obf.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/wasteland-woff-obf.epub",
+      "sha256": "4fc75656e8a55b7380c116f7f297579f7c2247e34ad42437fb4f0bf2a67f8442",
+      "bytes": 434515
+    },
+    {
+      "path": "idpf/wasteland-woff.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/wasteland-woff.epub",
+      "sha256": "25b0775d975c3f3ef8b57c2887636c5309028d5382d73881b10c929c9c3d2cae",
+      "bytes": 433966
+    },
+    {
+      "path": "idpf/wasteland.epub",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/wasteland.epub",
+      "sha256": "1653b9fbe225b89a008f980744d6b89940504a4533b9036821f9d99daf8f6c9c",
+      "bytes": 101904
+    },
+    {
+      "path": "w3c/cnt-css-fonts_ot.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/cnt-css-fonts_ot.epub",
+      "sha256": "8634d66f7fab7498135902fffa7eb623a82c5ea2c1bb52904fc2e60aea5607f9",
+      "bytes": 35408
+    },
+    {
+      "path": "w3c/cnt-css-fonts_tt.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/cnt-css-fonts_tt.epub",
+      "sha256": "b1d0c9bfe0b6ba414d54814f5d969ea994f2ab6e29e0ea13f3fe6b62879ca374",
+      "bytes": 44931
+    },
+    {
+      "path": "w3c/cnt-css-fonts_woff.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/cnt-css-fonts_woff.epub",
+      "sha256": "95259cb6421260a520b2fc31e779476f2147106e68dc975804b417d9af1d1dc5",
+      "bytes": 39362
+    },
+    {
+      "path": "w3c/cnt-css-fonts_woff2.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/cnt-css-fonts_woff2.epub",
+      "sha256": "bb66085575b31b67a3e0d88f0c5e5d42bf5f53e46929de0f2acb33e4bb93f135",
+      "bytes": 13865
+    },
+    {
+      "path": "w3c/cnt-mathml-support.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/cnt-mathml-support.epub",
+      "sha256": "61f61f7631c684d2e42ad7384c0c48435517b8908f528165ab83419f129589dd",
+      "bytes": 2109
+    },
+    {
+      "path": "w3c/cnt-svg-css-inclusion.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/cnt-svg-css-inclusion.epub",
+      "sha256": "d0f72b2f787e6ca34c3ec1766cd5cee57407a6d4ee0764410b42184e8fcae866",
+      "bytes": 3230
+    },
+    {
+      "path": "w3c/cnt-svg-css-reference.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/cnt-svg-css-reference.epub",
+      "sha256": "0650294940235cecfa157650806cf0668f013b37d9f8588945a4a520e8541c6e",
+      "bytes": 3730
+    },
+    {
+      "path": "w3c/cnt-svg-css.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/cnt-svg-css.epub",
+      "sha256": "14a605a659d7eaee30f2d8411c9434d85211d05323b90f47d915cc3d21899991",
+      "bytes": 3129
+    },
+    {
+      "path": "w3c/cnt-svg-embedded.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/cnt-svg-embedded.epub",
+      "sha256": "9ff50b71f8fbfbde8c29d972052f9ec739904f8a73ecf50817da67df4469f1f3",
+      "bytes": 3089
+    },
+    {
+      "path": "w3c/cnt-svg-support.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/cnt-svg-support.epub",
+      "sha256": "2d716ac916b9273786c1be3c5beb047de8dc53b866214f7386ecd437cd4f266c",
+      "bytes": 3022
+    },
+    {
+      "path": "w3c/cnt-xhtml-support.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/cnt-xhtml-support.epub",
+      "sha256": "158e8ab29e45ae3d4646f816823d5f458a83a51d045e5a417367feb4682caeee",
+      "bytes": 1884
+    },
+    {
+      "path": "w3c/css-epub-hyphens.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/css-epub-hyphens.epub",
+      "sha256": "c195b0aad298556ce5f649275a2fb150d3a662c472e916935262779e4f26117b",
+      "bytes": 2888
+    },
+    {
+      "path": "w3c/css-epub-line-break.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/css-epub-line-break.epub",
+      "sha256": "b5ad31aeea3ce7390dbe1abad64ad72a0052bc5555ada790f36b552c2fbc048e",
+      "bytes": 2605
+    },
+    {
+      "path": "w3c/css-epub-text-align-last.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/css-epub-text-align-last.epub",
+      "sha256": "aa64fecbc6e1aa28d40d793241f7b79411547da34e67f26cfb90bf47a4d3b4d0",
+      "bytes": 3410
+    },
+    {
+      "path": "w3c/css-epub-text-combine-horizontal.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/css-epub-text-combine-horizontal.epub",
+      "sha256": "2a2c444f2f4122e1f85e343df0bb1e4bb6fe0db7beec20df015a14586466559a",
+      "bytes": 2381
+    },
+    {
+      "path": "w3c/css-epub-text-emphasis.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/css-epub-text-emphasis.epub",
+      "sha256": "3d8e70858b9f87e00b22e781ae2f7f6a42e307ae085509bb642c1f5c18c01f1a",
+      "bytes": 7059
+    },
+    {
+      "path": "w3c/css-epub-text-orientation.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/css-epub-text-orientation.epub",
+      "sha256": "4e0cc779363ff948d776a8e55618ffbd943840140410f287f42ced396b7036ca",
+      "bytes": 2745
+    },
+    {
+      "path": "w3c/css-epub-text-transform.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/css-epub-text-transform.epub",
+      "sha256": "c08e0b1bd7d2e19f0856b88196a9b84892209d599444699878fd3465a7510c9d",
+      "bytes": 2161
+    },
+    {
+      "path": "w3c/css-epub-text-underline-position.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/css-epub-text-underline-position.epub",
+      "sha256": "16c0ebb64c48cce0b38ba656392047f54c84027295c3e4dc1155d384417381a3",
+      "bytes": 3990
+    },
+    {
+      "path": "w3c/css-epub-word-break.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/css-epub-word-break.epub",
+      "sha256": "8d8c8df7a98856f9757c422fe8099377eb581b44342a75cafc2a471635b55fc1",
+      "bytes": 2791
+    },
+    {
+      "path": "w3c/css-epub-writing-mode.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/css-epub-writing-mode.epub",
+      "sha256": "d8563122982ea9a283c6c94ff4a4525e9ede37d9523928a4988da91fdd52bf75",
+      "bytes": 2975
+    },
+    {
+      "path": "w3c/fxl-layout-duplication.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/fxl-layout-duplication.epub",
+      "sha256": "40d16930ecfb74fb20aefeda4d0e81c59ac01cf3d06c40fe80c0d26cb8a219a6",
+      "bytes": 227398
+    },
+    {
+      "path": "w3c/fxl-page-spread-break.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/fxl-page-spread-break.epub",
+      "sha256": "fee6b76945c4c25e5448dd78200572c2fb52d97e3be7823dc1f424c4923a514a",
+      "bytes": 227801
+    },
+    {
+      "path": "w3c/fxl-page-spread-center.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/fxl-page-spread-center.epub",
+      "sha256": "825b98ec2ae0dce45844ffc8b3c052c6d4b1ae249c497346de7ca3d4c52ad636",
+      "bytes": 227440
+    },
+    {
+      "path": "w3c/fxl-spine-overrides_behave-as-global-bis.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/fxl-spine-overrides_behave-as-global-bis.epub",
+      "sha256": "e742e7f19c6b4c88872c40baa225e3d2e3d5025b510880a59df0eafd58c92282",
+      "bytes": 184559
+    },
+    {
+      "path": "w3c/fxl-spine-overrides_behave-as-global.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/fxl-spine-overrides_behave-as-global.epub",
+      "sha256": "bc837c92364d7af04c7147613c01b17f4c545206c313eb8fa2aa8882210ab185",
+      "bytes": 181473
+    },
+    {
+      "path": "w3c/fxl-spine-overrides_duplicate.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/fxl-spine-overrides_duplicate.epub",
+      "sha256": "c4c78059bd921d4cbdbfbd08d54a5f1d05c3a62b4666511a00198bf04725e4a7",
+      "bytes": 181521
+    },
+    {
+      "path": "w3c/lay-fxl-layout-default.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-layout-default.epub",
+      "sha256": "9913f3f66a0514d96c252ff3631db16575872ab87ed6d3ee35343980a2ed4f74",
+      "bytes": 3855
+    },
+    {
+      "path": "w3c/lay-fxl-layout-pre-paginated-spreads.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-layout-pre-paginated-spreads.epub",
+      "sha256": "61456f2d5687ef46bbed0dd043de223d9fce0f860897dcdcc6c15e9996d35987",
+      "bytes": 227629
+    },
+    {
+      "path": "w3c/lay-fxl-layout-pre-paginated.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-layout-pre-paginated.epub",
+      "sha256": "fbe36e84b0ab26b7ec1800c960807561195debf9d92030dac880b6fa27039892",
+      "bytes": 227457
+    },
+    {
+      "path": "w3c/lay-fxl-orientation-default.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-orientation-default.epub",
+      "sha256": "f98a7e34449f1d04816a473139d5021194a5d6a039cb9a572fdedebd46c4afb0",
+      "bytes": 227496
+    },
+    {
+      "path": "w3c/lay-fxl-orientation-landscape.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-orientation-landscape.epub",
+      "sha256": "012d5449dc4d825e04d0a9834c87deb2d10bd13bf1ad5b99f61adb384fbf82d1",
+      "bytes": 227516
+    },
+    {
+      "path": "w3c/lay-fxl-page-spread-combined.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-page-spread-combined.epub",
+      "sha256": "46c1340cd5601492c5acd44854cc1724485cd800bd81b0b8328ac43801537156",
+      "bytes": 227505
+    },
+    {
+      "path": "w3c/lay-fxl-page-spread-left.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-page-spread-left.epub",
+      "sha256": "b94d2475e1cfddd9495f9d19f3fd5c8db4e2f851dc287eed8a8d77ced87bbe6c",
+      "bytes": 227437
+    },
+    {
+      "path": "w3c/lay-fxl-page-spread-right.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-page-spread-right.epub",
+      "sha256": "f5ed40df4ec4bbff0c153b488fc8407816ad9fbdfa67ebf2b0132c0e5d474a11",
+      "bytes": 227441
+    },
+    {
+      "path": "w3c/lay-fxl-spread-auto.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-spread-auto.epub",
+      "sha256": "47d68c34a7de65c9953a42a3fd0f07c4e95d26d8ce39dd5b20c0c01fc0bb23e3",
+      "bytes": 227541
+    },
+    {
+      "path": "w3c/lay-fxl-spread-both.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-spread-both.epub",
+      "sha256": "00ea8ce5c1d753743bc8f02486468fbc90745fd53f231a0252e62cd09fb0f26a",
+      "bytes": 227487
+    },
+    {
+      "path": "w3c/lay-fxl-spread-default.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-spread-default.epub",
+      "sha256": "abee60c20d389dc8d23c2b708e5f54f8f68781c1999e470cd1809212471b599f",
+      "bytes": 227581
+    },
+    {
+      "path": "w3c/lay-fxl-spread-landscape.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-spread-landscape.epub",
+      "sha256": "35cec7d87d829d91ecf3ef7b05e0f3308bb9cb12d25d022d6912bbef292bf79c",
+      "bytes": 227573
+    },
+    {
+      "path": "w3c/lay-fxl-spread-none.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-spread-none.epub",
+      "sha256": "584eb7b70143a5779e2213f73bf5419f3ae03782e471465e9a0bcbdc5e6b15df",
+      "bytes": 227448
+    },
+    {
+      "path": "w3c/lay-fxl-svg-icb_multi.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-svg-icb_multi.epub",
+      "sha256": "4784165d0eccc6bdeed1a96d22249b9a5f5d239a71d43f5713a6de6b5d50b57f",
+      "bytes": 179450
+    },
+    {
+      "path": "w3c/lay-fxl-xhtml-icb.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-xhtml-icb.epub",
+      "sha256": "29abc4e0e9139cccc1688c319d9aa4d31229ce7e15e3805b4d5b1eff3f07a981",
+      "bytes": 179771
+    },
+    {
+      "path": "w3c/lay-fxl-xhtml-icb_device_sizes.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-xhtml-icb_device_sizes.epub",
+      "sha256": "ff8a65af52b5570d3729964ddf437f53fad3913a874693d7f65be40124801965",
+      "bytes": 178643
+    },
+    {
+      "path": "w3c/lay-fxl-xhtml-icb_invalid_meta.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-xhtml-icb_invalid_meta.epub",
+      "sha256": "aa8da6765789ec35f8d533a2b47f0b4ecb2f441788080d0d867fbb1f153c41f4",
+      "bytes": 179200
+    },
+    {
+      "path": "w3c/lay-fxl-xhtml-icb_multi.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-xhtml-icb_multi.epub",
+      "sha256": "0fdb7775d2daab420980a45572213fc8af0234a2253280d1ad24513e5021cf02",
+      "bytes": 179136
+    },
+    {
+      "path": "w3c/lay-fxl-xhtml-icb_multi_declarations.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-xhtml-icb_multi_declarations.epub",
+      "sha256": "dab72af422f4341c4b9b90c4357bff923b469ea397b628a118f010ae057379de",
+      "bytes": 179058
+    },
+    {
+      "path": "w3c/lay-fxl-xhtml-icb_repeated-in-meta.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-xhtml-icb_repeated-in-meta.epub",
+      "sha256": "218b9cd35034a8ea751cd1d5299a061e18135fdd5dd46c4bc3b8d73540d271da",
+      "bytes": 179231
+    },
+    {
+      "path": "w3c/lay-fxl-xhtml-icb_units.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-xhtml-icb_units.epub",
+      "sha256": "9de938a20d1e17e99591df7095e5661e51abc2027fba2aa34329dfec780785b7",
+      "bytes": 179076
+    },
+    {
+      "path": "w3c/lay-page-layout-both-spread.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-page-layout-both-spread.epub",
+      "sha256": "bc6a3e20820bed69c2406a680e9adb6f3344561ee10bcb53835ac597c55c381e",
+      "bytes": 229723
+    },
+    {
+      "path": "w3c/lay-page-layout-both.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-page-layout-both.epub",
+      "sha256": "a58e90fb2200db4805e3416d23e9e0e7a04d6cdcecea7154f850ee957bc1c309",
+      "bytes": 229225
+    },
+    {
+      "path": "w3c/lay-pkg-flow-paginated.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pkg-flow-paginated.epub",
+      "sha256": "a1e2ce6431bbb70e8fb02ad1bc583974138687a22186189743e38ebdc1764d88",
+      "bytes": 27229
+    },
+    {
+      "path": "w3c/lay-pkg-flow-scrolled-continuous.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pkg-flow-scrolled-continuous.epub",
+      "sha256": "40bed84937db9ff0139e4012aa417f7130a5c371c81588673dc22b0bf7466c83",
+      "bytes": 27227
+    },
+    {
+      "path": "w3c/lay-pkg-flow-scrolled-doc.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pkg-flow-scrolled-doc.epub",
+      "sha256": "e29862f1c318dea8637ba4a806d644912a4ce5383a4bbb05f9fa87ca360f1360",
+      "bytes": 27226
+    },
+    {
+      "path": "w3c/lay-pp-embedded-images-svg.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-embedded-images-svg.epub",
+      "sha256": "8c9b787d6e951999b8c5fda08335e555a63450a6eb4fbd41aeda4f8c34a24adb",
+      "bytes": 27434329
+    },
+    {
+      "path": "w3c/lay-pp-embedded-images.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-embedded-images.epub",
+      "sha256": "e37c5aaa9e3c23a6ffa28f64aa2b2536a92de9ab237893e7256ab55283367c4f",
+      "bytes": 27435153
+    },
+    {
+      "path": "w3c/lay-pp-images-in-spine.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-images-in-spine.epub",
+      "sha256": "4de1047a8bb5616676fbfc76572fed2e1439a88acaa4583aa3236fbec8ee256c",
+      "bytes": 27745305
+    },
+    {
+      "path": "w3c/lay-pp-images-mixed.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-images-mixed.epub",
+      "sha256": "609d5045cd3b53988f064f156926feb8bb097e2d323ea82f2d50af15e8222dc1",
+      "bytes": 30449821
+    },
+    {
+      "path": "w3c/lay-pp-layout-default.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-layout-default.epub",
+      "sha256": "33ecf53f2998f57b583fabb98a09457955fe3de5eded920cdbadbb50c2c1fc49",
+      "bytes": 3828
+    },
+    {
+      "path": "w3c/lay-pp-layout-duplication.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-layout-duplication.epub",
+      "sha256": "ba15dad5269634ad307ef285b4ec3263d2a703957f47a1c0e31a9c87ec202450",
+      "bytes": 227375
+    },
+    {
+      "path": "w3c/lay-pp-layout-pre-paginated-spreads.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-layout-pre-paginated-spreads.epub",
+      "sha256": "9868bb167e38a73bcf6d37cbe81fda378a737aa9551880997afb8b20fcac4410",
+      "bytes": 227602
+    },
+    {
+      "path": "w3c/lay-pp-layout-pre-paginated.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-layout-pre-paginated.epub",
+      "sha256": "2915503e36e40c6762c4c4f403e5d38c26f2ec4d3d0c14536dabc6db23934d7e",
+      "bytes": 227429
+    },
+    {
+      "path": "w3c/lay-pp-page-spread-combined.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-page-spread-combined.epub",
+      "sha256": "5811576b47c451138bd718d5f2285497f9a41475cce4f3f81e908c9917df87fd",
+      "bytes": 227498
+    },
+    {
+      "path": "w3c/lay-pp-page-spread-left.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-page-spread-left.epub",
+      "sha256": "addd0e0690993b87ea51fe0d597528d8f6b5eb0655522def65240fb3a8fc8832",
+      "bytes": 227428
+    },
+    {
+      "path": "w3c/lay-pp-page-spread-right.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-page-spread-right.epub",
+      "sha256": "f9aaacce515b534eb8965b2f5b0e26634b332dcd84588d98e7e84aac3dc485ec",
+      "bytes": 227432
+    },
+    {
+      "path": "w3c/lay-pp-spine-overrides_behave-as-global-bis.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-spine-overrides_behave-as-global-bis.epub",
+      "sha256": "7bb2026157c3e9b1a6a3e7480ad167aad436f86eb3965fd4d7996a36ee17c514",
+      "bytes": 184600
+    },
+    {
+      "path": "w3c/lay-pp-spine-overrides_behave-as-global.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-spine-overrides_behave-as-global.epub",
+      "sha256": "962ba1fe1a11340d4ed0426fd58c91053dece0dfba795ae5e6388f1ac58d0804",
+      "bytes": 181488
+    },
+    {
+      "path": "w3c/lay-pp-spine-overrides_image-only-pp.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-spine-overrides_image-only-pp.epub",
+      "sha256": "572e0ec4ef3af2016fc3384662071d8514470f30113ace00aaa0d7c35e2d44b9",
+      "bytes": 191246
+    },
+    {
+      "path": "w3c/lay-pp-spine-overrides_image-only-reflow.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-spine-overrides_image-only-reflow.epub",
+      "sha256": "98c7ba9441a6297698c33a1ba2c3c56b8fff3d4d7fbbafe305e79f25d0a4de6b",
+      "bytes": 190339
+    },
+    {
+      "path": "w3c/lay-pp-spine-overrides_image-spine-pp.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-spine-overrides_image-spine-pp.epub",
+      "sha256": "3fce75134fa59d738cfd8ecfc7f759a79a0f3c4d9551441501a726c5ae9ede5b",
+      "bytes": 191260
+    },
+    {
+      "path": "w3c/lay-pp-spine-overrides_image-spine-reflow.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-spine-overrides_image-spine-reflow.epub",
+      "sha256": "c49df2320c46522ad62edb60d0d5b417dc8bd4b5f500ceb4bc0f059148aa197b",
+      "bytes": 190355
+    },
+    {
+      "path": "w3c/lay-pp-spread-none.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-spread-none.epub",
+      "sha256": "e69d5944306cd86522b719bd249278a0d2ad6062f1ae33c1ce5bc0cc757b3bae",
+      "bytes": 227424
+    },
+    {
+      "path": "w3c/lay-pp-svg-icb_multi.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-svg-icb_multi.epub",
+      "sha256": "178291a8c09b6bdc4d808ec20cccbbe5463d42211e53d7c5edb54957934f00f1",
+      "bytes": 179422
+    },
+    {
+      "path": "w3c/lay-pp-xhtml-icb.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-xhtml-icb.epub",
+      "sha256": "51397c1981fc0d27b05216bb2248fa34a8f79c0eb8cc4b2937d632eb8bd71325",
+      "bytes": 179745
+    },
+    {
+      "path": "w3c/lay-pp-xhtml-icb_invalid_meta.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-xhtml-icb_invalid_meta.epub",
+      "sha256": "6be444dc354bca8142275573c97243acb0d43f152413a438a3bae9d0c90198f9",
+      "bytes": 179195
+    },
+    {
+      "path": "w3c/lay-pp-xhtml-icb_multi.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-xhtml-icb_multi.epub",
+      "sha256": "b1bcb434af4ac54eae0d058cd8fe148c93ad37c5f4605d5c4064e008e4701197",
+      "bytes": 179108
+    },
+    {
+      "path": "w3c/lay-pp-xhtml-icb_multi_declarations.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-xhtml-icb_multi_declarations.epub",
+      "sha256": "7a62841c93078202b904d60de06c5cb827906c7c9cc4e8e381834ae2f41fd58b",
+      "bytes": 179031
+    },
+    {
+      "path": "w3c/lay-pp-xhtml-icb_repeated-in-meta.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-xhtml-icb_repeated-in-meta.epub",
+      "sha256": "c0ab270a4751fba3f7f4a260933651be6e4d34e1c825169f1d0087e2df3dc4de",
+      "bytes": 179201
+    },
+    {
+      "path": "w3c/lay-pp-xhtml-icb_units.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-pp-xhtml-icb_units.epub",
+      "sha256": "796b9bad8ddcf66eb1cf73c1310239c40c1a381b0abff178932687e7a44639de",
+      "bytes": 179049
+    },
+    {
+      "path": "w3c/lay-reflow-align-x-center.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-reflow-align-x-center.epub",
+      "sha256": "523e47ee7b3f4d070439453d8d01948784ab3554cacb95e32faa829c573b5967",
+      "bytes": 4487
+    },
+    {
+      "path": "w3c/lay-rendition-flow-pre-pag.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-rendition-flow-pre-pag.epub",
+      "sha256": "5824d669ccb76b27dd4594a4b3fc3e9e3fbb427a8811727257fa2d75bc5a6f39",
+      "bytes": 5502
+    },
+    {
+      "path": "w3c/lay-roll-embedded-images-svg.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-roll-embedded-images-svg.epub",
+      "sha256": "06ca29058d85a2c7ca5c4ba039511e7074eff3b21e81ef00e0bde31faaf6b071",
+      "bytes": 27434348
+    },
+    {
+      "path": "w3c/lay-roll-embedded-images.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-roll-embedded-images.epub",
+      "sha256": "c8fc1b4fa17f55d99f9b7088e91024e42b0a4b0577b4536a968c89ba2da1aa64",
+      "bytes": 27435070
+    },
+    {
+      "path": "w3c/lay-roll-images-in-spine.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-roll-images-in-spine.epub",
+      "sha256": "663d25000d47300171f5e0ecc8feeeb8e2ebe04910a35bdb45016f8208f267ab",
+      "bytes": 27745316
+    },
+    {
+      "path": "w3c/lay-roll-images-mixed.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-roll-images-mixed.epub",
+      "sha256": "aa033777c8cdf9cd2f2673ccda1aa96ba801f6809800fb17215a68e7c34881b3",
+      "bytes": 30449737
+    },
+    {
+      "path": "w3c/lay-viewport-meta-prop.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-viewport-meta-prop.epub",
+      "sha256": "9b7205fd01ecee89f86fc2be59f094451c9d02ce585aae60b4c00ee2918897f1",
+      "bytes": 227501
+    },
+    {
+      "path": "w3c/mol-audio-exceeding-clipend.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-audio-exceeding-clipend.epub",
+      "sha256": "30f9a4c2b760379c81c3fb2b36d493c64d76bcd07613339a9450740551b6f63d",
+      "bytes": 3646839
+    },
+    {
+      "path": "w3c/mol-audio-no-clipbegin.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-audio-no-clipbegin.epub",
+      "sha256": "664ff5ca2663db2b531725e9ad559686821a4d174b05ae5a9e330036fdfc2ee9",
+      "bytes": 3011679
+    },
+    {
+      "path": "w3c/mol-audio-no-clipend.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-audio-no-clipend.epub",
+      "sha256": "11ed19f392b50d387e7cc4753034ae1d8165459ac84cf39497db630fe1ea9670",
+      "bytes": 3011714
+    },
+    {
+      "path": "w3c/mol-audio.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-audio.epub",
+      "sha256": "fb4cc7d7c9117cafc839199eac6dd51bda33df8199d28c4279549b16162800d3",
+      "bytes": 3011176
+    },
+    {
+      "path": "w3c/mol-css.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-css.epub",
+      "sha256": "e837e1e9c915d50124c1f7e4f3a2690b2e779ddb46b872d5a317fd60f982eb36",
+      "bytes": 8997942
+    },
+    {
+      "path": "w3c/mol-ignore.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-ignore.epub",
+      "sha256": "6cad0e92ba2e52e04cfa5ba0e48db518be06ea715aca995228169ac4a6c91424",
+      "bytes": 8997890
+    },
+    {
+      "path": "w3c/mol-navigation.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-navigation.epub",
+      "sha256": "35ce68c021e88ae447e91c71ab1d3e7c765b9a09eeb3d1171399c6bd137b8815",
+      "bytes": 598609
+    },
+    {
+      "path": "w3c/mol-support_xhtml-fxl.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-support_xhtml-fxl.epub",
+      "sha256": "cfb4f42a5e5361c75cef916df1f8c5f83b3ba3c5b30fba6d9ca65a62d74a7924",
+      "bytes": 8998151
+    },
+    {
+      "path": "w3c/mol-support_xhtml-load-fxl.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-support_xhtml-load-fxl.epub",
+      "sha256": "cb7ff4f18f25851814c72d9eba228be78d1883e488874279a97fe786d4f66669",
+      "bytes": 8999042
+    },
+    {
+      "path": "w3c/mol-support_xhtml-load-next-fxl.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-support_xhtml-load-next-fxl.epub",
+      "sha256": "9f88acf0c04a2d71fbbc6d1c413d4c26474bdd32cd33a46f63c9c5ddf854f095",
+      "bytes": 8999425
+    },
+    {
+      "path": "w3c/mol-support_xhtml-load-next.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-support_xhtml-load-next.epub",
+      "sha256": "c872b676250d546f2578e4cb1de41976b8260683669b3230801642f2e650f506",
+      "bytes": 8999145
+    },
+    {
+      "path": "w3c/mol-support_xhtml-load.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-support_xhtml-load.epub",
+      "sha256": "30170e321864765a66fee0e366a5967c3b3455466002f07b1afc2a45751feeb4",
+      "bytes": 8998763
+    },
+    {
+      "path": "w3c/mol-support_xhtml.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-support_xhtml.epub",
+      "sha256": "27bb581e0e618ee61ff7b64bd1614f7e0264bd4c5ec1075f4db5cadb7da39e2a",
+      "bytes": 8997957
+    },
+    {
+      "path": "w3c/mol-timing-synchronization.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-timing-synchronization.epub",
+      "sha256": "002efd0cbe3c60e8f6d021113308a7901772691a495b744e8ba561acc2e5b03d",
+      "bytes": 8997713
+    },
+    {
+      "path": "w3c/mol-timing-synchronization_fxl.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-timing-synchronization_fxl.epub",
+      "sha256": "8a01440a18c9d7babc18ab246d3734e9119700ee4d382df17900c35a446cb845",
+      "bytes": 3236561
+    },
+    {
+      "path": "w3c/mol-timing-synchronization_multiple_audio-fxl.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-timing-synchronization_multiple_audio-fxl.epub",
+      "sha256": "d18cfe71da0aec6a5b207cd627bbe61ae65bdf88952d8d26bc787dad1803f002",
+      "bytes": 3646978
+    },
+    {
+      "path": "w3c/mol-timing-synchronization_multiple_audio.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-timing-synchronization_multiple_audio.epub",
+      "sha256": "f05052953ee45171d8aae006ff7226efc8b60602ba871a552f5c05003c45350c",
+      "bytes": 3646782
+    },
+    {
+      "path": "w3c/mol-timing-synchronization_svg-fxl.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-timing-synchronization_svg-fxl.epub",
+      "sha256": "a41e7feba3cf5e666f673205311a9c686a15019b4ca13cb139bb03664ce136c7",
+      "bytes": 3012108
+    },
+    {
+      "path": "w3c/mol-timing-synchronization_svg.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-timing-synchronization_svg.epub",
+      "sha256": "620f988c4d85d8cda911e496ab67920356e1bcb63d05f2ab1928d4c60695322a",
+      "bytes": 3011995
+    },
+    {
+      "path": "w3c/mol-tts_multi.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-tts_multi.epub",
+      "sha256": "2d0fed1b0c5271791a2c40744260018d57c6e766c73862cc45439ea2ab57f96a",
+      "bytes": 3840
+    },
+    {
+      "path": "w3c/mol-tts_single.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/mol-tts_single.epub",
+      "sha256": "2de4ab39bda5c89c5a46e0658212f3ac695f6712c43a53dcea51c1e19289758b",
+      "bytes": 3799
+    },
+    {
+      "path": "w3c/nav-access.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/nav-access.epub",
+      "sha256": "51f8f926a4b2772827de1aac2dd4677efdade1b7bd7b86bba89cb354483c00e6",
+      "bytes": 1937
+    },
+    {
+      "path": "w3c/nav-activation.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/nav-activation.epub",
+      "sha256": "6d5898abc74c35e0a2875c3d0baf59ff4159a4a41189f8b2a7067c549b3b0e22",
+      "bytes": 2289
+    },
+    {
+      "path": "w3c/nav-non-text_img.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/nav-non-text_img.epub",
+      "sha256": "de89c0a8d5d51d06b53d0ea7a4276b1e14169d958c98ce7c85150d71ce9ec425",
+      "bytes": 239875
+    },
+    {
+      "path": "w3c/nav-non-text_img_title.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/nav-non-text_img_title.epub",
+      "sha256": "aedd2046460a8d1252c1911d5784269de3cf891d0fde1f354421d5b23601e364",
+      "bytes": 239881
+    },
+    {
+      "path": "w3c/nav-spine_in-spine-hidden-toc-css.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/nav-spine_in-spine-hidden-toc-css.epub",
+      "sha256": "0eef678236d6ea00e73d6d7432bd3b04fe4aed8c2fe910a49dc347f3d2ecb472",
+      "bytes": 2575
+    },
+    {
+      "path": "w3c/nav-spine_in-spine-hidden-toc-html.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/nav-spine_in-spine-hidden-toc-html.epub",
+      "sha256": "37af760b875a84a2e51ea44e5571e310329c6d9060a9761f76167a9eda01d456",
+      "bytes": 2565
+    },
+    {
+      "path": "w3c/nav-spine_in-spine-no-list-style.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/nav-spine_in-spine-no-list-style.epub",
+      "sha256": "f525f40a9ecd9623dc25cec06a89301cd2b8db64d5aad492ec0288f52127af5a",
+      "bytes": 2524
+    },
+    {
+      "path": "w3c/nav-spine_in-spine.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/nav-spine_in-spine.epub",
+      "sha256": "0afe8029a7f432d9602a1a83dad2cd793fcd0edc8e6586eefa32e339a9248923",
+      "bytes": 2267
+    },
+    {
+      "path": "w3c/nav-spine_not-in-spine.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/nav-spine_not-in-spine.epub",
+      "sha256": "4b793cee55851959314f1b62f73e1793be6d42a12877b947e53a6057c428d37c",
+      "bytes": 2297
+    },
+    {
+      "path": "w3c/ocf-font_obfuscation.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-font_obfuscation.epub",
+      "sha256": "11dd9d68fb7ace03ead5cb478a3717708ee680c1f345f1def97317c7e951957a",
+      "bytes": 55727
+    },
+    {
+      "path": "w3c/ocf-font_obfuscation_bis.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-font_obfuscation_bis.epub",
+      "sha256": "cb8626bfbc6755945b5fe7e9e671b2925c465c6de77404f23495e917cd9b5e53",
+      "bytes": 55783
+    },
+    {
+      "path": "w3c/ocf-metainf-inc.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-metainf-inc.epub",
+      "sha256": "682059aa3402473e6572fc7f333d1bfc49189ebbb84398ca9741a68595e8196c",
+      "bytes": 2569
+    },
+    {
+      "path": "w3c/ocf-metainf-manifest.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-metainf-manifest.epub",
+      "sha256": "1d60ba4ddbba22f672610b41467852aa0de3280ef149932c60aac4db32c601b8",
+      "bytes": 3157
+    },
+    {
+      "path": "w3c/ocf-package_arbitrary.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-package_arbitrary.epub",
+      "sha256": "cc535eb326ac43a07c61db56ab6ea2e3ed59f7f5d3e9419a5aad6547802d9852",
+      "bytes": 4928
+    },
+    {
+      "path": "w3c/ocf-package_multiple.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-package_multiple.epub",
+      "sha256": "55b217076cc51e67f83acf56b4b08b9752b6b300052fdf7d653b41673946d197",
+      "bytes": 4861
+    },
+    {
+      "path": "w3c/ocf-url_link-leaking-relative.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-url_link-leaking-relative.epub",
+      "sha256": "3644ae2b58dfb8b4bbf9977c1f2841900fe73e12559e1660a9d7422612e8b34c",
+      "bytes": 321387
+    },
+    {
+      "path": "w3c/ocf-url_link-path-absolute.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-url_link-path-absolute.epub",
+      "sha256": "199f89a480ffe7bc69b5fde12344842e99893a13079cd0494b558f04dde9f807",
+      "bytes": 321334
+    },
+    {
+      "path": "w3c/ocf-url_link-relative.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-url_link-relative.epub",
+      "sha256": "865aea7494e90fc1a020e09c78c432dd12bb0e9ecb8e2f8fa3a6fdbaf48963dc",
+      "bytes": 321320
+    },
+    {
+      "path": "w3c/ocf-url_manifest.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-url_manifest.epub",
+      "sha256": "b9582ceed5739e609c595b7a5e432bc80f02a7e266b0b4af0821f883682fbfd3",
+      "bytes": 2053
+    },
+    {
+      "path": "w3c/ocf-url_origin.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-url_origin.epub",
+      "sha256": "1479927e821dc4ca5535ebb7cde770c4337a52df12f38e1f6f7ee83c6d405c68",
+      "bytes": 2375
+    },
+    {
+      "path": "w3c/ocf-url_parse-leaking-relative.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-url_parse-leaking-relative.epub",
+      "sha256": "fd37ee8fedf38baf60f2840f5e38bfbb93c8cfcd248ea3274912ed1769eca507",
+      "bytes": 2719
+    },
+    {
+      "path": "w3c/ocf-url_parse-path-absolute.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-url_parse-path-absolute.epub",
+      "sha256": "0c26c50fb9f332191378055d90163327598f3a607ffa22bf8820a6de786c5ac6",
+      "bytes": 2605
+    },
+    {
+      "path": "w3c/ocf-url_relative.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-url_relative.epub",
+      "sha256": "b9f4ef840745ef08e4f29b06c0587e7ac08d3a26270c5b73e9979f4d08e93880",
+      "bytes": 2211
+    },
+    {
+      "path": "w3c/ocf-zip-comp.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-zip-comp.epub",
+      "sha256": "bcf00c7e1cb068138aae0368bc99fa629691880899ffd4b2a847d66b1c38e210",
+      "bytes": 2010
+    },
+    {
+      "path": "w3c/ocf-zip-mult.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-zip-mult.epub",
+      "sha256": "5b02485deec56e127a405c485ea4c605cb4d87eeda5ec78fb3929cb90ccd143d",
+      "bytes": 321244
+    },
+    {
+      "path": "w3c/pkg-collections-unknown.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-collections-unknown.epub",
+      "sha256": "3aedf26bf119de0251623374bf5a39390e07f7bd2c9575090d0938a4c85c7785",
+      "bytes": 1969
+    },
+    {
+      "path": "w3c/pkg-creator-order.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-creator-order.epub",
+      "sha256": "934490e50cf5b51551e5b0c0a1303f22c85958ef54637c301b9e564d8fd2daae",
+      "bytes": 2043
+    },
+    {
+      "path": "w3c/pkg-dir-auto_root-rtl.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-dir-auto_root-rtl.epub",
+      "sha256": "e0f98104dbc1e5c2ea3441c07c1177fc3a7a58f499b809688faaf552cc6a63a5",
+      "bytes": 2303
+    },
+    {
+      "path": "w3c/pkg-dir-auto_root-unset.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-dir-auto_root-unset.epub",
+      "sha256": "1842f7ce6c270cf1c1a76d38fb655dc59965f6b628044b6ea3a700362724e85a",
+      "bytes": 2214
+    },
+    {
+      "path": "w3c/pkg-dir_but_not_content.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-dir_but_not_content.epub",
+      "sha256": "293e48cf2e6b5c7bf03082be19347003db2ef97e124fe059a6bde3dd486f16ab",
+      "bytes": 2203
+    },
+    {
+      "path": "w3c/pkg-dir_creator-rtl.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-dir_creator-rtl.epub",
+      "sha256": "4ebf6d0e3cf02001a1550b2c84bf6a56810a61c78e80db463971e92bbe97e1a5",
+      "bytes": 1982
+    },
+    {
+      "path": "w3c/pkg-dir_rtl-root-ltr.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-dir_rtl-root-ltr.epub",
+      "sha256": "b1fabba020d4ccaf744185d8113d71f6f8476a4ec7d0f1304130ebceb47b3124",
+      "bytes": 2279
+    },
+    {
+      "path": "w3c/pkg-dir_rtl-root-unset.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-dir_rtl-root-unset.epub",
+      "sha256": "d333f5f93da4bffc11d9f46a50fcd72b220e3a1950a583082ad2ccabdf2027b5",
+      "bytes": 2194
+    },
+    {
+      "path": "w3c/pkg-dir_unset-root-rtl.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-dir_unset-root-rtl.epub",
+      "sha256": "4c40b1e7ea809db8ef8652da3b98c9280c14c1364e1322adf49be71e7d734817",
+      "bytes": 2221
+    },
+    {
+      "path": "w3c/pkg-dir_unset-root-unset.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-dir_unset-root-unset.epub",
+      "sha256": "9776423cb6d3519a28c69568643c5e0dfe80470c6b8ee4b95b44cd4a95644313",
+      "bytes": 2189
+    },
+    {
+      "path": "w3c/pkg-lang_but_not_content.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-lang_but_not_content.epub",
+      "sha256": "d2cc0e62a7c68614e234c10368da288d34bea418ce77b1fb1490a6ae9a00e9ab",
+      "bytes": 2369
+    },
+    {
+      "path": "w3c/pkg-linked-records.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-linked-records.epub",
+      "sha256": "9e52e25f6d0452ff56c2897d3a7ca9e49bc6f8e5fff122e5ddec155e2f12f042",
+      "bytes": 3305
+    },
+    {
+      "path": "w3c/pkg-manifest-unknown.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-manifest-unknown.epub",
+      "sha256": "52f54eaaa01453521483fecb745246bb1c1e9765fc61314fea017110532f2cc1",
+      "bytes": 1949
+    },
+    {
+      "path": "w3c/pkg-manifest-unlisted-resource.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-manifest-unlisted-resource.epub",
+      "sha256": "86cde07e9018c0129e6ed136a52feac41a951ee2c2bf33e31d73fa21e6c154c0",
+      "bytes": 5989
+    },
+    {
+      "path": "w3c/pkg-meta-unknown.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-meta-unknown.epub",
+      "sha256": "a171d5038966425b23626de93b27c3940707ce9250e549259a2c252b8fc64375",
+      "bytes": 1952
+    },
+    {
+      "path": "w3c/pkg-meta-whitespace.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-meta-whitespace.epub",
+      "sha256": "dda37309e8bf57e5729b650c1cf91b407a1a6705bf42745c89c196b4acff8e5c",
+      "bytes": 2038
+    },
+    {
+      "path": "w3c/pkg-spine-duplicate-item-hyperlink.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-spine-duplicate-item-hyperlink.epub",
+      "sha256": "2c3cc1709a3a6dc8dc74483d5229eaf5eb484d3743129428d2195c3f5c7ad600",
+      "bytes": 2346
+    },
+    {
+      "path": "w3c/pkg-spine-duplicate-item-rendering.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-spine-duplicate-item-rendering.epub",
+      "sha256": "96c59425150b0aa339a5816d640c2126c1c64cc84a92524eb7f6902936024810",
+      "bytes": 2292
+    },
+    {
+      "path": "w3c/pkg-spine-duplicate-item-ui.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-spine-duplicate-item-ui.epub",
+      "sha256": "5a474593a7b4a4cff1fb0d10bc4526ffbbdcc0cf56c50a28f919d81e74356d55",
+      "bytes": 2380
+    },
+    {
+      "path": "w3c/pkg-spine-nonlinear-activation.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-spine-nonlinear-activation.epub",
+      "sha256": "366893f9880ad083b61a3a09eaa7237260314b181261be76a26b901ee60246ec",
+      "bytes": 2334
+    },
+    {
+      "path": "w3c/pkg-spine-order-svg.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-spine-order-svg.epub",
+      "sha256": "e5407a13baf6b22526faa135dca4befa8f6b7711297ed93ef7dbfbe40987ae48",
+      "bytes": 2589
+    },
+    {
+      "path": "w3c/pkg-spine-order.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-spine-order.epub",
+      "sha256": "8a10b5e1ca645289db0e58ad721cb40144f518dd64a62f19ca458a9a59941f2f",
+      "bytes": 3045
+    },
+    {
+      "path": "w3c/pkg-spine-progression-default.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-spine-progression-default.epub",
+      "sha256": "a256b932ca9e3a3ca84a79d1067b73eeb279653dbf83fd0b6c3e5201b5cc715d",
+      "bytes": 3304
+    },
+    {
+      "path": "w3c/pkg-spine-progression-pre-paginated.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-spine-progression-pre-paginated.epub",
+      "sha256": "9e65e11ee1164738fcedff365a28afe7b8d9705b387cd1ebb2576bc66af13937",
+      "bytes": 229375
+    },
+    {
+      "path": "w3c/pkg-spine-progression_ltr.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-spine-progression_ltr.epub",
+      "sha256": "47b349708009bceb2b986b48e8a4339ae37122bff559768eb8d0d8a81696cf86",
+      "bytes": 3159
+    },
+    {
+      "path": "w3c/pkg-spine-progression_rtl.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-spine-progression_rtl.epub",
+      "sha256": "820cd422568c923a7e9a74076f826aa384c6ef51d683246c469fb085ff06ca7c",
+      "bytes": 3162
+    },
+    {
+      "path": "w3c/pkg-spine-unknown.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-spine-unknown.epub",
+      "sha256": "ccedd2589d971dcc63ac249d88e278434f2bd23165c76eeddc3ef095fb72c730",
+      "bytes": 1943
+    },
+    {
+      "path": "w3c/pkg-title-order.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-title-order.epub",
+      "sha256": "7be6f3807feb04c9e49c1dad3be540c75a8a0c3afda249850f1bab9d6366c3bc",
+      "bytes": 2001
+    },
+    {
+      "path": "w3c/pkg-unique-id.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-unique-id.epub",
+      "sha256": "545e9405c89662b9e7b96ca811e8981c80e6d0764357f091a1c75af44f72d8b5",
+      "bytes": 1968
+    },
+    {
+      "path": "w3c/pkg-unique-id_duplicate.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-unique-id_duplicate.epub",
+      "sha256": "5b43d0575c254d3e7c4bfa7b34af0008ae51ad776f0e9af358f1e7cc91baad22",
+      "bytes": 1976
+    },
+    {
+      "path": "w3c/pkg-version-backward.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-version-backward.epub",
+      "sha256": "9761028a774c89d66e03946ae3eecaddfdea2a375a3e599f3093ba1080f3707a",
+      "bytes": 1999
+    },
+    {
+      "path": "w3c/pss-support.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pss-support.epub",
+      "sha256": "1a2609f61b77117bfd1e5792cecda2eebe3b2abd92fc326495b962a98102a50e",
+      "bytes": 2072
+    },
+    {
+      "path": "w3c/pss-support_ignore-title.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pss-support_ignore-title.epub",
+      "sha256": "a1177732c3fd57941c255d0b53d4f69311e4e4f2ef3256107fc189ee90c37807",
+      "bytes": 2524
+    },
+    {
+      "path": "w3c/pub-cmt-avif.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-cmt-avif.epub",
+      "sha256": "75c32ca8b450736ec7baee8771c0d43ae637451f7eb5e9ed974804990f8b983a",
+      "bytes": 22364
+    },
+    {
+      "path": "w3c/pub-cmt-gif.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-cmt-gif.epub",
+      "sha256": "3c4b99a52e3d9e96dc36ef3884edd590c5d7c1b245e02d645ae5eb52a940cbdf",
+      "bytes": 135813
+    },
+    {
+      "path": "w3c/pub-cmt-jpeg.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-cmt-jpeg.epub",
+      "sha256": "948dbfd6498cfdef1e62262c2bfba1259be7092bbd9551f5519bba3d075b99e5",
+      "bytes": 29521
+    },
+    {
+      "path": "w3c/pub-cmt-jxl.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-cmt-jxl.epub",
+      "sha256": "950a2a9104462b507884b613377f0bd8501f666b9a6b747da49c52ab04fbc3be",
+      "bytes": 84806
+    },
+    {
+      "path": "w3c/pub-cmt-mp3.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-cmt-mp3.epub",
+      "sha256": "c1af130b6e1626070ce77ddac9299c7faca27d57009d0d71d88d5bbc2444e7bd",
+      "bytes": 22654
+    },
+    {
+      "path": "w3c/pub-cmt-mp4.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-cmt-mp4.epub",
+      "sha256": "c8deef7ce6a3285d34a8edbd67083c4bba2c26257885826241b60a750d454a2b",
+      "bytes": 14038
+    },
+    {
+      "path": "w3c/pub-cmt-opus.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-cmt-opus.epub",
+      "sha256": "d28f004b420ded5858f0dabfeaa7bfb8bd23c0492e0abb0a69ab2c831488c64e",
+      "bytes": 34350
+    },
+    {
+      "path": "w3c/pub-cmt-png.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-cmt-png.epub",
+      "sha256": "e254ea8d04eb8d117f6f1c918a60df956918fff09e88414e49f964c4788ea2c8",
+      "bytes": 315809
+    },
+    {
+      "path": "w3c/pub-cmt-svg.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-cmt-svg.epub",
+      "sha256": "0380fda3392e7243186ddf7b3a24bfdecf50da5ae454296bd2f0dfd98b250dac",
+      "bytes": 3473
+    },
+    {
+      "path": "w3c/pub-cmt-webp.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-cmt-webp.epub",
+      "sha256": "d354201e983e4d04a5e30263c75d48aa7c8d61d197a232ff5cf576976a928e28",
+      "bytes": 28187
+    },
+    {
+      "path": "w3c/pub-data-urls_browsing-context.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-data-urls_browsing-context.epub",
+      "sha256": "17e5bd11e07e322e98bd4fc84ae04790a40019b4135d2e7dfc786d0e05e32f3d",
+      "bytes": 4238
+    },
+    {
+      "path": "w3c/pub-data-urls_top-level-content.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-data-urls_top-level-content.epub",
+      "sha256": "6c4f731d5fc5195f22e3e17214cdc274bddfbcf72353780aef8c8c0c12fe6b69",
+      "bytes": 227216
+    },
+    {
+      "path": "w3c/pub-external-links.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-external-links.epub",
+      "sha256": "c6e45ef8d66e0ae990752d7b4133858abfaa422b909864c3d58cf14c39718b89",
+      "bytes": 2059
+    },
+    {
+      "path": "w3c/pub-external-links_consent.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-external-links_consent.epub",
+      "sha256": "27409a84843be9e293a74d52b56834be177a9595b66c91e9ac535299924e8ae4",
+      "bytes": 2067
+    },
+    {
+      "path": "w3c/pub-file-urls.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-file-urls.epub",
+      "sha256": "05b22586f2ea3fffcdc72733afb5de25e9bde9537974f60c416d67734c07ba34",
+      "bytes": 2269
+    },
+    {
+      "path": "w3c/pub-foreign_bad-fallback.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-foreign_bad-fallback.epub",
+      "sha256": "f76df775e92be37cb368eb96a504e7fa8a11bb22f5b6659745a913d7759c558b",
+      "bytes": 24111
+    },
+    {
+      "path": "w3c/pub-foreign_image.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-foreign_image.epub",
+      "sha256": "f97af9f2450f893d5fb4b194c6553ded208b729ad2c48f54b6944bd0bdb4f309",
+      "bytes": 713375
+    },
+    {
+      "path": "w3c/pub-foreign_json-spine.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-foreign_json-spine.epub",
+      "sha256": "6dbf2f7b961f4479f7e9afbc2d7cd1af831a7a391b6f88469bcf8939ec0be6dd",
+      "bytes": 2397
+    },
+    {
+      "path": "w3c/pub-foreign_xml-spine.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-foreign_xml-spine.epub",
+      "sha256": "c4c657923a184c3f9befe61b40ee74ad0403b170f5f504e41cc11b45548b41d0",
+      "bytes": 2368
+    },
+    {
+      "path": "w3c/pub-foreign_xml-suffix-spine.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-foreign_xml-suffix-spine.epub",
+      "sha256": "195c535d5b6182b6c7bdd0093736067d0b78f3efa678cf904224ce962cbc78a3",
+      "bytes": 2388
+    },
+    {
+      "path": "w3c/pub-xml-external-id.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-xml-external-id.epub",
+      "sha256": "cf4018681e71ed47dd89441e14c1f178ed5a2f499d577038890c4632e4830130",
+      "bytes": 2228
+    },
+    {
+      "path": "w3c/pub-xml-names.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-xml-names.epub",
+      "sha256": "4080b1981f87dd439f88d5257f38e488bfdb6758ec7580b14055027971c6c919",
+      "bytes": 1952
+    },
+    {
+      "path": "w3c/pub-xml-non-validating_comment.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-xml-non-validating_comment.epub",
+      "sha256": "ac8822a675d872b811c17c8ea080d4c6758033192b772d87f113925103e4423f",
+      "bytes": 2331
+    },
+    {
+      "path": "w3c/pub-xml-non-validating_unclosed.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/pub-xml-non-validating_unclosed.epub",
+      "sha256": "e0ebbeb30e9caa3192be2434e923b16a041996f5b52d7a77acfe22d4cdff0c18",
+      "bytes": 1956
+    },
+    {
+      "path": "w3c/scr-not-support_ccscript-modify-host.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-not-support_ccscript-modify-host.epub",
+      "sha256": "28d12819211799b890c71f12e308321e70302a9e9e9095cc86b2c078a51cacec",
+      "bytes": 2959
+    },
+    {
+      "path": "w3c/scr-not-support_ccscript-modify-size.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-not-support_ccscript-modify-size.epub",
+      "sha256": "fea897bc870c7c2e34b2a2a349a6cedfa97fc76f84a68c172008a55f6e339089",
+      "bytes": 2966
+    },
+    {
+      "path": "w3c/scr-readingsystem-features.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-readingsystem-features.epub",
+      "sha256": "b0a731540e471baefea01492ac2728e8f0e9094dd85644ea96c353a65cdae118",
+      "bytes": 2922
+    },
+    {
+      "path": "w3c/scr-readingsystem-support.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-readingsystem-support.epub",
+      "sha256": "028673b8b0053fa65a43cd578fbedd319047d372c41ed2d5c82cdba917882df4",
+      "bytes": 2474
+    },
+    {
+      "path": "w3c/scr-readingsystem-support_iframe.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-readingsystem-support_iframe.epub",
+      "sha256": "994a1b165f95cf501e553945bd6c7a35e383de407cbef7c950a4a8b128fe7ca0",
+      "bytes": 3215
+    },
+    {
+      "path": "w3c/scr-readingsystem-support_iframe_svg.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-readingsystem-support_iframe_svg.epub",
+      "sha256": "e7321f5f02b9d60924072f3a94c7f7547f4602b7e9482de12b56e8ab1798bde2",
+      "bytes": 3429
+    },
+    {
+      "path": "w3c/scr-readingsystem-support_svg.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-readingsystem-support_svg.epub",
+      "sha256": "c3d55e990d5932f2d2fbef81c01af946c0a3b269543b27ce742f2b4167bab423",
+      "bytes": 2669
+    },
+    {
+      "path": "w3c/scr-storage-delete.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-storage-delete.epub",
+      "sha256": "2eaa716faf74bd28921ec540a22f19d6cff0053d805443246d59869873c00680",
+      "bytes": 2600
+    },
+    {
+      "path": "w3c/scr-support-fallback.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-support-fallback.epub",
+      "sha256": "f9626fc266cc5f02682f108e9ce81e54c2da68a94e8ce07385823f5943e6c194",
+      "bytes": 2579
+    },
+    {
+      "path": "w3c/scr-support.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-support.epub",
+      "sha256": "e76fb0007b68607633d441a289fc93a9fd1e706027b05bc71711f70599104ac2",
+      "bytes": 2116
+    },
+    {
+      "path": "w3c/scr-support_iframe.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-support_iframe.epub",
+      "sha256": "a759b4bdad3bd463f540d39b5bf26e415e0cd69afc7c47c2f794dbcc9d32c7cc",
+      "bytes": 2810
+    },
+    {
+      "path": "w3c/scr-support_origin.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-support_origin.epub",
+      "sha256": "0c7a3f09748e5c4c8740d660104fd4423fad30539ccabfbdc4d5746102638a43",
+      "bytes": 3246
+    },
+    {
+      "path": "w3c/scr-support_origin_unique.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-support_origin_unique.epub",
+      "sha256": "f817c9bf8f6528566cd0dca8eed48d0f6528cebf51eee77d300965cf045f60eb",
+      "bytes": 2726
+    },
+    {
+      "path": "w3c/scr-support_scrolled-continuous.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-support_scrolled-continuous.epub",
+      "sha256": "1b2fc1493b26e63b651a1653c4e6708afd23ad07b54e68d28f404e4b4b139788",
+      "bytes": 27561
+    },
+    {
+      "path": "w3c/scr-support_scrolled-doc.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-support_scrolled-doc.epub",
+      "sha256": "f9a2998c738b6236ec9c14600e03f123a378e79003de59cb558ca1d5bb7fb3b1",
+      "bytes": 27572
+    },
+    {
+      "path": "w3c/scr-support_svg.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/scr-support_svg.epub",
+      "sha256": "86730a4bff2bacca4b08c40f6ab89fa3b5d8fdd48d47747dbad80a7f77e81e2e",
+      "bytes": 2447
+    },
+    {
+      "path": "w3c/sec-untrusted-consent_network.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/sec-untrusted-consent_network.epub",
+      "sha256": "92267487f83ef7ab36199650e6775ed0dedd94d0a80d2e0e754745578514b282",
+      "bytes": 2532
+    },
+    {
+      "path": "w3c/sec-untrusted-consent_scripting.epub",
+      "url": "https://w3c.github.io/epub-tests/tests/sec-untrusted-consent_scripting.epub",
+      "sha256": "087b0c2d6addf6ec3c4ed435841effb0152f82387c3a5550772fa41622bacfcb",
+      "bytes": 3256
+    }
+  ]
+}

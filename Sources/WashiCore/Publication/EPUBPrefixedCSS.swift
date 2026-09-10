@@ -22,64 +22,140 @@ public enum EPUBPrefixedCSS {
     ]
 
     /// スタイルシート本文に標準プロパティの宣言を補う。
-    /// 値の切れ目は `;` と宣言ブロックの終わり `}` の手前まで。
+    /// コメント・文字列・関数・カスタムプロパティの中身はそのまま保つ。
     public static func polyfilled(_ css: String) -> String {
-        var result = css
-        for (prefixed, standard) in unsupported {
-            guard result.contains(prefixed) else { continue }
-            result = expand(result, prefixed: prefixed, standard: standard)
+        let input = Array(css.utf8)
+        let properties = Dictionary(uniqueKeysWithValues: unsupported.map { ($0.prefixed, $0.standard) })
+        var output: [UInt8] = []
+        var unchangedStart = 0
+        var index = 0
+        var startsStatement = true
+        var groups: [UInt8] = []
+
+        while index < input.count {
+            let next = skippingTrivia(input, from: index)
+            if next != index { index = next; continue }
+            let byte = input[index]
+            if byte == 0x22 || byte == 0x27 {
+                index = skippingString(input, from: index)
+                startsStatement = false
+                continue
+            }
+            if byte == 0x5c { // An escaped delimiter is not CSS structure.
+                index += min(2, input.count - index)
+                startsStatement = false
+                continue
+            }
+            if groups.isEmpty, startsStatement {
+                var nameEnd = index
+                while nameEnd < input.count, isNameByte(input[nameEnd]) { nameEnd += 1 }
+                let name = String(decoding: input[index..<nameEnd], as: UTF8.self).lowercased()
+                let colon = skippingTrivia(input, from: nameEnd)
+                if colon < input.count, input[colon] == 0x3a,
+                   properties[name] != nil || name.hasPrefix("--") {
+                    let custom = name.hasPrefix("--")
+                    let end = endOfValue(input, from: colon + 1, custom: custom)
+                    // A top-level brace starts a nested rule, not a value for
+                    // one of these six properties. Leave such selectors alone.
+                    if custom || end == input.count || input[end] != 0x7b {
+                        if let standard = properties[name] {
+                            let value = String(decoding: input[(colon + 1)..<end], as: UTF8.self)
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !value.isEmpty {
+                                output.append(contentsOf: input[unchangedStart..<end])
+                                output.append(contentsOf: "; \(standard): \(value)".utf8)
+                                unchangedStart = end
+                            }
+                        }
+                        index = end
+                        startsStatement = false
+                        continue
+                    }
+                }
+            }
+            switch byte {
+            case 0x28: groups.append(0x29) // (
+            case 0x5b: groups.append(0x5d) // [
+            case 0x29, 0x5d:
+                if groups.last == byte { groups.removeLast() }
+            default: break
+            }
+            startsStatement = groups.isEmpty && (byte == 0x7b || byte == 0x7d || byte == 0x3b)
+            index += 1
         }
-        return result
+        guard unchangedStart != 0 else { return css }
+        output.append(contentsOf: input[unchangedStart...])
+        return String(decoding: output, as: UTF8.self)
     }
 
     /// テキスト種別が CSS のときだけ通す入口。
     public static func polyfilledStylesheet(_ data: Data) -> Data {
         guard let text = String(data: data, encoding: .utf8),
-              text.contains("-epub-") else { return data }
+              text.range(of: "-epub-", options: .caseInsensitive) != nil else { return data }
         let converted = polyfilled(text)
         return converted == text ? data : Data(converted.utf8)
     }
 
-    private static func expand(_ css: String, prefixed: String,
-                               standard: String) -> String {
-        var out = ""
-        out.reserveCapacity(css.count + 64)
-        var index = css.startIndex
-        while let range = css.range(of: prefixed, range: index..<css.endIndex) {
-            // 名前の一部(`-epub-line-breakish` 等)への誤爆を避ける
-            let after = range.upperBound
-            let beforeOK = range.lowerBound == css.startIndex
-                || !isNameCharacter(css[css.index(before: range.lowerBound)])
-            guard beforeOK, after < css.endIndex else {
-                out += css[index..<after]
-                index = after
-                continue
-            }
-            var cursor = after
-            while cursor < css.endIndex, css[cursor] == " " { cursor = css.index(after: cursor) }
-            guard css[cursor] == ":" else {
-                out += css[index..<after]
-                index = after
-                continue
-            }
-            let valueStart = css.index(after: cursor)
-            var valueEnd = valueStart
-            while valueEnd < css.endIndex, css[valueEnd] != ";", css[valueEnd] != "}" {
-                valueEnd = css.index(after: valueEnd)
-            }
-            let value = css[valueStart..<valueEnd]
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            out += css[index..<valueEnd]
-            if !value.isEmpty {
-                out += "; \(standard): \(value)"
-            }
-            index = valueEnd
+    private static func skippingTrivia(_ input: [UInt8], from start: Int) -> Int {
+        var index = start
+        while index < input.count {
+            if [0x09, 0x0a, 0x0c, 0x0d, 0x20].contains(input[index]) {
+                index += 1
+            } else if index + 1 < input.count, input[index] == 0x2f, input[index + 1] == 0x2a {
+                index += 2
+                while index + 1 < input.count,
+                      !(input[index] == 0x2a && input[index + 1] == 0x2f) { index += 1 }
+                index = min(input.count, index + 2)
+            } else { break }
         }
-        out += css[index...]
-        return out
+        return index
     }
 
-    private static func isNameCharacter(_ character: Character) -> Bool {
-        character.isLetter || character.isNumber || character == "-" || character == "_"
+    private static func skippingString(_ input: [UInt8], from start: Int) -> Int {
+        let quote = input[start]
+        var index = start + 1
+        while index < input.count {
+            let byte = input[index]
+            index += 1
+            if byte == quote { break }
+            if byte == 0x5c, index < input.count { index += 1 }
+        }
+        return index
+    }
+
+    private static func endOfValue(_ input: [UInt8], from start: Int, custom: Bool) -> Int {
+        var index = start
+        var groups: [UInt8] = []
+        while index < input.count {
+            let next = skippingTrivia(input, from: index)
+            if next != index { index = next; continue }
+            let byte = input[index]
+            if byte == 0x22 || byte == 0x27 {
+                index = skippingString(input, from: index)
+                continue
+            }
+            if byte == 0x5c {
+                index += min(2, input.count - index)
+                continue
+            }
+            if groups.isEmpty && (byte == 0x3b || byte == 0x7d || (!custom && byte == 0x7b)) {
+                return index
+            }
+            switch byte {
+            case 0x28: groups.append(0x29)
+            case 0x5b: groups.append(0x5d)
+            case 0x7b: groups.append(0x7d)
+            case 0x29, 0x5d, 0x7d:
+                if groups.last == byte { groups.removeLast() }
+            default: break
+            }
+            index += 1
+        }
+        return index
+    }
+
+    private static func isNameByte(_ byte: UInt8) -> Bool {
+        (0x41...0x5a).contains(byte) || (0x61...0x7a).contains(byte)
+            || (0x30...0x39).contains(byte) || byte == 0x2d || byte == 0x5f || byte >= 0x80
     }
 }
