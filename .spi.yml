@@ -1,5 +1,5 @@
 # Swift Package Index の設定。DocC ドキュメントを両プロダクトについて
-# 生成・ホストさせる(公開 API の doc コメントは英語)。
+# 生成・ホストさせる(公開 API の doc コメントは日本語を主に英語を併記)。
 # 登録: https://swiftpackageindex.com/add-a-package にリポジトリ URL を投稿。
 version: 1
 builder:
