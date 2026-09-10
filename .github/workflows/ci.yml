@@ -50,15 +50,14 @@ jobs:
       - name: Verify module interfaces were emitted
         shell: bash
         run: |
-          bin_path="$(swift build -c release --product WashiDynamic \
-              -Xswiftc -enable-library-evolution \
-              -Xswiftc -emit-module-interface \
-              -Xswiftc -verify-emitted-module-interface \
-              --show-bin-path)"
+          # 最近の SwiftPM は .swiftinterface を bin-path 直下ではなく中間ビルド生成物の
+          # ディレクトリに出力する。cooViewer の Scripts/build-washi-framework.sh も
+          # 同じ理由で .build 全体を検索するため、探索範囲を bin-path だけに狭めない。
+          build_path=".build"
           for module in Washi WashiCore; do
-            interfaces="$(find "$bin_path" -type f -name "${module}.swiftinterface" -print)"
+            interfaces="$(find "$build_path" -type f -name "${module}.swiftinterface" -not -path '*ModuleCache*' -print)"
             if [ -z "$interfaces" ]; then
-              echo "::error::Missing ${module}.swiftinterface under ${bin_path}"
+              echo "::error::Missing ${module}.swiftinterface under ${build_path}"
               exit 1
             fi
             printf '%s\n' "$interfaces"
