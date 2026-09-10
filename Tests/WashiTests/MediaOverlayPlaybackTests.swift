@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 import XCTest
 @testable import Washi
 @testable import WashiCore
@@ -206,6 +207,90 @@ final class MediaOverlayUXTests: XCTestCase {
         XCTAssertTrue((0...1).contains(position.parIndex),
                       "画面に見える区間から始まっていない: \(position.parIndex)")
         view.stopMediaOverlay()
+    }
+
+    func testCurrentPagePlaybackUsesCurrentDocumentInSharedOverlay() async throws {
+        let book = try EPUBPublication(
+            data: ZipBuilder.build(
+                EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
+            displayURL: URL(fileURLWithPath: "/tmp/washi-shared-current-page.epub"))
+        let window = NSWindow(
+            contentRect: NSRect(x: -20_000, y: -20_000, width: 480, height: 360),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 480, height: 360))
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            view.stopMediaOverlay()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        view.load(publication: book)
+        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        for _ in 0..<300 where web.alphaValue == 0 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        view.go(to: book.locator(forSpineIndex: 1, progression: 0))
+        for _ in 0..<300 where web.alphaValue == 0 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try await Task.sleep(for: .milliseconds(150))
+
+        await view.playMediaOverlayFromCurrentPage()
+        XCTAssertEqual(view.currentSpineIndex, 1)
+        XCTAssertEqual(view.mediaOverlayPosition?.spineIndex, 1)
+        XCTAssertEqual(view.mediaOverlayPosition?.parIndex, 2,
+                       "Duplicate fragment IDs in an earlier document must not win")
+    }
+
+    func testStopCancelsPendingCurrentPagePlaybackRequest() async throws {
+        let book = try EPUBPublication(
+            data: ZipBuilder.build(
+                EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
+            displayURL: URL(fileURLWithPath: "/tmp/washi-delayed-current-page.epub"))
+        let window = NSWindow(
+            contentRect: NSRect(x: -20_000, y: -20_000, width: 480, height: 360),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 480, height: 360))
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            view.stopMediaOverlay()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        view.load(publication: book)
+        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        for _ in 0..<300 where web.alphaValue == 0 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        _ = try await view.evaluateForTest("""
+            __washi.firstVisibleIdentifier = function(ids) {
+                return new Promise(function(resolve) {
+                    setTimeout(function() { resolve(ids[1] || ids[0] || null); }, 200);
+                });
+            };
+            return true;
+            """)
+
+        let generation = view.mediaOverlayCommandGeneration
+        let request = Task { @MainActor in
+            await view.playMediaOverlayFromCurrentPage()
+        }
+        for _ in 0..<100 where view.mediaOverlayCommandGeneration == generation {
+            await Task.yield()
+        }
+        XCTAssertNotEqual(view.mediaOverlayCommandGeneration, generation,
+                          "The delayed request must have started")
+        view.stopMediaOverlay()
+        await request.value
+        XCTAssertFalse(view.isPlayingMediaOverlay)
+        XCTAssertNil(view.mediaOverlayPosition,
+                     "A response older than stop() must not restart narration")
     }
 
     /// 既定のハイライトクラスに下地の CSS を与えている

@@ -11,7 +11,8 @@ consumer compatibility, sanitizer/stress results, and a published Washi release.
 - Public corpus: 251 downloaded EPUBs. Original URLs, SHA-256, sizes, and license
   sources are in [the corpus manifest](../Tests/Corpus/manifest.json) and
   [instructions](../Tests/Corpus/README.md).
-- After the ZIP/cache/CSS changes: 435 tests with corpus enabled, 0 failures, 0 skips;
+- After the ZIP/cache/CSS and media-overlay changes: 450 tests with corpus enabled,
+  0 failures, 0 skips;
   all 251 books completed the core smoke pass, including all seven Japanese samples.
   This is a parser/resource smoke result, not a claim of complete EPUB conformance.
 
@@ -60,6 +61,35 @@ boundaries. It preserves quoted or commented examples instead of turning them
 into declarations. CSS whitespace/comments before colons and ASCII uppercase
 property names now work. The 12 CSS unit/delivery tests passed, including actual
 WebKit computed-style verification for vertical text combination.
+
+### Recursive media-overlay skipping exhausted the stack
+
+Skipping an EPUB `par` called `advancePar()` and `startCurrentPar()` recursively.
+A SMIL document with 20,000 skipped entries terminated the test process with
+signal 11. The same recursion crossed publication items too: 5,000 distinct
+skipped overlays also terminated with signal 11. The transition now scans clips
+and following overlays iteratively, keeping candidate state local until it finds
+a playable clip. Empty or unparseable intermediate overlays no longer hide a
+later valid one, and a run that reaches the end does not expose the position of
+a chapter that was never displayed.
+
+Skippability now includes `epub:type` tokens inherited from ancestor `seq`
+elements and applies to every same-audio transition. A fake audio player makes
+the contiguous-clip tests independent of audio hardware. Non-finite playback
+rates fall back to 1× before reaching AVFoundation.
+
+Two related asynchronous state errors were repaired. Starting a shared SMIL
+from its second content document now selects that document's first `par`, and
+duplicate fragment identifiers in earlier documents cannot win current-page
+selection. A command and document generation check discards a delayed WebKit
+answer after stop, another play command, navigation, or publication replacement.
+Automatic navigation also verifies its actual destination after synchronous
+delegate callbacks before starting audio.
+
+The 5,000-overlay and 20,000-par reproductions, shared-document starts, empty
+overlay traversal, delayed Promise, reentrant navigation, and playback-state
+tests pass. The media-overlay/state selection passed 30 tests under Address
+Sanitizer, with no sanitizer report.
 
 ## External implementations and active consumers
 

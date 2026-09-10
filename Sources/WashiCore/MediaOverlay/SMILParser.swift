@@ -13,7 +13,8 @@ public struct MediaOverlay: Sendable {
         public let clipBegin: Double
         /// Clip end in seconds (end of media when omitted).
         public let clipEnd: Double?
-        /// epub:type (used to decide skippability: footnote / pagebreak, etc.).
+        /// epub:type tokens on this par and its ancestors (used to decide
+        /// skippability: footnote / pagebreak, etc.).
         public let epubType: String?
     }
 
@@ -35,23 +36,29 @@ enum SMILParser {
     }
 
     private static func collectParallels(
-        in element: XMLElement, into result: inout [MediaOverlay.Parallel]) {
+        in element: XMLElement, inheritedTypes: [String] = [],
+        into result: inout [MediaOverlay.Parallel]) {
+        var types = inheritedTypes
+        if let own = element.attr("type", ns: XMLNamespace.epubOps, prefix: "epub") {
+            types.append(own)
+        }
         for node in element.children ?? [] {
             guard let child = node as? XMLElement else { continue }
             if child.localName == "par" {
                 let text = child.wsFirst("text", ns: XMLNamespace.smil)?.attr("src")
                 let audio = child.wsFirst("audio", ns: XMLNamespace.smil)
+                let parTypes = types + [child.attr("type", ns: XMLNamespace.epubOps,
+                                                 prefix: "epub")].compactMap { $0 }
                 result.append(MediaOverlay.Parallel(
                     textHref: text,
                     audioHref: audio?.attr("src"),
                     clipBegin: audio?.attr("clipBegin")
                         .flatMap(parseClockValue) ?? 0,
                     clipEnd: audio?.attr("clipEnd").flatMap(parseClockValue),
-                    epubType: child.attr("type", ns: XMLNamespace.epubOps,
-                                         prefix: "epub")))
+                    epubType: parTypes.isEmpty ? nil : parTypes.joined(separator: " ")))
             } else {
                 // seq(と body)は再帰的に順序どおり平坦化する
-                collectParallels(in: child, into: &result)
+                collectParallels(in: child, inheritedTypes: types, into: &result)
             }
         }
     }

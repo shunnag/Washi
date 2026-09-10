@@ -262,6 +262,24 @@ public final class EPUBReaderView: NSView {
         keyOptions: [.weakMemory, .objectPointerPersonality], valueOptions: .strongMemory)
     /// メディアオーバーレイ(SMIL)再生エンジン(再生時に生成)
     var mediaOverlayController: MediaOverlayController?
+    /// `playMediaOverlayFromCurrentPage()` の JS 応答より後に届いた操作が、
+    /// 古い応答から再生を開始しないためのコマンド世代。
+    var mediaOverlayCommandGeneration: UInt = 0
+    struct MediaOverlayDocumentContext: Equatable {
+        let publication: ObjectIdentifier?
+        let navigationRequest: UInt
+        let spineLoad: Int
+        let spineIndex: Int
+        let pageInItem: Int
+    }
+    func mediaOverlayDocumentContext() -> MediaOverlayDocumentContext {
+        MediaOverlayDocumentContext(
+            publication: publication.map { ObjectIdentifier($0) },
+            navigationRequest: navigationRequestGeneration,
+            spineLoad: spineLoadGeneration,
+            spineIndex: currentSpineIndex,
+            pageInItem: pageInItem)
+    }
     /// めくりアニメーションのオーバーレイ(spine 切替時に掃除)
     var turnOverlays: [NSView] = []
     /// 直前のめくり時刻(高速連打時はアニメーションを省略して即めくり)
@@ -719,6 +737,7 @@ public final class EPUBReaderView: NSView {
     /// Opens a book. Pass a locator to resume from the previous position.
     /// Host-added overlay subviews keep their z-order across web view rebuilds.
     public func load(publication: EPUBPublication, at locator: EPUBLocator? = nil) {
+        mediaOverlayCommandGeneration &+= 1
         let request = beginNavigationRequest()
         cancelPendingTextRangeRequest()
         setCurrentSelection(nil)
