@@ -1,14 +1,23 @@
 import Foundation
 
+/// 目次・ページ一覧・ランドマークの 1 項目(木構造)。
+///
 /// A single entry in the table of contents, page list, or landmarks (a tree structure).
 public struct EPUBNavItem: Sendable, Hashable {
     public let title: String
+    /// ``EPUBNavigation/basePath`` を基準に解決する href(フラグメントを含む)。
+    /// 通常は記載されたまま保持する。空の HTML ナビゲーション表へ統合する
+    /// NCX 項目は、両文書のリンク先を保つためコンテナルートからの相対参照に
+    /// 変えることがある。見出しだけの項目(リンクのない span)では nil。
+    ///
     /// The href to resolve against ``EPUBNavigation/basePath``, including any
     /// fragment. It is normally preserved as written; NCX entries merged into
     /// an empty HTML navigation table may be made container-root-relative so
     /// both documents' links retain the same targets. Nil for heading-only
     /// entries (a linkless span).
     public let href: String?
+    /// ランドマークの epub:type("cover" / "bodymatter" / "toc" など)。
+    ///
     /// The landmark's epub:type ("cover" / "bodymatter" / "toc", etc.).
     public let epubType: String?
     public let children: [EPUBNavItem]
@@ -22,11 +31,15 @@ public struct EPUBNavItem: Sendable, Hashable {
     }
 }
 
+/// ナビゲーションデータ一式。
+///
 /// A complete set of navigation data.
 public struct EPUBNavigation: Sendable {
     public var toc: [EPUBNavItem] = []
     public var pageList: [EPUBNavItem] = []
     public var landmarks: [EPUBNavItem] = []
+    /// ナビゲーション文書(または NCX)のコンテナ相対パス。href 解決の基準に使う。
+    ///
     /// The container-relative path of the navigation document (or NCX), used as the base for resolving hrefs.
     public var basePath: String = ""
 }
@@ -169,12 +182,19 @@ enum NCXParser {
     }
 }
 
+/// 階層の深さを付けて平坦化した目次の 1 項目。
+///
 /// One entry of a depth-flattened table of contents.
 public struct EPUBFlatTOCEntry: Sendable, Hashable {
     public let title: String
+    /// ナビゲーション文書からの相対 href(フラグメントを含む)。
+    /// 見出しだけの項目では nil。
+    ///
     /// The href relative to the navigation document (with any fragment), or nil
     /// for a heading-only entry.
     public let href: String?
+    /// 入れ子の深さ。最上位の項目は 0。
+    ///
     /// Nesting depth, 0 for a top-level entry.
     public let depth: Int
 
@@ -186,6 +206,8 @@ public struct EPUBFlatTOCEntry: Sendable, Hashable {
 }
 
 extension EPUBNavItem {
+    /// この部分木を深さ優先で平坦化し、各項目に深さを付けた一覧。
+    ///
     /// This subtree flattened to a depth-first list with depth levels.
     public func flattened(startingAt depth: Int = 0) -> [EPUBFlatTOCEntry] {
         var result = [EPUBFlatTOCEntry(title: title, href: href, depth: depth)]
@@ -197,6 +219,9 @@ extension EPUBNavItem {
 }
 
 extension EPUBNavigation {
+    /// 目次を深さ優先で平坦化し、各項目に深さを付けた一覧。木をたどる代わりに
+    /// 平坦なアウトラインを描画するホスト向け。
+    ///
     /// The table of contents flattened to a depth-first list with depth levels,
     /// for hosts that render a flat outline instead of walking the tree.
     public var flattenedTOC: [EPUBFlatTOCEntry] {

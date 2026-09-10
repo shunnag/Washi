@@ -82,6 +82,13 @@ struct WebContentReloadLimiter {
     }
 }
 
+/// WKWebView ベースの EPUB リーダービュー。
+/// リフローコンテンツは `ReaderScripts` のページ割りで描画し、
+/// 固定レイアウトのコンテンツは pageZoom とフレーム調整により、
+/// 縦横比を保って ICB 内に収める。
+/// 余白はネイティブ側で実現する(webView のインセット配置とレイヤーの
+/// 背景)。これにより CSS マルチカラムの座標計算を単純に保つ。
+///
 /// An EPUB reader view (WKWebView-based).
 /// Reflowable content is drawn via `ReaderScripts` pagination; fixed-layout
 /// content is aspect-fitted into its ICB (pageZoom + frame adjustment).
@@ -95,16 +102,23 @@ public final class EPUBReaderView: NSView {
     public private(set) var publication: EPUBPublication?
     public weak var delegate: (any EPUBReaderViewDelegate)?
 
+    /// 現在の正規化済みテキスト選択。選択が空、または始点と終点が
+    /// 同じ場合は `nil`。
+    ///
     /// The current normalized text selection, or `nil` when the selection is
     /// empty or collapsed.
     public private(set) var currentSelection: EPUBTextSelection?
 
+    /// 出版物のページリストで宣言された印刷ページのラベル(文書順)。
+    ///
     /// Print page labels declared by the publication's page list, in document
     /// order.
     public var printPageLabels: [String] {
         flattenedPrintPageList.map(\.title)
     }
 
+    /// 確定した読書位置、またはそれ以前にある最後の印刷ページマーカー。
+    ///
     /// The last print page marker at or before the settled reading position.
     public private(set) var currentPrintPage: String?
 
@@ -183,11 +197,19 @@ public final class EPUBReaderView: NSView {
                                     NSTextField(labelWithString: "")]
     /// 現在ページが「画像 1 枚だけのページ」(表紙等)か。ノンブルを隠す
     private var isImagePage = false
+    /// 実行時の 1 画面あたりのページ数(1 = 単ページ / 2 = 見開き)。
+    /// 画像 1 枚だけのページでは見開きモードでも 1 になる。見開きの
+    /// 切り替えには ``plannedPagesPerScreen`` または
+    /// ``toggleColumnMode()`` を使う。
+    ///
     /// Run-time number of pages per screen (1 = single page / 2 = spread).
     /// Single-image pages report 1 even in spread mode; use
     /// ``plannedPagesPerScreen`` or ``toggleColumnMode()`` for a spread toggle.
     public private(set) var pagesPerScreen = 1
 
+    /// この WebKit が縦組みの見開きに必要な column-axis 機能を
+    /// サポートするかどうか。未対応のエンジンでは単ページに切り替わる。
+    ///
     /// Whether this WebKit supports the column-axis feature required for
     /// vertical two-page spreads. Unsupported engines fall back to one page.
     public private(set) var columnAxisSupported = true
@@ -195,12 +217,16 @@ public final class EPUBReaderView: NSView {
     /// 可視ページとネイティブのノンブルを同じ側へ置く(cooViewer-oxr.58)。
     private var firstPageOnRight = false
 
+    /// 現在の読書位置。
+    ///
     /// Current position
     public private(set) var currentSpineIndex = 0
     public private(set) var pageInItem = 0
     public private(set) var pageCountInItem = 1
     private var isFixedLayoutItem = false
 
+    /// 過去に記録した移動位置へ戻れるかどうか。
+    ///
     /// Whether a previously recorded navigation position is available.
     public private(set) var canGoBack = false
     /// cooViewer-oxr.31: ページめくりとは分離したジャンプ履歴を有限に保つ。
@@ -329,10 +355,16 @@ public final class EPUBReaderView: NSView {
 
     // MARK: - ライフサイクル
 
+    /// キーボードフォーカスを受け付ける(ホストからのキーバインド転送と、
+    /// モード切り替え時の `makeFirstResponder` の対象)。
+    ///
     /// Accepts keyboard focus (the landing point for the host's key-binding
     /// forwarding and for `makeFirstResponder` on mode switches).
     public override var acceptsFirstResponder: Bool { true }
 
+    /// コンテナが受け取ったキーを、Web ビューと共通のキーボード設定の
+    /// 規則に従って処理する。
+    ///
     /// Routes a key received by the container through the same keyboard
     /// settings contract used by its web view.
     public override func keyDown(with event: NSEvent) {
@@ -444,6 +476,8 @@ public final class EPUBReaderView: NSView {
 
     // MARK: - ピンチ(フォント倍率)
 
+    /// フォント倍率に指定できる範囲。
+    ///
     /// Allowed range for the font scale.
     public static let fontScaleRange: ClosedRange<Double> = 0.5...3.0
 
@@ -481,6 +515,8 @@ public final class EPUBReaderView: NSView {
         }
     }
 
+    /// フォント倍率を指定量だけ増減する(キーバインドやメニュー用)。
+    ///
     /// Steps the font scale up or down (for key bindings and menus).
     public func adjustFontScale(by delta: Double) {
         let target = min(Self.fontScaleRange.upperBound,
@@ -734,6 +770,10 @@ public final class EPUBReaderView: NSView {
 
     // MARK: - 本の読み込み
 
+    /// 本を開く。前回の位置から再開するには locator を渡す。
+    /// ホストが追加したオーバーレイサブビューの重なり順は、Web ビューを
+    /// 再構築しても保たれる。
+    ///
     /// Opens a book. Pass a locator to resume from the previous position.
     /// Host-added overlay subviews keep their z-order across web view rebuilds.
     public func load(publication: EPUBPublication, at locator: EPUBLocator? = nil) {
@@ -890,6 +930,9 @@ public final class EPUBReaderView: NSView {
             renditionSpread: effectiveSpread(forSpineIndex: currentSpineIndex))
     }
 
+    /// 現在のネイティブ余白の内側にある本文ページ領域。
+    /// リーダービューの座標系で表す。
+    ///
     /// The content page area inside the active native margins, expressed in
     /// reader-view coordinates.
     public var contentFrame: CGRect {
@@ -906,6 +949,10 @@ public final class EPUBReaderView: NSView {
 
     /// cooViewer-oxr.35: native のノンブルは見た目だけの furniture なので、
     /// NSTextField に hit を奪わせず余白と同じ reader-view 入力経路へ通す。
+    ///
+    /// cooViewer-oxr.35: Native folios are purely visual page furniture, so
+    /// route hits through the reader-view input path used for the margins
+    /// instead of letting NSTextField intercept them.
     public override func hitTest(_ point: NSPoint) -> NSView? {
         guard let target = super.hitTest(point) else { return nil }
         if pageNumberLabels.contains(where: {
@@ -1098,6 +1145,8 @@ public final class EPUBReaderView: NSView {
 
     // MARK: - ナビゲーション API
 
+    /// 本の実効的な綴じ方向が右から左かどうか。
+    ///
     /// Whether the book's effective reading direction is right-to-left.
     public var isRTL: Bool {
         publication?.effectiveReadingDirection == .rtl
@@ -1117,10 +1166,20 @@ public final class EPUBReaderView: NSView {
         await callWashiReturning(body)
     }
 
+    /// 出版物が要求するフロー(`rendition:flow`)と、ひと続きのスクロールを
+    /// 求めているかどうか(`rendition:layout="roll"`、または `roll` の登場前に
+    /// 日本の出版社が使っていた `pre-paginated` + `scrolled-continuous`
+    /// の組み合わせ)。
+    ///
     /// The flow the publication asks for (`rendition:flow`), and whether it
     /// wants one continuous scroll (`rendition:layout="roll"`, or the
     /// `pre-paginated` + `scrolled-continuous` pair Japanese publishers used
     /// before `roll` existed).
+    ///
+    /// 現在のリーダーは常に CSS マルチカラムでページ割りするため、
+    /// この指定を表示には適用せず、ホストが独自の表示方法を選べるよう
+    /// 情報として返す。スクロール専用モードは別途対応する
+    /// (cooViewer-gse.8 / cooViewer-oxr.46 C27)。
     ///
     /// The reader paginates with CSS multi-column in every case today, so this
     /// is reported rather than obeyed: a host can use it to pick its own
@@ -1130,12 +1189,23 @@ public final class EPUBReaderView: NSView {
         publication?.package.metadata.rendition.flow ?? .auto
     }
 
+    /// 出版物がひと続きのスクロール表示を求めているかどうか。
+    ///
     /// Whether the publication asks to be shown as one continuous scroll.
     public var requestsContinuousScroll: Bool {
         publication?.package.isScrollLike ?? false
     }
 
+    /// 本文に重ねて描画する、保存済みのハイライトとメモ。
+    ///
     /// Saved highlights (and notes) to draw over the book.
+    ///
+    /// `spineIndex` または `idref` が表示中の項目と一致するものだけを
+    /// 描画する。残りも保持するため、ページをめくった際に追加の
+    /// やり取りなしで表示できる。描画には CSS Custom Highlight API を使い、
+    /// 本の DOM を変更せず、範囲が重なっても要素を入れ子にしない。
+    /// 錨は抽出本文の UTF-16 範囲なので、文字サイズ・ビューポート・
+    /// テーマを変えてもずれない(cooViewer-oxr.46 C40)。
     ///
     /// Only the ones whose `spineIndex` (or `idref`) matches the item on screen
     /// are drawn; the rest are kept so a page turn shows them without another
@@ -1166,6 +1236,13 @@ public final class EPUBReaderView: NSView {
         evaluate("__washi.setHighlights(\(json));")
     }
 
+    /// テキストの錨を付けた現在位置(cooViewer-oxr.46 C52)。
+    /// `progression` だけでは復元時に再量子化されるため、文字サイズや
+    /// ビューポートを変えると保存位置が数ページずれる。錨にはページ先頭の
+    /// 文字を記録し、同じ文へ戻れるようにする。しおりや最終読書位置の
+    /// 保存時に取得すること。Web ビューとのやり取りが 1 往復発生する。
+    /// 画像や空ページなど、位置を解決できない場合は通常の locator を返す。
+    ///
     /// The current position with a text anchor attached (cooViewer-oxr.46 C52).
     /// `progression` alone is re-quantized on restore, so a saved position
     /// drifts by a few pages after a font-size or viewport change; the anchor
@@ -1207,12 +1284,19 @@ public final class EPUBReaderView: NSView {
                            progression: progression)
     }
 
+    /// 読書順に進む(項目内の次ページ → 次の spine 項目)。
+    /// リフローコンテンツの項目内移動の判断は JS (turnInDoc) に任せる。
+    /// ネイティブ側のページカウンタは非同期で更新されるため、それに頼ると
+    /// 高速なキーリピートで競合し、章全体を飛ばしてしまう。
+    ///
     /// Advances in reading order (next page within the item → next spine item).
     /// The within-item decision for reflowable content is left to JS (turnInDoc):
     /// the native page counter is updated asynchronously, so relying on it would
     /// race under rapid key-repeat and skip whole chapters.
     public func goForward() { turnInDocAnimated(forward: true) }
 
+    /// 読書順に戻る。
+    ///
     /// Goes back in reading order.
     public func goBackward() { turnInDocAnimated(forward: false) }
 
@@ -1504,6 +1588,8 @@ public final class EPUBReaderView: NSView {
         }
     }
 
+    /// 物理的な方向でページをめくる(右から左へ読む本では「左」が前進)。
+    ///
     /// Page turn by physical direction (in a right-to-left book, "left" = forward).
     public func turnPageLeft() { isRTL ? goForward() : goBackward() }
     public func turnPageRight() { isRTL ? goBackward() : goForward() }
@@ -1512,6 +1598,8 @@ public final class EPUBReaderView: NSView {
         navigate(to: locator, recordsHistory: true)
     }
 
+    /// 最後に記録したジャンプ元へ移動する。移動履歴がない場合は何もしない。
+    ///
     /// Navigates to the most recently recorded jump origin. Does nothing when
     /// no navigation history is available.
     public func goBack() {
@@ -1546,17 +1634,29 @@ public final class EPUBReaderView: NSView {
         }
     }
 
+    /// リフローの spine 項目内で、指定した UTF-16 テキスト範囲へ
+    /// 正確に移動する。
+    ///
     /// Navigates to an exact UTF-16 text range in a reflowable spine item.
+    ///
+    /// 返す矩形は、このリーダービューの座標系で表す。locator または
+    /// 範囲を解決できない場合は `nil` を返すので、呼び出し側は進行率に
+    /// 基づく移動へ切り替えられる。
     ///
     /// The returned rectangles are expressed in this reader view's coordinate
     /// system. Returns `nil` when the locator or range cannot be resolved, so
     /// callers can fall back to progression-based navigation.
     ///
     /// - Parameters:
-    ///   - locator: The spine item containing the extracted-text range.
-    ///   - textRange: The offset and length in UTF-16 code units of that item's
+    ///   - locator: 抽出本文の範囲を含む spine 項目。
+    ///     The spine item containing the extracted-text range.
+    ///   - textRange: その項目の抽出されたプレーンテキストにおける、
+    ///     UTF-16 コード単位でのオフセットと長さ。
+    ///     The offset and length in UTF-16 code units of that item's
     ///     extracted plain text.
-    /// - Returns: The exact DOM landing, or `nil` if exact positioning fails.
+    /// - Returns: DOM 上の正確な到達位置。
+    ///   正確に位置を合わせられない場合は `nil`。
+    ///   The exact DOM landing, or `nil` if exact positioning fails.
     public func go(
         to locator: EPUBLocator,
         textRange: (utf16Offset: Int, utf16Length: Int)
@@ -1599,6 +1699,8 @@ public final class EPUBReaderView: NSView {
         }
     }
 
+    /// 目次項目へ移動する。
+    ///
     /// Navigates to a table-of-contents item.
     public func go(to navItem: EPUBNavItem) {
         guard let publication,
@@ -1615,7 +1717,13 @@ public final class EPUBReaderView: NSView {
         }
     }
 
+    /// 解決済みの内部リンクを、リーダーの既定の移動方法でたどる。
+    ///
     /// Follows a resolved internal link using the reader's default navigation.
+    ///
+    /// delegate の内部リンクポリシーのコールバックを経由せず、移動前に
+    /// 現在の locator を移動履歴へ記録する。リンクを捕捉した後、ホストが
+    /// 改めて移動すると決めたときに使う。
     ///
     /// This method bypasses the delegate's internal-link policy callback and
     /// records the current locator in navigation history before moving. Use it
@@ -1624,6 +1732,9 @@ public final class EPUBReaderView: NSView {
         goToContainerPath(link.containerPath, fragment: link.fragment)
     }
 
+    /// 出版物のページリストで宣言された印刷ページのラベルへ移動する。
+    /// 一致するラベルのうち、移動先を解決できるものがなければ false を返す。
+    ///
     /// Navigates to a print page label declared by the publication's page
     /// list. Returns false when no resolvable matching label exists.
     @discardableResult
@@ -1790,6 +1901,8 @@ public final class EPUBReaderView: NSView {
         return EPUBTextRangeLanding(pageInItem: page, text: text, rects: rects)
     }
 
+    /// 現在の DOM 選択を解除し、選択状態が nil になったことを直ちに通知する。
+    ///
     /// Clears the current DOM selection and immediately publishes a nil
     /// selection state.
     public func clearSelection() {
@@ -1799,6 +1912,10 @@ public final class EPUBReaderView: NSView {
         callWashiAsync("return __washi.clearSelection();", arguments: [:])
     }
 
+    /// 現在読み込まれている spine 項目内で、正規化済みの UTF-16 テキスト
+    /// 範囲のうち可視部分の矩形を返す。別の spine 項目には空配列を返し、
+    /// 副作用としてその項目を読み込むことはない。
+    ///
     /// Returns the visible fragments for a normalized UTF-16 text range in
     /// the currently loaded spine item. Other spine items return an empty
     /// array and are not loaded as a side effect.
@@ -2117,14 +2234,24 @@ public final class EPUBReaderView: NSView {
 
     // MARK: - 全文ページ数の実測(census)
 
+    /// 現在のメトリクスでの各 spine 項目のページ数(実測完了までは nil)。
+    /// 文字サイズ、ウインドウ寸法、見開きモードが変わるたびに再実測する。
+    ///
     /// Page count of each spine item at the current metrics (nil until the
     /// measurement completes). Re-measured whenever the font size, window
     /// dimensions, or spread mode change.
     public private(set) var pageCensus: [Int]?
 
+    /// 本全体の総ページ数(census 完了までは nil)。
+    ///
     /// Total page count across the whole book (nil until the census completes).
     public var censusTotalPages: Int? { pageCensus?.reduce(0, +) }
 
+    /// 完了した本全体の census を書き出す。ホストが保存し、次に本を開く際に
+    /// 再注入すれば、オフスクリーンでの再実測を省ける(N/M のページ表示と
+    /// ページバーが即座に現れる)。現在のメトリクスでの census が完了する
+    /// までは nil。
+    ///
     /// Exports the completed whole-book census so a host can persist it and
     /// re-inject it on a later open, skipping the offscreen re-measure (the
     /// N/M page label and page bar then appear immediately). Nil until the
@@ -2138,6 +2265,15 @@ public final class EPUBReaderView: NSView {
             releaseIdentifier: publication?.metadata.releaseIdentifier)
     }
 
+    /// 以前書き出した census を取り込む。spine 項目数とリリース識別子が
+    /// 現在の本と一致する場合に限り受け付ける。リリース識別子には、
+    /// 更新日時があればそれを使い、なければパッケージ識別子を使う。
+    /// パッケージに一意の識別子がない場合に限り nil になる。
+    /// メトリクスキーが現在の表示メトリクスとも一致すれば即座に適用し、
+    /// 一致しなければキャッシュして、そのメトリクスで表示が確定した時点で
+    /// 適用する。受け付けたかどうかを返す。0 以下のページ数や、合計が `Int` で
+    /// オーバーフローするページ数は、現在の census を変更せず拒否する。
+    ///
     /// Seeds a previously exported census. It is accepted only if it matches
     /// the current book — same spine item count and same release identifier.
     /// The release identifier uses the modified timestamp when present, then
@@ -2164,6 +2300,11 @@ public final class EPUBReaderView: NSView {
         return true
     }
 
+    /// 完了した census のメトリクスキー(ホストが自身のキャッシュ内で
+    /// census を再利用する際に、一致を検証するための値)。実測が完了して
+    /// 初めて値を返す。`censusKey` は実測開始時に先行して更新されるため、
+    /// それだけでは実測完了を判断できない。
+    ///
     /// The metrics key of the completed census (for the host to validate a
     /// match when reusing the census in its own cache). Returns a value only
     /// once the measurement has completed — `censusKey` alone cannot be trusted,
@@ -2179,12 +2320,18 @@ public final class EPUBReaderView: NSView {
     /// メトリクスキー → 実測結果(フォントを行き来したときの再計測を省く)
     private var censusCache: [String: [Int]] = [:]
 
+    /// spine 項目の先頭ページの、本全体でのオフセット(0 始まり)。
+    ///
     /// Whole-book offset of a spine item's first page (0-based).
     public func censusPageOffset(forSpineIndex index: Int) -> Int? {
         guard let pageCensus, index >= 0, index <= pageCensus.count else { return nil }
         return pageCensus.prefix(index).reduce(0, +)
     }
 
+    /// 現在表示中のページの、本全体でのページ番号範囲(1 始まり。
+    /// 見開きでは 2 ページ)。実測ページ数と実際の表示ページ数に差が
+    /// 生じ得る境界では、範囲がはみ出さないように制限する。
+    ///
     /// Whole-book page-number range of the currently displayed pages (1-based;
     /// two pages in a spread). Clamped at boundaries where the measured page
     /// count and the actually displayed count may diverge.
@@ -2199,6 +2346,8 @@ public final class EPUBReaderView: NSView {
         return first...max(first, last)
     }
 
+    /// 本全体のページ番号(0 始まり)を位置へ変換する。census 完了までは nil。
+    ///
     /// Whole-book page number (0-based) → position. Nil until the census completes.
     public func censusLocator(forGlobalPage page: Int) -> EPUBLocator? {
         guard let counts = pageCensus, !counts.isEmpty else { return nil }
@@ -2217,6 +2366,9 @@ public final class EPUBReaderView: NSView {
             ?? EPUBLocator(spineIndex: counts.count - 1, progression: 1)
     }
 
+    /// 位置を本全体のページ番号(0 始まり)へ変換する。census 完了前、または
+    /// locator が実測済みの spine 項目を指していない場合は nil。
+    ///
     /// Position → whole-book page number (0-based). Nil until the census
     /// completes or when the locator does not address a measured spine item.
     public func censusGlobalPage(for locator: EPUBLocator) -> Int? {
@@ -2245,6 +2397,11 @@ public final class EPUBReaderView: NSView {
 
     // MARK: - 画面サムネイル(ホストの一覧 UI 用)
 
+    /// 現在のメトリクスで 1 画面に配置するページ数(1 = 単ページ / 2 = 見開き)。
+    /// サムネイル一覧を画面単位に区切るために使う(画像 1 枚だけの項目は
+    /// 実行時に 1 になるが、これは「リフローの本文項目ならどうなるか」を
+    /// 表す計画値)。
+    ///
     /// Number of pages laid out on one screen at the current metrics (1 = single
     /// page / 2 = spread). Used to divide the thumbnail list into screens (a
     /// single-image item resolves to 1 at run time, but this is the planned
@@ -2253,6 +2410,9 @@ public final class EPUBReaderView: NSView {
         currentScreenMetrics.pagesPerScreen
     }
 
+    /// 画面計画を単ページと見開きの間で切り替える。``pagesPerScreen`` と
+    /// 異なり、画像 1 枚だけのページを表示していても正しく切り替えられる。
+    ///
     /// Toggles between planned single-page and two-page layout. Unlike
     /// ``pagesPerScreen``, this remains correct while a single-image page is
     /// displayed.
@@ -2265,6 +2425,10 @@ public final class EPUBReaderView: NSView {
 
     private var thumbnailRenderer: EPUBScreenThumbnailRenderer?
 
+    /// 指定した画面のサムネイル(表示中のビューや census と同じページ割りで、
+    /// 現在のテーマに合わせた配色でオフスクリーン描画する)。`width` は
+    /// 出力幅(pt)。失敗時は nil。
+    ///
     /// Thumbnail of a given screen (the same pagination as the live view and the
     /// census; rendered offscreen, colored to match the current theme). `width`
     /// is the output width in pt. Nil on failure.
@@ -2301,6 +2465,9 @@ public final class EPUBReaderView: NSView {
     /// (一時要因で欠けたページ数がセッション中ずっと出ないのを防ぐ)
     private var censusFailures = CensusFailureLedger()
 
+    /// バックグラウンドの census を停止する(ホストが EPUB ビューから
+    /// 離れるときに使う。次回の runSetup / layout で自動的に再予約される)。
+    ///
     /// Stops the background census (for when the host leaves the EPUB view; it
     /// is naturally rescheduled by the next runSetup / layout).
     public func cancelPageCensus() {
@@ -2308,6 +2475,12 @@ public final class EPUBReaderView: NSView {
         censusTask = nil
     }
 
+    /// ウインドウから外れたとき(ウインドウを閉じる、ビューを取り除く)に、
+    /// オフスクリーンの実測を停止し、不可視ウインドウと WebContent プロセスを
+    /// 破棄する。ホストが cancelPageCensus を明示的に使わなくても、リソースが
+    /// 漏れないようにする。再表示された場合は、次回の runSetup / layout で
+    /// census が自動的に再開する。
+    ///
     /// When detached from a window (close, view removal), stops the offscreen
     /// measurement and tears down the invisible window and WebContent process.
     /// A safeguard so that even a host unaware of the explicit cancelPageCensus
@@ -2516,6 +2689,11 @@ public final class EPUBReaderView: NSView {
 
     // MARK: - スナップショット
 
+    /// Web コンテンツそのもののスナップショットと、リーダービューの
+    /// 座標系で表したフレームを返す。ライブ Web ビューは自身の寸法を
+    /// 超えるスナップショットを作れない。結果はバッキングスケールになるため、
+    /// `scale` は幅の縮小にのみ働く。
+    ///
     /// Returns a snapshot of the raw web content and its frame in the reader
     /// view's coordinate system. The live web view cannot be snapshotted above
     /// its own size; the result is at backing scale, so `scale` only ever
@@ -2534,6 +2712,11 @@ public final class EPUBReaderView: NSView {
         return (image, webView.frame)
     }
 
+    /// ビュー全体(余白 + Web コンテンツ)を合成した画像を返す。
+    /// WKWebView はレイヤー経由の描画(cacheDisplay など)には現れないため、
+    /// takeSnapshot の結果を背景の上に合成する(ヘッドレス検証、サムネイル、
+    /// ページめくり演出用)。
+    ///
     /// Returns an image compositing the whole view (margins + web content).
     /// WKWebView does not appear in layer-based drawing (cacheDisplay, etc.),
     /// so the result of takeSnapshot is composited over the background (for
@@ -2949,7 +3132,13 @@ public final class EPUBReaderView: NSView {
         }
     }
 
+    /// 捕捉した EPUB 内部リンクの注釈内容を抽出する。
+    ///
     /// Extracts note content for an intercepted EPUB internal link.
+    ///
+    /// 表示中の文書にある注釈には、その内側の HTML を含める。読書順に
+    /// 含まれる別の文書にある注釈はヘッドレスで解析し、テキストだけを返す。
+    /// どちらの場合も、参照元へ戻るリンクのアンカーは除去する。
     ///
     /// Notes in the displayed document include their inner HTML. Notes in a
     /// different reading-order document are parsed headlessly and return text
@@ -3245,6 +3434,9 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
         handleNavigationFailure(error)
     }
 
+    /// Web コンテンツのプロセスがクラッシュした場合、現在位置で開き直す。
+    /// 終了が繰り返される場合は、再試行回数を制限し、バックオフを行う。
+    ///
     /// Reopens at the current position if the web content process crashes,
     /// with bounded retry and backoff for repeated terminations.
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -3311,6 +3503,8 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
         reloadCurrentPublication()
     }
 
+    /// ポップアップを開くことを許可しない。
+    ///
     /// Does not allow popups to open.
     public func webView(_ webView: WKWebView,
                         createWebViewWith configuration: WKWebViewConfiguration,

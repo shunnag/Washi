@@ -24,6 +24,13 @@ protocol ScreenThumbnailRendering {
 
 extension EPUBScreenThumbnailRenderer: ScreenThumbnailRendering {}
 
+/// リーダーを開かずに EPUB の画面構成(項目ごとの実測ページ数)と
+/// 画面サムネイルを取得する公開窓口。コレクション(複数の本をまとめたもの)の
+/// 一覧で、リフロー EPUB を全ページに展開するために使う。
+/// census とレンダラはリーダー内部とまったく同じ実装を共有する
+/// (EPUBScreenMetrics が唯一の基準)。そのため、後で本を開いたときと
+/// ページ割りが一致することを保証する。
+///
 /// Public facade for obtaining an EPUB's screen plan (measured per-item page
 /// counts) and screen thumbnails without opening the reader. Used to fully
 /// expand a reflowable EPUB into all of its pages within a collection (merged
@@ -70,6 +77,13 @@ public final class EPUBScreenAtlas {
     /// 決定論的に待つため
     func inFlightMeasureKeys() -> Set<String> { Set(measuring.keys) }
 
+    /// 画面外のリソース(census とレンダラの不可視ウインドウおよび
+    /// WebContent プロセス)を明示的に解放する。**アトラスを手放すとき
+    /// (キャッシュからの追い出しなど)は必ず呼ぶこと**。進行中の実測や描画を
+    /// 止め、ホストの存続中ずっとプロセスが生き残ることを防ぐ。呼び出し後は
+    /// 新しい処理を受け付けず、`screenPlan` / `thumbnail` は nil を返す。
+    /// このインスタンスは再利用しないこと。
+    ///
     /// Explicitly tears down the offscreen resources (the invisible windows and
     /// WebContent processes of the census and renderer). **Always call this when
     /// releasing the atlas (e.g. on eviction from a cache)** — it stops any
@@ -87,6 +101,9 @@ public final class EPUBScreenAtlas {
         renderer = nil
     }
 
+    /// 項目ごとのページ数と、その出版物で 1 画面に表示するページ数を返す。
+    /// 出版物全体の `rendition:spread` の指定を、両方の値へ不可分に適用する。
+    ///
     /// Returns per-item page counts together with the publication-specific
     /// number of pages shown on each screen. The publication-wide
     /// `rendition:spread` preference is applied atomically to both values.
@@ -136,6 +153,8 @@ public final class EPUBScreenAtlas {
         return (counts, m.pagesPerScreen)
     }
 
+    /// 指定画面のサムネイル(失敗時や `invalidate()` の呼び出し後は nil)。
+    ///
     /// Thumbnail for the given screen (nil on failure or after `invalidate()`).
     public func thumbnail(spineIndex: Int, pageInItem: Int,
                           metrics: EPUBScreenMetrics, isDark: Bool,

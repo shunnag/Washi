@@ -1,5 +1,12 @@
 import Foundation
 
+/// 画面のページ割りを決める**唯一の基準**。リーダー(EPUBReaderView)、
+/// 本全体の census、リーダー外での一覧展開(EPUBScreenAtlas)が
+/// 同じ計算式を共有し、同じ表示条件なら同じページ割りになることを
+/// 構造的に保証する。
+/// `viewportSize`(リーダーが占める領域)と表示設定から、内容寸法、
+/// 見開きフラグ、ノド幅、`__washi.setup()` に渡すオプションを一意に導く。
+///
 /// The **single source of truth** for screen planning. The reader
 /// (EPUBReaderView), the whole-book census, and the out-of-reader list
 /// expansion (EPUBScreenAtlas) all share the same formula, which
@@ -9,13 +16,21 @@ import Foundation
 /// settings, it uniquely derives the content dimensions, the spread flag,
 /// the gutter, and the options passed to `__washi.setup()`.
 public struct EPUBScreenMetrics: Sendable, Equatable {
+    /// キャッシュと census のキーに埋め込むページ割りアルゴリズムの版。
+    /// 変更すると、古いエンジンで実測して保存した値が無効になる。
+    ///
     /// Version of the pagination algorithm encoded in cache and census keys.
     /// A change invalidates persisted measurements made by older engines.
     public static let paginationVersion = 3
 
+    /// 余白(insets)を差し引いた内容寸法。実際の WKWebView の大きさに当たる。
+    ///
     /// Content dimensions after subtracting the margins (insets) — the
     /// actual WKWebView size.
     public let contentSize: CGSize
+    /// 1 画面に配置するページ数(1 = 単ページ / 2 = 見開き)。画像1枚だけの
+    /// 項目は実際の表示では常に 1 になるが、この値は本文用の計画値。
+    ///
     /// Number of pages laid out on one screen (1 = single page / 2 = spread).
     /// A single-image item is always 1 at runtime, but this is the planned
     /// value for body text.
@@ -39,6 +54,9 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
                   renditionSpread: .auto)
     }
 
+    /// 出版物全体または項目ごとの実効的な `rendition:spread` の指定を
+    /// 反映して、画面のメトリクスを作る。
+    ///
     /// Creates screen metrics while honoring an effective `rendition:spread`
     /// preference (publication-wide or item-specific).
     public init(viewportSize: CGSize, settings: EPUBReaderSettings,
@@ -116,6 +134,8 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
         }
     }
 
+    /// 実効的な `rendition:spread` の指定を反映した、同等のメトリクスを返す。
+    ///
     /// Returns equivalent metrics with an effective `rendition:spread`
     /// preference applied.
     public func applyingRenditionSpread(
@@ -143,6 +163,8 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
     /// メトリクスの同一性キーとしても使う
     var censusOptionsJSON: String { optionsJSON(userCSS: layoutCSS) }
 
+    /// このメトリクスの同一性キー(ホストがキャッシュの判断に使う公開アクセサ)。
+    ///
     /// Identity key for these metrics (a public accessor the host uses for
     /// cache decisions).
     public var cacheKey: String { censusOptionsJSON }

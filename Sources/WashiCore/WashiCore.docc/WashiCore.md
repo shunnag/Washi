@@ -1,13 +1,24 @@
 # ``WashiCore``
 
+AppKit や WebKit を使わずに、EPUB 出版物を解析・調査・検索できます。
+
 Parse, inspect, and search EPUB publications without AppKit or WebKit.
 
-## Overview
+## 概要 / Overview
+
+WashiCore は Washi のヘッドレス層です。ZIP 形式の EPUB ファイル、展開済みの
+EPUB ディレクトリ、メモリ上の EPUB データを開き、パッケージ、
+ナビゲーション、アクセシビリティ、暗号化、メディアオーバーレイの
+メタデータを提供します。また、リソースと locator の解決、表紙のデコード、
+出版物のテキストの抽出や検索を行います。
 
 WashiCore is Washi's headless layer. It opens zipped EPUB files, unpacked EPUB
 directories, and in-memory EPUB data; exposes package, navigation,
 accessibility, encryption, and media-overlay metadata; resolves resources and
 locators; decodes covers; and extracts or searches publication text.
+
+UI コードでは ``EPUBPublication/open(url:readStrategy:)`` を使い、
+コンテナと XML の解析を main actor の外で実行してください。
 
 Use ``EPUBPublication/open(url:readStrategy:)`` from UI code so container and
 XML parsing runs outside the main actor:
@@ -25,7 +36,7 @@ for hit in publication.search("paper") {
 
 ## Topics
 
-### Opening Publications
+### 出版物を開く / Opening Publications
 
 - ``EPUBPublication``
 - ``EPUBReadStrategy``
@@ -35,7 +46,7 @@ for hit in publication.search("paper") {
 - ``FixedLayoutPageInfo``
 - ``PageSpreadSlot``
 
-### Package Metadata
+### パッケージのメタデータ / Package Metadata
 
 - ``EPUBPackage``
 - ``EPUBMetadata``
@@ -49,7 +60,7 @@ for hit in publication.search("paper") {
 - ``SpineItemRef``
 - ``EPUBSpine``
 
-### Rendition and Direction
+### 表示形式と綴じ方向 / Rendition and Direction
 
 - ``PageProgressionDirection``
 - ``EPUBReadingDirectionSource``
@@ -60,7 +71,7 @@ for hit in publication.search("paper") {
 - ``RenditionSpread``
 - ``RenditionFlow``
 
-### Navigation and Text
+### ナビゲーションとテキスト / Navigation and Text
 
 - ``EPUBNavigation``
 - ``EPUBNavItem``
@@ -68,7 +79,7 @@ for hit in publication.search("paper") {
 - ``EPUBSearchOptions``
 - ``EPUBSearchHit``
 
-### Container and Resources
+### コンテナとリソース / Container and Resources
 
 - ``ZipArchive``
 - ``ZipEntryInfo``

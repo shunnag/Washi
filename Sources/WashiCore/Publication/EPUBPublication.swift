@@ -81,37 +81,64 @@ private struct IndexedTOCEntry: Sendable {
     let title: String
 }
 
+/// spine の 1 項目を読む順序で表したエントリ(マニフェストとパスを解決済み)。
+///
 /// A reading-order entry for one spine item (manifest- and path-resolved).
 public struct ReadingOrderItem: Sendable {
+    /// readingOrder 配列内のインデックス(Washi でいう「spine index」。
+    /// linear="no" の項目も含む)。
+    ///
     /// Index within the readingOrder array (what Washi calls the "spine index"; includes linear="no" items).
     public let spineIndex: Int
     public let itemRef: SpineItemRef
     public let item: ManifestItem
+    /// コンテナ内の正規形のパス。
+    ///
     /// Canonical path within the container.
     public let containerPath: String
+    /// フォールバック連鎖をたどって最初に見つかる、実在する描画可能な
+    /// マニフェスト項目。利用可能なフォールバックが不要、または存在しない場合は
+    /// ``item`` と同じ。
+    ///
     /// The first renderable, existing manifest item reached through the
     /// fallback chain. This equals ``item`` when no usable fallback is needed
     /// or available.
     public let resolvedItem: ManifestItem
+    /// ``resolvedItem`` の正規形のパス。描画と本文抽出にはこのパスを使い、
+    /// 宣言された spine の識別には引き続き ``containerPath`` を使う。
+    ///
     /// Canonical path of ``resolvedItem``. Rendering and content extraction
     /// should use this path while preserving ``containerPath`` as the declared
     /// spine identity.
     public let resolvedContainerPath: String
 }
 
+/// 見開き内の左右の配置(固定レイアウトの itemref プロパティに基づく)。
+///
 /// Left/right spread placement (from FXL itemref properties).
 public enum PageSpreadSlot: String, Sendable {
     case left, right, center
 }
 
+/// 固定レイアウトのページに関する情報。
+///
 /// Information about a fixed-layout page.
 public struct FixedLayoutPageInfo: Sendable {
     public let spineIndex: Int
+    /// viewport の meta タグ(または SVG の viewBox)から得たページ寸法(CSS px)。
+    ///
     /// Page dimensions (CSS px) from the viewport meta tag (or SVG viewBox).
     public let viewportSize: CGSize?
+    /// ビューポートが `device-width` または `device-height` を使い、現在の
+    /// 描画先に合わせて寸法を決める必要があるか。
+    ///
     /// Whether the viewport uses `device-width` or `device-height` and should
     /// therefore be sized from the current rendering target.
     public let viewportIsDeviceSized: Bool
+    /// 画像を 1 枚だけ配置するページの場合、その画像のコンテナ内パス。
+    /// この場合は WebKit を使わず画像を直接デコードできる(日本の漫画 EPUB の
+    /// 大半がこの構造)。
+    ///
     /// The container path of the image when the page merely lays out a single
     /// image; in that case the image can be decoded directly without WebKit
     /// (the vast majority of Japanese manga EPUBs are shaped this way).
@@ -119,6 +146,11 @@ public struct FixedLayoutPageInfo: Sendable {
     public let pageSpread: PageSpreadSlot?
 }
 
+/// EPUB 1 冊を扱う窓口。
+/// 開くときに OCF → パッケージ文書 → ナビゲーション → encryption.xml の順に
+/// 解析し、変更されない出版物メタデータ(`Sendable`)を公開する。
+/// リソースの読み取りと、同期制御された抽出本文キャッシュはスレッドセーフ。
+///
 /// A facade for a single EPUB book.
 /// On open it parses OCF → package document → navigation → encryption.xml,
 /// then exposes immutable publication metadata (`Sendable`). Resource reads
@@ -141,7 +173,13 @@ public final class EPUBPublication: Sendable {
     private let extractedTextCache: ExtractedTextCache
     private let effectiveReadingDirectionCache = EffectiveReadingDirectionCache()
 
+    /// 呼び出し元のスレッド外で EPUB を開き、解析済みの出版物を返す。
+    ///
     /// Opens an EPUB off the calling thread and returns the parsed publication.
+    ///
+    /// 大きな本の解析(ZIP 展開・XML 解析)は CPU 負荷が高いため、
+    /// `.userInitiated` 優先度の detached task で実行し、メインアクターから
+    /// 呼び出しても応答性を保つ。UI コードでは同期イニシャライザよりこちらを推奨。
     ///
     /// Parsing a large book (unzip, XML) is CPU-bound; this runs it at
     /// `.userInitiated` priority on a detached task so callers on the main
@@ -149,8 +187,12 @@ public final class EPUBPublication: Sendable {
     /// UI code.
     ///
     /// - Parameters:
-    ///   - url: a `.epub` file or an unpacked EPUB directory.
-    ///   - readStrategy: how the bytes are read from disk (see
+    ///   - url: `.epub` ファイルまたは展開済みの EPUB ディレクトリ。
+    ///     a `.epub` file or an unpacked EPUB directory.
+    ///   - readStrategy: ディスクからのバイト列の読み込み方
+    ///     (``EPUBReadStrategy`` を参照。`.alwaysCopy` は状態が変わりやすい
+    ///     ファイルや信頼できないファイルのメモリマップを避ける)。
+    ///     how the bytes are read from disk (see
     ///     ``EPUBReadStrategy``; `.alwaysCopy` avoids memory-mapping for
     ///     volatile or untrusted files).
     public static func open(url: URL,
@@ -161,6 +203,9 @@ public final class EPUBPublication: Sendable {
         }.value
     }
 
+    /// `.epub` ファイルまたは展開済みの EPUB ディレクトリを開く。
+    /// `readStrategy` でバイト列の読み込み方を指定する(``EPUBReadStrategy`` を参照)。
+    ///
     /// Opens a `.epub` file or an already-unpacked EPUB directory.
     /// `readStrategy` controls how the bytes are read (see ``EPUBReadStrategy``).
     public convenience init(url: URL,
@@ -185,6 +230,8 @@ public final class EPUBPublication: Sendable {
         }
     }
 
+    /// メモリ内の `.epub` データから開く(アーカイブ内に入っている EPUB など)。
+    ///
     /// Opens from in-memory `.epub` data (e.g. an EPUB nested inside an archive).
     public convenience init(data: Data, displayURL: URL) throws {
         let archive: ZipArchive
@@ -315,6 +362,9 @@ public final class EPUBPublication: Sendable {
     public var metadata: EPUBMetadata { package.metadata }
     public var isFixedLayout: Bool { package.isFixedLayout }
 
+    /// コンテナ内の、ディレクトリを除く全リソースのパス。順序は不定。索引作成、
+    /// 抽出ツール、本の同梱内容の監査に使える。各リソースは ``resource(at:)`` で読む。
+    ///
     /// Every non-directory resource path in the container, in no particular
     /// order. Useful for indexing, extraction tools, or auditing what a book
     /// ships. Read individual resources with ``resource(at:)``.
@@ -323,7 +373,12 @@ public final class EPUBPublication: Sendable {
         package.readingDirection
     }
 
+    /// パッケージ・CSS・言語の情報を適用して決めた実効的な綴じ方向。
+    ///
     /// The resolved reading direction after applying package, CSS, and language signals.
+    ///
+    /// ``readingDirection`` と異なり、必ず ``PageProgressionDirection/ltr`` または
+    /// ``PageProgressionDirection/rtl`` となり、`default` にはならない。
     ///
     /// Unlike ``readingDirection``, this value is always ``PageProgressionDirection/ltr``
     /// or ``PageProgressionDirection/rtl`` and never `default`.
@@ -331,6 +386,8 @@ public final class EPUBPublication: Sendable {
         effectiveReadingDirectionResolution.direction
     }
 
+    /// ``effectiveReadingDirection`` を決める根拠となった、出版物内の情報。
+    ///
     /// The publication signal that selected ``effectiveReadingDirection``.
     public var effectiveReadingDirectionSource: EPUBReadingDirectionSource {
         effectiveReadingDirectionResolution.source
@@ -457,6 +514,11 @@ public final class EPUBPublication: Sendable {
             options: .regularExpression) != nil
     }
 
+    /// spine のコンテンツ文書が未知のアルゴリズムで暗号化されている場合に true。
+    /// Washi では開けない、本来の DRM による保護を表す。未知の暗号化を使うのが
+    /// フォントなどの補助リソースだけなら、本は開ける(そのフォントなしで描画を
+    /// 続ける。EPUB 3.3 OCF §4.4.2 で認められている)。
+    ///
     /// True when a spine content document is encrypted with an unknown
     /// algorithm — genuine DRM protection that Washi cannot open.
     /// If only auxiliary resources (fonts, etc.) use unknown encryption the
@@ -469,6 +531,9 @@ public final class EPUBPublication: Sendable {
             .contains { spinePaths.contains($0) }
     }
 
+    /// META-INF 内の特徴的なファイルから推定した DRM 方式。
+    /// DRM で保護されていなければ nil。
+    ///
     /// Best-guess DRM scheme (detected from fingerprint files under META-INF); nil when not DRM-protected.
     public var drmSchemeName: String? {
         // Honor the contract ("nil when not DRM-protected") for every branch: a
@@ -485,6 +550,9 @@ public final class EPUBPublication: Sendable {
 
     // MARK: - 読書位置の突き合わせ
 
+    /// spine index とともに idref を記録した locator を作る。位置の保存には
+    /// これを使う。
+    ///
     /// Builds a locator with the idref recorded alongside the spine index; use this for persisting a position.
     public func locator(forSpineIndex index: Int,
                         progression: Double = 0) -> EPUBLocator {
@@ -493,6 +561,11 @@ public final class EPUBPublication: Sendable {
                         ? readingOrder[index].itemRef.idref : nil)
     }
 
+    /// 保存した位置をこの本と照合する。idref があれば、本の改訂による spine の
+    /// 並べ替えや項目の追加・削除を追跡して、正しい項目へ対応付ける。
+    /// その idref がなくなっていれば nil を返す(「先頭から始める」などの判断は
+    /// 呼び出し側に委ねる)。idref のない旧形式の位置は、範囲内に収めるだけ。
+    ///
     /// Matches a saved position against this book. When an idref is present it
     /// tracks spine reordering and additions/removals (a revised edition of the
     /// book) to map onto the correct item, returning nil if that idref is gone
@@ -514,6 +587,9 @@ public final class EPUBPublication: Sendable {
         return EPUBLocator(spineIndex: clamped, progression: locator.progression)
     }
 
+    /// マニフェストのフォールバック連鎖(指定した項目自身から始め、循環があれば
+    /// そこで打ち切る。EPUB RS 3.3 §5.4)。
+    ///
     /// The manifest fallback chain (starting with the item itself; cycles are
     /// broken there. EPUB RS 3.3 §5.4).
     public func fallbackChain(for item: ManifestItem) -> [ManifestItem] {
@@ -563,20 +639,32 @@ public final class EPUBPublication: Sendable {
         } ?? ""
     }
 
+    /// 表紙画像のコンテナ内パス。
+    ///
     /// Container path of the cover image.
     public var coverImagePath: String? {
         guard let item = package.coverImageItem else { return nil }
         return ContainerPath.resolve(base: package.path, href: item.href)
     }
 
+    /// フォールバック連鎖で表紙画像のコンテナ内パスを解決する。ライブラリの
+    /// 一覧表示で、表紙を宣言していない実在の本でも表紙を示せるようにする。
+    /// 解決は次の順に行う。
+    ///
     /// Resolves the cover image's container path through a fallback chain (for
     /// library listings: surface a cover even for real-world books that never
     /// declare one):
-    /// ① manifest properties="cover-image" / EPUB 2 meta name="cover"
-    /// ② the target of a landmark with epub:type="cover" (the image itself, or
+    ///
+    /// ① マニフェストの properties="cover-image" / EPUB 2 の meta name="cover"
+    ///    manifest properties="cover-image" / EPUB 2 meta name="cover"
+    /// ② epub:type="cover" のランドマークのリンク先(画像自体、または
+    ///    文書内の唯一の画像)
+    ///    the target of a landmark with epub:type="cover" (the image itself, or
     ///    the sole image within the document)
-    /// ③ a manifest image item whose id or file name contains "cover"
-    /// ④ the first spine item's image, if that item is a single-image page
+    /// ③ id またはファイル名に "cover" を含むマニフェストの画像項目
+    ///    a manifest image item whose id or file name contains "cover"
+    /// ④ 最初の spine 項目が画像だけのページなら、その画像
+    ///    the first spine item's image, if that item is a single-image page
     public var resolvedCoverImagePath: String? {
         if let path = coverImagePath { return path }
         if let path = landmarkCoverPath { return path }
@@ -629,6 +717,12 @@ public final class EPUBPublication: Sendable {
         return nil
     }
 
+    /// 表紙画像をデコードして返す(ImageIO だけを使い、WebKit/AppKit は不要なので
+    /// ヘッドレスの索引作成ツールでも動く)。maxPixelSize を渡すと、EXIF の回転を
+    /// 適用したうえで、長辺がそのピクセル数以下のサムネイルに縮小する。
+    /// 表紙を解決できない、デコードできない(SVG など)、または DRM により読めない
+    /// 場合は nil を返す。
+    ///
     /// Decodes and returns the cover image (ImageIO only, no WebKit/AppKit, so
     /// it works from headless indexing tools too). Passing maxPixelSize scales
     /// it down to a thumbnail whose long edge is at most that many pixels (with
@@ -651,6 +745,12 @@ public final class EPUBPublication: Sendable {
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
+    /// 解決した表紙画像をデコードせず、生のバイト列とメディアタイプで返す。
+    /// 元ファイルをそのまま保存・配信したいとき(ライブラリのキャッシュや Web の
+    /// レスポンスなど)に使える。``coverImage(maxPixelSize:)`` と同じ
+    /// フォールバック連鎖を使う。表紙が見つからない、または DRM などで読めない
+    /// 場合は nil。
+    ///
     /// The resolved cover image's raw bytes and media type, without decoding —
     /// useful to store or serve the original file as-is (e.g. a library cache
     /// or a web response). Uses the same fallback chain as
@@ -663,6 +763,9 @@ public final class EPUBPublication: Sendable {
 
     // MARK: - リソース読み出し
 
+    /// コンテナ内パスでリソースを読み取り、フォントの難読化は透過的に解除する。
+    /// 未知の暗号化が施されたリソースでは drmProtected を投げる。
+    ///
     /// Reads a resource by its container path, transparently reversing font
     /// obfuscation. Throws drmProtected for a resource under unknown encryption.
     public func resource(at containerPath: String) throws -> (data: Data, mediaType: String) {
@@ -765,6 +868,8 @@ public final class EPUBPublication: Sendable {
         return false
     }
 
+    /// 基準パスと相対 href からリソースを読み取る(ナビゲーション項目の解決など)。
+    ///
     /// Reads a resource from a base path plus a relative href (e.g. resolving navigation items).
     public func resource(relativeTo basePath: String,
                          href: String) throws -> (data: Data, mediaType: String) {
@@ -774,18 +879,27 @@ public final class EPUBPublication: Sendable {
         return try resource(at: path)
     }
 
+    /// 基準パスからの相対 href を、コンテナ内パスへ解決する。
+    ///
     /// Resolves an href (relative to a base path) into a container path.
     public func containerPath(forHref href: String,
                               relativeTo basePath: String) -> String? {
         ContainerPath.resolve(base: basePath, href: href)
     }
 
+    /// ナビゲーション項目の href を、読む順序での spine index へ解決する。
+    ///
     /// Resolves a navigation item's href into a reading-order spine index.
     public func spineIndex(forNavItem item: EPUBNavItem) -> Int? {
         guard let href = item.href else { return nil }
         return spineIndex(forHref: href)
     }
 
+    /// ナビゲーション文書に記載された href(フラグメントがあってもよい)を、
+    /// 読む順序での spine index へ解決する。フラグメントは無視し、リンク先を含む
+    /// spine 項目を返す。該当する spine 項目がなければ nil。目次や相互参照からの
+    /// 移動に使える。
+    ///
     /// Resolves an href (as written in the navigation document, with an optional
     /// fragment) into a reading-order spine index. The fragment is ignored — the
     /// result is the spine item that contains the target. Nil if it resolves to
@@ -807,18 +921,28 @@ public final class EPUBPublication: Sendable {
         return nil
     }
 
+    /// コンテナ内パスから、読む順序でのインデックスを得る(spine にないパスは nil)。
+    ///
     /// Container path → reading-order index (nil when the path is not in the spine).
     public func spineIndex(forContainerPath path: String) -> Int? {
         spineIndexByContainerPath[ContainerPath.sanitize(path)]
     }
 
+    /// メディアオーバーレイ(SMIL による読み上げ)を宣言する spine 項目があるか。
+    /// 項目ごとの解析済みクリップは ``mediaOverlay(forSpineIndex:)`` で取得する。
+    ///
     /// Whether any spine item declares a media overlay (SMIL narration). Use
     /// ``mediaOverlay(forSpineIndex:)`` to get the parsed clips for one item.
     public var hasMediaOverlays: Bool {
         readingOrder.contains { $0.item.mediaOverlay != nil }
     }
 
+    /// 指定した spine index が属する章のタイトル。
+    ///
     /// The chapter title a spine index belongs to.
+    ///
+    /// 複数の目次項目が同じ spine 項目を指す場合は、文書順で最初のものを使う。
+    /// 項目内のフラグメント位置は考慮しない。柱の表示用で、該当がなければ nil。
     ///
     /// The first table-of-contents entry in document order wins when multiple
     /// entries target the same spine item. Fragment positions inside an item
@@ -886,6 +1010,8 @@ public final class EPUBPublication: Sendable {
         }
     }
 
+    /// コンテナ内パスが存在するかを確認する。
+    ///
     /// Checks whether a container path exists.
     public func resourceExists(at containerPath: String) -> Bool {
         container.reader.exists(ContainerPath.sanitize(containerPath))
@@ -893,6 +1019,10 @@ public final class EPUBPublication: Sendable {
 
     // MARK: - 固定レイアウト
 
+    /// 固定レイアウトのページの構造情報(ビューポート・画像だけのページの検出・
+    /// 見開き内の配置)。リフローの本の spine 項目についても、ビューポートなしの
+    /// 情報を返す。
+    ///
     /// Structural information about an FXL page (viewport, single-image-page
     /// detection, spread placement). Also returns viewport-less info for the
     /// spine items of a reflowable book.

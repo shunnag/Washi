@@ -1,11 +1,22 @@
 import AppKit
 import WebKit
 
+/// 固定レイアウトページを画面外でラスタライズする。
+/// WKWebView はウインドウ外では描画が止まるため、画面外の枠なし
+/// ウインドウ(一度も表示しない)に載せてスナップショットを取得する
+/// (macOS で動作が実証された唯一の方法)。読み込みは1ページずつ
+/// 直列に行う。
+///
 /// Offscreen rasterizer for fixed-layout pages.
 /// A WKWebView stops rendering while it is outside a window, so we place it in
 /// an offscreen borderless window (never shown) and take a snapshot from there
 /// (the only approach proven to work on macOS). Loads are serialized one page
 /// at a time.
+///
+/// 注意: 画像1枚だけのページは EPUBPublication.fixedLayoutInfo の
+/// simpleImagePath から画像を直接デコードする方が高速かつ高画質。
+/// このクラスはテキストと SVG を合成する複雑な FXL ページの
+/// フォールバックとして使う。
 ///
 /// Note: for a "single image only" page, decoding the image directly from
 /// EPUBPublication.fixedLayoutInfo's simpleImagePath is faster and higher
@@ -25,11 +36,18 @@ public final class EPUBPageRasterizer {
     private var lastJob: Task<Void, Never>?
     private var renderJobs: [UUID: Task<CGImage, any Error>] = [:]
 
+    /// 固定レイアウトページのラスタライズ中に発生するエラー。
+    ///
     /// An error raised while rasterizing a fixed-layout page.
     public enum RasterizeError: Error, Sendable, Equatable, LocalizedError {
+        /// ページの文書を読み込めなかったか、読み込みが完了する前に
+        /// ラスタライザが無効化された。
+        ///
         /// The page's document could not be loaded (or the rasterizer was
         /// invalidated before it loaded).
         case loadFailed
+        /// 画面外の Web ビューからスナップショット画像を取得できなかった。
+        ///
         /// The offscreen web view produced no snapshot image.
         case snapshotFailed
 
@@ -41,6 +59,8 @@ public final class EPUBPageRasterizer {
         }
     }
 
+    /// 著者スクリプトを無効にしたラスタライザを作る。
+    ///
     /// Creates a rasterizer with author scripts disabled.
     public init(publication: EPUBPublication) {
         self.publication = publication
@@ -49,6 +69,9 @@ public final class EPUBPageRasterizer {
             publication: publication, allowsScripts: false)
     }
 
+    /// 画面外のページで著者スクリプトを実行できるかを指定して、
+    /// ラスタライザを作る。
+    ///
     /// Creates a rasterizer and chooses whether author scripts may run in the
     /// offscreen page.
     public init(publication: EPUBPublication, allowsScriptedContent: Bool) {
@@ -61,6 +84,10 @@ public final class EPUBPageRasterizer {
     /// invalidate 後は新規レンダーを受け付けない
     private var isInvalidated = false
 
+    /// 画面外のリソース(不可視の NSWindow と WebContent プロセス)を
+    /// 明示的に解放する。使い終えたら呼ぶこと(以後の renderPage は
+    /// loadFailed で失敗する)。
+    ///
     /// Explicitly tears down the offscreen resources (the invisible NSWindow and
     /// the WebContent process). Call it once you are done (any later renderPage
     /// then fails with loadFailed).
@@ -80,6 +107,12 @@ public final class EPUBPageRasterizer {
         window = nil
     }
 
+    /// spine 項目を描画して結果を返す。maxPixelSize は長辺のピクセル数の
+    /// 上限(nil なら元の寸法の2倍)。共有する1つの WKWebView を使うため、
+    /// 呼び出しは FIFO で完全に直列化する。描画本体は連結した Task の
+    /// **内側**で実行する(外へ出すと直列化が崩れ、並行呼び出しが互いの
+    /// ナビゲーションを上書きして NavigationWaiter が永久待ちになる)。
+    ///
     /// Renders and returns a spine item. maxPixelSize caps the long edge (nil = 2x
     /// native size). Because a single shared WKWebView is used, calls are fully
     /// serialized FIFO: the render body runs **inside** the chained Task (moving
@@ -92,6 +125,10 @@ public final class EPUBPageRasterizer {
             deviceViewportSize: nil)
     }
 
+    /// ビューポートに `device-width` または `device-height` を使うページを、
+    /// `deviceViewportSize` を端末のビューポート寸法として描画する。
+    /// 通常の数値指定のビューポートでは、出版物が宣言した寸法を基準にする。
+    ///
     /// Renders a page whose viewport may use `device-width` or
     /// `device-height`, using `deviceViewportSize` as that device viewport.
     /// For ordinary numeric viewports the publication's declared dimensions

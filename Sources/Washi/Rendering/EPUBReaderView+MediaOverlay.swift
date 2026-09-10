@@ -7,22 +7,32 @@ extension EPUBReaderView {
     static let defaultActiveClass = "-epub-media-overlay-active"
 
     /// 現在の spine 項目がメディアオーバーレイ(音声同期)を持つか
+    ///
+    /// Whether the current spine item has a media overlay (synchronized audio).
     public var hasMediaOverlayForCurrentItem: Bool {
         publication?.mediaOverlay(forSpineIndex: currentSpineIndex) != nil
     }
 
     /// この本のどこかにメディアオーバーレイがあるか
+    ///
+    /// Whether any part of this book has a media overlay.
     public var hasMediaOverlays: Bool {
         publication?.hasMediaOverlays ?? false
     }
 
     /// メディアオーバーレイを再生中か
+    ///
+    /// Whether a media overlay is currently playing.
     public var isPlayingMediaOverlay: Bool {
         mediaOverlayController?.isPlaying ?? false
     }
 
     /// メディアオーバーレイの再生を開始/再開する。現在の項目が音声を持たない
     /// ときは何もしない。項目末尾では次の音声付き項目へ連続再生する
+    ///
+    /// Starts or resumes media overlay playback. Does nothing if the current
+    /// spine item has no audio. At the end of the item, playback continues
+    /// with the next item that has audio.
     public func playMediaOverlay() {
         mediaOverlayCommandGeneration &+= 1
         guard let publication, hasMediaOverlayForCurrentItem else { return }
@@ -47,6 +57,10 @@ extension EPUBReaderView {
         controller.play(fromSpineIndex: currentSpineIndex)
     }
 
+    /// 章の先頭ではなく、現在のページに本文が見えているクリップから
+    /// 読み上げを開始する(cooViewer-oxr.46 C26)。ページ内に読み上げ対象が
+    /// なければ、章の先頭から始める。
+    ///
     /// Starts narration at the clip whose text is visible on the current page,
     /// instead of at the start of the chapter (cooViewer-oxr.46 C26).
     /// Falls back to the chapter start when nothing on the page is narrated.
@@ -99,12 +113,18 @@ extension EPUBReaderView {
                               parIndex: parIndex)
     }
 
+    /// メディアオーバーレイの再生位置(spine 項目 + クリップ番号)。
+    /// ホストが聴取の中断位置を保存するために使う。アイドル時は `nil`。
+    ///
     /// The media-overlay playback position (spine item + clip index), for a host
     /// that persists where the reader stopped listening. `nil` when idle.
     public var mediaOverlayPosition: (spineIndex: Int, parIndex: Int)? {
         mediaOverlayController?.position
     }
 
+    /// 保存した位置から読み上げを再開する(``mediaOverlayPosition`` を参照)。
+    /// 指定した spine 項目にメディアオーバーレイがなければ false を返す。
+    ///
     /// Resumes narration at a saved position (see ``mediaOverlayPosition``).
     /// Returns false when the book has no overlay at that spine item.
     @discardableResult
@@ -134,18 +154,24 @@ extension EPUBReaderView {
     }
 
     /// 一時停止(ハイライトは残す)
+    ///
+    /// Pauses playback, keeping the highlight.
     public func pauseMediaOverlay() {
         mediaOverlayCommandGeneration &+= 1
         mediaOverlayController?.pause()
     }
 
     /// 停止してハイライトを消す
+    ///
+    /// Stops playback and clears the highlight.
     public func stopMediaOverlay() {
         mediaOverlayCommandGeneration &+= 1
         mediaOverlayController?.stop()
     }
 
     /// 再生⇔一時停止のトグル
+    ///
+    /// Toggles between playback and pause.
     public func toggleMediaOverlayPlayback() {
         if isPlayingMediaOverlay { pauseMediaOverlay() } else { playMediaOverlay() }
     }

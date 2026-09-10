@@ -1,17 +1,32 @@
 import Foundation
 import WebKit
 
+/// EPUB コンテナ内のリソースを WKWebView に配信するカスタムスキームハンドラ。
+/// URL の形式: washi-epub://<インスタンス ID>/<コンテナ内パス>
+/// コンテナ内パスはパーセント符号化する。
+///
 /// Custom scheme handler that serves resources inside an EPUB container to a WKWebView.
 /// URL form: washi-epub://<instance ID>/<container path (percent-encoded)>
 ///
+/// 実運用の経験に基づく設計上の判断:
+///
 /// Design decisions (grounded in real-world operational experience):
-/// - All responses happen on the main thread (a WKURLSchemeTask requirement). Only the
+///
+/// - 応答はすべてメインスレッドで行う(WKURLSchemeTask の要件)。展開だけを
+///   バックグラウンドで実行し、応答前には必ずタスクがまだ有効かを確かめる
+///   (停止後に応答すると NSInternalInconsistencyException でクラッシュする)。
+///   All responses happen on the main thread (a WKURLSchemeTask requirement). Only the
 ///   extraction runs in the background, and before responding we always verify the task
 ///   is still alive (responding after a stop crashes with NSInternalInconsistencyException).
-/// - The MIME type is stated explicitly from the manifest declaration (scheme-handler
+/// - MIME 型は manifest の宣言に基づき明示する(スキームハンドラの応答では
+///   内容から型を推測しない。XHTML が XML として解析されるのは
+///   application/xhtml+xml で配信した場合だけ)。
+///   The MIME type is stated explicitly from the manifest declaration (scheme-handler
 ///   responses do no sniffing; XHTML is only XML-parsed when served as application/xhtml+xml).
-/// - The CSP header gives defense-in-depth against external loads and scripts (the book is untrusted).
-/// - audio/video receive Range requests, so 206 partial responses are supported.
+/// - CSP ヘッダで外部読み込みとスクリプトへの防御を重ねる(本は信頼しない)。
+///   The CSP header gives defense-in-depth against external loads and scripts (the book is untrusted).
+/// - audio/video には Range 要求が来るため、206 の部分応答に対応する。
+///   audio/video receive Range requests, so 206 partial responses are supported.
 @MainActor
 public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
     public static let scheme = "washi-epub"
@@ -39,6 +54,8 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
         self.allowsScripts = allowsScripts
     }
 
+    /// コンテナ内パスを、この本の URL に変換する。
+    ///
     /// Container path → this book's URL.
     public func url(forContainerPath path: String) -> URL? {
         var components = URLComponents()
@@ -65,6 +82,8 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
         return components.url
     }
 
+    /// URL をコンテナ内パスに変換する(この本に属さなければ nil)。
+    ///
     /// URL → container path (nil if it does not belong to this book).
     public func containerPath(for url: URL) -> String? {
         guard url.scheme?.lowercased() == Self.scheme,

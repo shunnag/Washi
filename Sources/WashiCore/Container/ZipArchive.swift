@@ -1,23 +1,45 @@
 import Compression
 import Foundation
 
+/// ZIP(OCF)コンテナの読み取り中に発生するエラー。
+///
 /// An error raised while reading a ZIP (OCF) container.
 public enum ZipError: Error, Sendable, Equatable, LocalizedError {
+    /// ZIP ファイルではない(中央ディレクトリ終端レコードが見つからなかった)。
+    ///
     /// Not a ZIP file (no end-of-central-directory record was found).
     case notAZipFile
+    /// アーカイブが途中で切れているか、構造が壊れている。文字列はその箇所を示す。
+    ///
     /// The archive is truncated or structurally broken. The string names where.
     case truncated(String)
+    /// エントリが store(0)または deflate(8)以外の圧縮方式を使っている。
+    ///
     /// The entry uses a compression method other than store (0) or deflate (8).
     case unsupportedCompressionMethod(UInt16, entry: String)
+    /// ZIP レベルで暗号化されたエントリ(EPUB の DRM とは別物で、仕様に適合する
+    /// EPUB では使われない)。
+    ///
     /// A ZIP-level encrypted entry (distinct from EPUB DRM; not used by valid
     /// EPUBs).
     case encryptedEntryUnsupported(String)
+    /// 複数ボリュームにまたがる分割アーカイブは未対応。
+    ///
     /// Multi-volume (spanned) archives are not supported.
     case multiDiskUnsupported
+    /// 指定されたエントリが存在しない。
+    ///
     /// The named entry does not exist.
     case entryNotFound(String)
+    /// 展開したデータのサイズ検証または CRC-32 検証に失敗した。
+    ///
     /// The inflated data failed its size or CRC-32 check.
     case corruptEntry(String)
+    /// 宣言された展開後サイズが `ZipArchive.maxEntrySize` を超えている。
+    /// 1032:1 の比率検査だけでは、実際に圧縮率が高い deflate ストリーム
+    /// (ゼロの連続など)による巨大なメモリ確保を防げないため、絶対上限で保護する。
+    /// `declaredSize` はアーカイブが宣言したサイズ。
+    ///
     /// The declared uncompressed size exceeds `ZipArchive.maxEntrySize`.
     /// The 1032:1 ratio check alone cannot stop a genuine high-ratio deflate
     /// stream (e.g. zeros) from forcing a huge allocation, so an absolute cap
@@ -46,12 +68,16 @@ public enum ZipError: Error, Sendable, Equatable, LocalizedError {
     }
 }
 
+/// ZIP アーカイブ内の 1 エントリのメタデータ。
+///
 /// Metadata for a single entry within a ZIP archive.
 public struct ZipEntryInfo: Sendable, Hashable {
     public let name: String
     public let isDirectory: Bool
     public let compressedSize: UInt64
     public let uncompressedSize: UInt64
+    /// 圧縮方式(0 = store / 8 = deflate)。
+    ///
     /// Compression method (0 = store / 8 = deflate).
     public let method: UInt16
     let crc32: UInt32
@@ -60,6 +86,12 @@ public struct ZipEntryInfo: Sendable, Hashable {
     let flags: UInt16
 }
 
+/// EPUB(OCF ZIP)コンテナ向けの読み取り専用 ZIP リーダー。
+/// 依存ゼロの方針を守るため XADMaster などは使わず、Foundation + Compression
+/// だけで実装する。対応範囲は実際の EPUB で使われる store/deflate、zip64、
+/// UTF-8 のファイル名(非 UTF-8 の名前は Shift_JIS へフォールバック)。
+/// ZIP 暗号化と分割アーカイブは未対応で、明示的なエラーを返す。
+///
 /// A read-only ZIP reader for EPUB (OCF ZIP) containers.
 /// To honor the zero-dependency policy it avoids XADMaster and the like,
 /// building only on Foundation + Compression. Its scope matches what EPUBs
@@ -67,11 +99,19 @@ public struct ZipEntryInfo: Sendable, Hashable {
 /// back to Shift_JIS). ZIP encryption and multi-volume archives are
 /// unsupported (they raise an explicit error).
 ///
+/// ファイル全体を `Data`(mappedIfSafe)として保持し、初期化時には中央
+/// ディレクトリだけを解析する。以後の読み取りはすべて不変データに対する
+/// 純粋関数なので、スレッドセーフ(Sendable)。エントリ名をパス操作に使う
+/// ことはないため、zip-slip の懸念はない。
+///
 /// The whole file is held as `Data` (mappedIfSafe), and init parses only the
 /// central directory. Every subsequent read is a pure function over that
 /// immutable data, so it is thread-safe (Sendable). Entry names are never used
 /// for any path operation (no zip-slip concern).
 public final class ZipArchive: Sendable {
+    /// 1 エントリの展開後サイズに対する既定の上限(512 MB)。画像・音声・動画を
+    /// 含む実在の EPUB でも、これを超える単一ファイルはなく、十分余裕のある値。
+    ///
     /// Default upper bound for a single entry's inflated size (512 MB). This is
     /// comfortably wide for real-world EPUBs, where no single file exceeds it
     /// even with images, audio, and video included.
@@ -125,6 +165,10 @@ public final class ZipArchive: Sendable {
         index[name].map { entries[$0] }
     }
 
+    /// エントリを展開して返す。store は該当スライスをコピーし、deflate は終端
+    /// マーカーまで復号する。結果は必ず CRC-32 で検証するので、潜在的な破損が
+    /// EPUB の解析失敗として表面化する前に、確実に検出できる。
+    ///
     /// Inflates the entry and returns it. Store copies the slice; deflate is
     /// decoded through its end marker. The result is always verified against its CRC-32, so
     /// silent corruption is caught reliably before it surfaces as an EPUB parse

@@ -1,5 +1,7 @@
 import Foundation
 
+/// EPUB の全文検索で使う比較方法のオプション。
+///
 /// Options that control EPUB full-text search comparison.
 public struct EPUBSearchOptions: OptionSet, Sendable {
     public let rawValue: Int
@@ -8,29 +10,54 @@ public struct EPUBSearchOptions: OptionSet, Sendable {
         self.rawValue = rawValue
     }
 
+    /// 大文字と小文字を区別して一致を判定する。
+    ///
     /// Require matching letter case.
     public static let caseSensitive = EPUBSearchOptions(rawValue: 1 << 0)
+    /// ダイアクリティカルマークを区別して一致を判定する。
+    ///
     /// Require matching diacritics.
     public static let diacriticSensitive = EPUBSearchOptions(rawValue: 1 << 1)
+    /// 全角・半角を厳密に区別して一致を判定する。
+    ///
     /// Require character widths to match exactly.
     public static let widthSensitive = EPUBSearchOptions(rawValue: 1 << 2)
 }
 
+/// 出版物内の全文検索の一致結果。
+///
 /// A full-text search hit within a publication.
 public struct EPUBSearchHit: Sendable, Equatable {
+    /// 一致箇所を含む spine 項目のインデックス(読む順序での位置)。
+    ///
     /// Index of the spine item (reading-order position) containing the match.
     public let spineIndex: Int
+    /// 項目から抽出した本文内の、一致箇所の文字オフセット。
+    /// 後からハイライトするときの安定した錨として使える。
+    ///
     /// Character offset of the match within the item's extracted plain text.
     /// Suitable as a stable anchor for later highlighting.
     public let characterOffset: Int
+    /// 一致したテキストの長さ(文字単位)。
+    ///
     /// Length of the matched text, in characters.
     public let length: Int
+    /// 抽出本文内の一致範囲(UTF-16 コード単位)。
+    ///
     /// Match range in the extracted text, measured in UTF-16 code units.
     public let utf16Range: Range<Int>
+    /// 一致箇所を中央に含む、周囲の本文の短い抜粋。
+    ///
     /// A short excerpt of surrounding text, with the match in the middle.
     public let snippet: String
 
+    /// 文字単位のオフセットを使って一致結果を作成する。
+    ///
     /// Creates a hit using character-based offsets.
+    ///
+    /// 指定されたオフセットと長さから UTF-16 範囲を導く。元の本文に複数の
+    /// UTF-16 コード単位で表される文字が含まれる場合は、
+    /// ``init(spineIndex:characterOffset:length:utf16Range:snippet:)`` を使う。
     ///
     /// The UTF-16 range is derived from the supplied offset and length. Use
     /// ``init(spineIndex:characterOffset:length:utf16Range:snippet:)`` when the
@@ -45,6 +72,8 @@ public struct EPUBSearchHit: Sendable, Equatable {
                   snippet: snippet)
     }
 
+    /// 文字単位と UTF-16 コード単位の両方のオフセットを持つ一致結果を作成する。
+    ///
     /// Creates a hit with both character-based and UTF-16 offsets.
     public init(spineIndex: Int, characterOffset: Int, length: Int,
                 utf16Range: Range<Int>, snippet: String) {
@@ -57,7 +86,14 @@ public struct EPUBSearchHit: Sendable, Equatable {
 }
 
 extension EPUBPublication {
+    /// spine の 1 項目から、読める本文をプレーンテキストとして抽出する。
+    ///
     /// Extracts the readable plain text of one spine item.
+    ///
+    /// XHTML の body をテキストへ平坦化する。区切りを表す要素境界(段落・見出し・
+    /// リスト項目・`<br>`)は改行に変え、`<script>`/`<style>` の内容は除く。
+    /// ルビの注釈テキスト(`<rt>`、`<rp>`)も除き、親文字が途切れず読めるようにする。
+    /// これは読者が検索する本文でもある。連続する空白は畳み込む。
     ///
     /// The XHTML body is flattened to text: element boundaries that imply a
     /// break (paragraphs, headings, list items, `<br>`) become newlines,
@@ -65,10 +101,13 @@ extension EPUBPublication {
     /// (`<rt>`, `<rp>`) is removed so the base text reads continuously — which
     /// is also what a reader searches for. Runs of whitespace are collapsed.
     ///
-    /// - Parameter index: reading-order index of the spine item.
-    /// - Returns: the item's plain text, or an empty string if it has no
+    /// - Parameter index: spine 項目の、読む順序でのインデックス。
+    ///   reading-order index of the spine item.
+    /// - Returns: 項目の本文。読める body がなければ空文字列(画像だけのページなど)。
+    ///   the item's plain text, or an empty string if it has no
     ///   readable body (e.g. an image-only page).
-    /// - Throws: ``EPUBError`` if the item cannot be read.
+    /// - Throws: 項目を読み取れない場合は ``EPUBError``。
+    ///   ``EPUBError`` if the item cannot be read.
     public func extractText(forSpineIndex index: Int) throws -> String {
         guard readingOrder.indices.contains(index) else {
             throw EPUBError.resourceNotFound("spine index \(index)")
@@ -96,12 +135,20 @@ extension EPUBPublication {
         }
     }
 
+    /// 抽出した本文の長さから、各 spine 項目のページ数を WebKit なしで高速に
+    /// 概算する。画面外での正確な census が終わる前に、「約 N ページ」をすぐ
+    /// 表示したいときに使える。本文がない画像だけのページは 1 ページと数える。
+    ///
     /// A fast, WebKit-free estimate of each spine item's page count, based on
     /// extracted text length. Useful to show an approximate "~N pages" instantly
     /// before the exact offscreen census completes. Image-only pages (no body
     /// text) count as one page.
     ///
-    /// - Parameter charactersPerPage: assumed characters per reflowed page.
+    /// - Parameter charactersPerPage: リフロー後の 1 ページ当たりの想定文字数。
+    ///   現在のフォントとビューポートで実際に census を行い、総文字数 ÷ 実測
+    ///   ページ数で補正すると概算の精度が上がる。既定値は一般的な本文フォントを
+    ///   読みやすい幅で表示する場合に合う。
+    ///   assumed characters per reflowed page.
     ///   Calibrate it from a real census (total characters ÷ measured pages) for
     ///   the current font and viewport to sharpen the estimate; the default
     ///   suits a typical body font at a comfortable reading width.
@@ -113,17 +160,31 @@ extension EPUBPublication {
         }
     }
 
+    /// 本全体のページ数を WebKit なしで高速に概算する。
+    /// ``estimatedPageCounts(charactersPerPage:)`` を参照。
+    ///
     /// A fast, WebKit-free estimate of the whole book's page count.
     /// See ``estimatedPageCounts(charactersPerPage:)``.
     public func estimatedPageCount(charactersPerPage: Int = 1200) -> Int {
         estimatedPageCounts(charactersPerPage: charactersPerPage).reduce(0, +)
     }
 
+    /// 出版物全体から部分文字列を、読む順序に沿って検索する。
+    ///
     /// Searches the whole publication for a substring, in reading order.
+    ///
+    /// 各 spine 項目を ``extractText(forSpineIndex:)`` で抽出し、`query` を探す。
+    /// 既定では大文字・小文字、ダイアクリティカルマーク、全角・半角を区別しない。
+    /// すべての一致箇所を返す。
     ///
     /// Each spine item is extracted with ``extractText(forSpineIndex:)`` and
     /// scanned for `query`. The default comparison is case-, diacritic-, and
     /// width-insensitive. Returns every occurrence.
+    ///
+    /// 呼び出し元のコンテキストで実行する。未キャッシュのコンテンツ項目は
+    /// 初回利用時に解析するため、大きな本ではメインアクター以外からの呼び出しを
+    /// 推奨する。現在のタスクがキャンセルされた場合は途中で止め、それまでに
+    /// 見つかった一致結果を返す。
     ///
     /// This runs on the calling context; uncached content items are parsed on
     /// first use, so for a large book prefer calling it off the main actor.
@@ -131,16 +192,26 @@ extension EPUBPublication {
     /// found so far.
     ///
     /// - Parameters:
-    ///   - query: the text to find. Empty or whitespace-only returns no hits.
-    ///   - snippetRadius: how many characters of context to include on each
+    ///   - query: 探すテキスト。空または空白だけなら一致結果は返さない。
+    ///     the text to find. Empty or whitespace-only returns no hits.
+    ///   - snippetRadius: ``EPUBSearchHit/snippet`` に含める、一致箇所の前後
+    ///     それぞれの文脈の文字数。
+    ///     how many characters of context to include on each
     ///     side of a match in ``EPUBSearchHit/snippet``.
-    /// - Returns: hits ordered by spine index, then by offset.
+    /// - Returns: spine index、次いでオフセットの順に並べた一致結果。
+    ///   hits ordered by spine index, then by offset.
     public func search(_ query: String,
                        snippetRadius: Int = 24) -> [EPUBSearchHit] {
         search(query, options: [], snippetRadius: snippetRadius)
     }
 
+    /// 比較オプションを指定して、出版物全体を検索する。
+    ///
     /// Searches the whole publication using configurable comparison options.
+    ///
+    /// 全角・半角を区別しない場合は、半角濁点カナ(例: `ｶﾞ`)を互換正規化する。
+    /// 検索の空白は、抽出したインラインテキストと同じ方法で正規化するため、
+    /// 全角スペースと改行しないスペースも通常のスペースに一致する。
     ///
     /// Half-width voiced kana (for example `ｶﾞ`) are compatibility-folded when
     /// width-sensitive comparison is not requested. Search whitespace is
@@ -148,12 +219,18 @@ extension EPUBPublication {
     /// nonbreaking spaces match ordinary spaces.
     ///
     /// - Parameters:
-    ///   - query: the text to find. Empty or whitespace-only returns no hits.
-    ///   - options: comparison sensitivities. An empty set preserves the
+    ///   - query: 探すテキスト。空または空白だけなら一致結果は返さない。
+    ///     the text to find. Empty or whitespace-only returns no hits.
+    ///   - options: 比較時に区別する要素。空の集合なら、既定の動作と同じく
+    ///     大文字・小文字、ダイアクリティカルマーク、全角・半角を区別しない。
+    ///     comparison sensitivities. An empty set preserves the
     ///     default case-, diacritic-, and width-insensitive behavior.
-    ///   - snippetRadius: how many characters of context to include on each
+    ///   - snippetRadius: ``EPUBSearchHit/snippet`` に含める、一致箇所の前後
+    ///     それぞれの文脈の文字数。
+    ///     how many characters of context to include on each
     ///     side of a match in ``EPUBSearchHit/snippet``.
-    /// - Returns: hits ordered by spine index, then by offset.
+    /// - Returns: spine index、次いでオフセットの順に並べた一致結果。
+    ///   hits ordered by spine index, then by offset.
     public func search(_ query: String, options: EPUBSearchOptions,
                        snippetRadius: Int = 24) -> [EPUBSearchHit] {
         // cooViewer-oxr.11: 本文と同じ正規化を使い、段落改行も同じ形で保つ。

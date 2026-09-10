@@ -3,13 +3,26 @@ import Foundation
 /// cooViewer-oxr.46 C42: WebKit に別名の無い `-epub-` 接頭辞 CSS を、配信時に
 /// 標準プロパティで補う。
 ///
+/// cooViewer-oxr.46 C42: Supplements `-epub-` prefixed CSS that WebKit does not
+/// recognize as aliases with standard properties when serving it.
+///
 /// WebKit は `-epub-writing-mode` などの多くを標準プロパティの別名として解釈
 /// するが、次の 6 つは解釈しない(macOS 26 / WebKit で実測)。とくに
 /// `-epub-text-combine-horizontal: all` は日本語縦書きの縦中横そのもので、
 /// 電書協テンプレート系の本で広く使われている。
 ///
+/// WebKit interprets many properties, such as `-epub-writing-mode`, as aliases
+/// of standard properties, but not the following six (verified by measurement
+/// on macOS 26 / WebKit). In particular, `-epub-text-combine-horizontal: all`
+/// is the tate-chu-yoko used in Japanese vertical writing and is widespread
+/// in books based on EBPAJ templates.
+///
 /// 元の宣言は残したまま標準プロパティの宣言を後ろへ足すだけなので、WebKit が
 /// 将来 `-epub-` を解釈するようになっても結果は変わらない(同じ値になる)。
+///
+/// The original declarations stay in place; only standard-property
+/// declarations are appended. If WebKit gains support for `-epub-` in the
+/// future, the result will remain the same because the values are identical.
 public enum EPUBPrefixedCSS {
     /// 補う対象(`-epub-` 名 → 標準名)。WebKit が解釈するものは入れない。
     static let unsupported: [(prefixed: String, standard: String)] = [
@@ -23,6 +36,9 @@ public enum EPUBPrefixedCSS {
 
     /// スタイルシート本文に標準プロパティの宣言を補う。
     /// コメント・文字列・関数・カスタムプロパティの中身はそのまま保つ。
+    ///
+    /// Supplements a stylesheet with standard-property declarations.
+    /// Preserves the contents of comments, strings, functions, and custom properties.
     public static func polyfilled(_ css: String) -> String {
         let input = Array(css.utf8)
         let properties = Dictionary(uniqueKeysWithValues: unsupported.map { ($0.prefixed, $0.standard) })
@@ -89,6 +105,8 @@ public enum EPUBPrefixedCSS {
     }
 
     /// テキスト種別が CSS のときだけ通す入口。
+    ///
+    /// An entry point to use only when the text type is CSS.
     public static func polyfilledStylesheet(_ data: Data) -> Data {
         guard let text = String(data: data, encoding: .utf8),
               text.range(of: "-epub-", options: .caseInsensitive) != nil else { return data }
