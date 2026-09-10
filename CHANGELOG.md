@@ -4,6 +4,13 @@
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
 バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従う。
 
+## [1.18.1] - 2026-09-11
+
+### 修正
+- 1.18.0 が Xcode 16 系の Swift でビルドできなかった問題を修正した。
+  CRC32 の計算に入れた 8 項の式が型チェックの制限時間を超えていた。
+  式を分けただけで、算法・多項式・返り値は 1.18.0 と同じ。
+
 ## [1.18.0] - 2026-09-10
 
 ### 追加
