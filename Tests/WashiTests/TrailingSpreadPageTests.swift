@@ -337,7 +337,7 @@ final class TrailingSpreadPageTests: XCTestCase {
         }
         view.load(publication: publication)
         guard await waitUntil({ delegate.moveCount > 0 }) else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
         XCTAssertEqual(view.pageCountInItem, 5, context)
         XCTAssertEqual(view.pagesPerScreen, 2, context)

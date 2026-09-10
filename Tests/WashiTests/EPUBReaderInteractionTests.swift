@@ -106,7 +106,7 @@ final class EPUBReaderInteractionTests: XCTestCase {
         defer { close(window, view: view) }
         view.load(publication: publication)
         guard await waitUntil({ delegate.moves > 0 }) else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
         let webView = try XCTUnwrap(
             view.subviews.first { $0 is WKWebView } as? WKWebView)
@@ -386,7 +386,7 @@ final class EPUBReaderInteractionTests: XCTestCase {
         view.load(publication: publication)
         XCTAssertEqual(view.printPageLabels, ["1", "3", "4", "5"])
         guard await waitUntil({ delegate.moves > 0 }) else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
 
         XCTAssertTrue(view.go(toPrintPage: "3"))
