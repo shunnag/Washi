@@ -36,7 +36,7 @@ final class EffectiveDirectionReaderTests: XCTestCase {
 
         view.load(publication: publication)
         guard await waitUntil({ delegate.moveCount > 0 }) else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
         guard view.pageCountInItem > 1 else {
             XCTFail("縦書き本文が複数ページへ分割されること")

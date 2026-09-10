@@ -19,7 +19,7 @@ final class EPUBScreenThumbnailRendererTests: XCTestCase {
         guard await renderer.thumbnail(
             spineIndex: 0, pageInItem: 0, optionsJSON: options,
             contentSize: metrics.contentSize, snapshotWidth: 120) != nil else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
 
         XCTAssertTrue(renderer.hasLiveWebView)
@@ -51,7 +51,7 @@ final class EPUBScreenThumbnailRendererTests: XCTestCase {
         guard await renderer.thumbnail(
             spineIndex: 0, pageInItem: 0, optionsJSON: options,
             contentSize: metrics.contentSize, snapshotWidth: 120) != nil else {
-            throw XCTSkip("FXL WKWebView rendering is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("FXL WKWebView rendering is unavailable in this sandbox")
         }
 
         XCTAssertTrue(renderer.hasLiveWebView)
@@ -80,7 +80,7 @@ final class EPUBScreenThumbnailRendererTests: XCTestCase {
         guard await renderer.thumbnail(
             spineIndex: 0, pageInItem: 0, optionsJSON: options,
             contentSize: metrics.contentSize, snapshotWidth: 120) != nil else {
-            throw XCTSkip("WKWebView navigation is unavailable in this sandbox")
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
         let staleIdle = try XCTUnwrap(scheduler.lastActiveEntry)
 
