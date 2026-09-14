@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "Washi",
+  "project_id": "7054c7f6-473c-421e-baf8-5b3a708d5ccc"
+}
