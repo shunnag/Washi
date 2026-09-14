@@ -493,6 +493,28 @@ if let currentRecord = reader.exportCensus() {
 }
 ```
 
+キーを扱うホスト側のデリゲートは、公開初期化子で生成した `EPUBKeyEvent` を
+使って単体テストできる。`key` と `code` を指定し、`shift` / `option` /
+`control` / `command` は省略すると `false` になる。
+
+Host key-handling delegates can be unit-tested with an `EPUBKeyEvent` created
+through its public initializer. Supply `key` and `code`; `shift`, `option`,
+`control`, and `command` default to `false`.
+
+```swift
+import Washi
+
+let event = EPUBKeyEvent(key: " ", code: "Space", shift: true)
+hostDelegate.readerView(reader, didReceiveKey: event)
+let consumed = hostDelegate.readerView(reader, shouldConsumeKey: event)
+```
+
+`hostDelegate` は利用側が実装する `EPUBReaderViewDelegate` とする。
+初期化子はイベントの値を生成し、上の例ではデリゲートを直接呼び出している。
+
+`hostDelegate` is the host's implementation of `EPUBReaderViewDelegate`.
+The initializer creates an event value; the example invokes the delegate directly.
+
 ## 対応状況(EPUB 3.3 RS チェックリスト抜粋) / Support Status (EPUB 3.3 RS Checklist Excerpt)
 
 主な EPUB 3.3 RS 要件の対応状況を以下に示す。✅ は対応済みを示す。

@@ -4,6 +4,14 @@
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
 バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従う。
 
+## [Unreleased]
+
+### 追加
+- `EPUBKeyEvent` に公開初期化子を追加した。`key` と `code` を指定し、
+  修飾キー4項目は省略すると `false` になる。利用側が通常の `import Washi` で
+  キーイベントを生成し、`didReceiveKey` / `shouldConsumeKey` の実装を
+  単体テストできるようにした（Washi #3 の追加提案、Washi-crq）。
+
 ## [1.18.1] - 2026-09-11
 
 ### 修正

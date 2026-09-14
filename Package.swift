@@ -50,5 +50,13 @@ let package = Package(
                 .swiftLanguageMode(.v6)
             ]
         ),
+        // 利用側と同じ公開 API だけを使い、@testable import の影響を避ける。
+        .testTarget(
+            name: "WashiPublicAPITests",
+            dependencies: ["Washi"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
     ]
 )
