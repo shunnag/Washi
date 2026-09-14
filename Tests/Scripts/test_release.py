@@ -26,8 +26,12 @@ class ReleasePreflightTests(unittest.TestCase):
         (self.repo / "Scripts").mkdir()
         self.script = self.repo / "Scripts" / "release.sh"
         shutil.copyfile(SCRIPT, self.script)
+        shutil.copyfile(SCRIPT.with_name("release_support.py"), self.script.with_name("release_support.py"))
         self.changelog = self.repo / "CHANGELOG.md"
-        self.changelog.write_text("# 変更履歴\n\n## [1.2.0] - 2026-09-14\n", encoding="utf-8")
+        self.changelog.write_text("# 変更履歴\n\n## [1.2.0] - 2026-09-14\n\n- 対象の変更\n", encoding="utf-8")
+        self.reading_system = self.repo / "Sources/Washi/Rendering/EPUBScriptedContentHardening.swift"
+        self.reading_system.parent.mkdir(parents=True)
+        self.reading_system.write_text('public enum EPUBReadingSystem {\n    public static let version = "1.2.0"\n}\n')
         self.commit()
 
     def git(self, *args):
@@ -103,6 +107,21 @@ class ReleasePreflightTests(unittest.TestCase):
         self.changelog.write_text(self.changelog.read_text() * 2)
         self.commit()
         self.assert_rejected("ちょうど1件")
+
+    def test_empty_release_notes_are_rejected(self):
+        self.changelog.write_text("## [1.2.0] - 2026-09-14\n\n## [1.1.0] - 2026-09-13\n\n- 前の変更\n")
+        self.commit()
+        self.assert_rejected("空です")
+
+    def test_duplicate_heading_without_date_is_rejected(self):
+        self.changelog.write_text(self.changelog.read_text() + "\n## [1.2.0]\n\n- 重複した変更\n")
+        self.commit()
+        self.assert_rejected("ちょうど1件")
+
+    def test_stale_reading_system_version_is_rejected(self):
+        self.reading_system.write_text(self.reading_system.read_text().replace('"1.2.0"', '"1.1.0"'))
+        self.commit()
+        self.assert_rejected("EPUBReadingSystem.version")
 
     def test_equal_or_older_public_version_is_rejected(self):
         for version in ("1.2.0", "v1.10.0"):

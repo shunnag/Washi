@@ -54,7 +54,7 @@ final class EPUBOffscreenIdleReleaseTimerTests: XCTestCase {
         var result: Int?
         var didFinish = false
         let job = Task { @MainActor in
-            result = await waitForOffscreenJavaScript(
+            result = await waitForOffscreenResult(
                 timeoutScheduler: scheduler.scheduler
             ) { completion in
                 reply = completion
@@ -85,7 +85,7 @@ final class EPUBOffscreenIdleReleaseTimerTests: XCTestCase {
         let finished = expectation(description: "Swift タイマで待機終了")
         var didFinish = false
         let job = Task { @MainActor in
-            let result: Int? = await waitForOffscreenJavaScript(
+            let result: Int? = await waitForOffscreenResult(
                 timeout: .milliseconds(20)
             ) { _ in }
             XCTAssertNil(result)
@@ -103,7 +103,7 @@ final class EPUBOffscreenIdleReleaseTimerTests: XCTestCase {
     /// キャンセル済みのタイマが競合して届いても先着の応答を上書きしない。
     func testJavaScriptResponseWinsAndCancelsTimeout() async throws {
         let scheduler = ManualOffscreenIdleScheduler()
-        let result = await waitForOffscreenJavaScript(
+        let result = await waitForOffscreenResult(
             timeoutScheduler: scheduler.scheduler
         ) { completion in
             completion(7)
@@ -126,7 +126,7 @@ final class EPUBOffscreenIdleReleaseTimerTests: XCTestCase {
         let finished = expectation(description: "キャンセルで待機終了")
         var didFinish = false
         let job = Task { @MainActor in
-            let result: Int? = await waitForOffscreenJavaScript(
+            let result: Int? = await waitForOffscreenResult(
                 timeoutScheduler: scheduler.scheduler
             ) { _ in started.fulfill() }
             XCTAssertNil(result)

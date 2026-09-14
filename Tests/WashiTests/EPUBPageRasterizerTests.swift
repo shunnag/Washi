@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 import XCTest
 @testable import Washi
 
@@ -59,6 +60,79 @@ final class EPUBPageRasterizerTests: XCTestCase {
 
         XCTAssertNil(image)
         XCTAssertLessThan(ContinuousClock.now - invalidatedAt, .seconds(1))
+    }
+
+    /// 初回描画が終わった後も、本の外への遅延遷移を許可しない。
+    /// about:blank を使い、外部ネットワークなしで実際のナビゲーションを検証する。
+    func testLateNavigationRemainsRestrictedAfterRendering() async throws {
+        let publication = try EPUBPublication(
+            data: ZipBuilder.build(Self.complexFixedLayoutEntries(), method: 8),
+            displayURL: URL(fileURLWithPath: "/tmp/washi-rasterizer-policy.epub"))
+        let rasterizer = EPUBPageRasterizer(publication: publication)
+        defer { rasterizer.invalidate() }
+        do {
+            _ = try await rasterizer.renderPage(atSpineIndex: 0, maxPixelSize: 120)
+        } catch {
+            return try failOrSkipWebKitTest("WKWebView による初期描画を実行できません: \(error)")
+        }
+        let webView = try XCTUnwrap(rasterizer.webView)
+        let checked = expectation(description: "描画後の遷移判定")
+        let probe = LateNavigationPolicyProbe(
+            forwarding: webView.navigationDelegate as? NavigationWaiter,
+            checked: checked)
+        webView.navigationDelegate = probe
+
+        webView.load(URLRequest(url: try XCTUnwrap(URL(string: "about:blank"))))
+        await fulfillment(of: [checked], timeout: 5)
+
+        XCTAssertEqual(probe.policy, .cancel)
+    }
+
+    /// JS と JS 側タイマーが応答しなくても、Swift の期限後に戻った処理が
+    /// WebView を保持し続けないこと。テスト後は残った Promise も解決する。
+    func testReadinessTimeoutDoesNotRetainWebView() async throws {
+        let views = NSHashTable<WKWebView>.weakObjects()
+        defer {
+            for view in views.allObjects {
+                view.callAsyncJavaScript(
+                    "globalThis.__washiResolveReadiness?.(); return true;",
+                    arguments: [:], in: nil, in: .defaultClient,
+                    completionHandler: nil)
+            }
+        }
+        func exerciseTimeout() async throws {
+            let publication = try EPUBPublication(
+                data: ZipBuilder.build(Self.complexFixedLayoutEntries(), method: 8),
+                displayURL: URL(fileURLWithPath: "/tmp/washi-rasterizer-readiness.epub"))
+            let rasterizer = EPUBPageRasterizer(publication: publication)
+            defer { rasterizer.invalidate() }
+            do {
+                _ = try await rasterizer.renderPage(atSpineIndex: 0, maxPixelSize: 120)
+            } catch {
+                return try failOrSkipWebKitTest("WKWebView による初期描画を実行できません: \(error)")
+            }
+            let view = try XCTUnwrap(rasterizer.webView)
+            views.add(view)
+            _ = try await view.callAsyncJavaScript(
+                """
+                const pending = new Promise(resolve => {
+                    globalThis.__washiResolveReadiness = resolve;
+                });
+                Object.defineProperty(document, 'fonts', {value: {ready: pending}});
+                globalThis.setTimeout = () => 0;
+                return true;
+                """,
+                arguments: [:], in: nil, contentWorld: .defaultClient)
+            await rasterizer.waitForPostLoadReadiness(
+                webView: view, timeout: .milliseconds(20))
+        }
+
+        try await exerciseTimeout()
+        for _ in 0..<100 {
+            if autoreleasepool(invoking: { views.allObjects.isEmpty }) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(views.allObjects.isEmpty, "期限切れの JS 待機が WebView を保持している")
     }
 
     private func assertRasterizedPage(publication: EPUBPublication,
@@ -212,6 +286,34 @@ final class EPUBPageRasterizerTests: XCTestCase {
             ("OEBPS/package.opf", Data(opf.utf8)),
             ("OEBPS/page.xhtml", Data(xhtml.utf8)),
         ]
+    }
+}
+
+/// 描画後に残ったポリシーへ委譲して判定だけ記録する。デリゲート不在なら、
+/// WebKit の既定どおり許可し、制限が失われたことをテストで検出する。
+@MainActor
+private final class LateNavigationPolicyProbe: NSObject, WKNavigationDelegate {
+    private let forwarding: NavigationWaiter?
+    private let checked: XCTestExpectation
+    private(set) var policy: WKNavigationActionPolicy?
+
+    init(forwarding: NavigationWaiter?, checked: XCTestExpectation) {
+        self.forwarding = forwarding
+        self.checked = checked
+    }
+
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationAction: WKNavigationAction,
+                 preferences: WKWebpagePreferences) async
+        -> (WKNavigationActionPolicy, WKWebpagePreferences) {
+        let decision = await forwarding?.webView(
+            webView, decidePolicyFor: navigationAction, preferences: preferences)
+            ?? (.allow, preferences)
+        if navigationAction.request.url?.absoluteString == "about:blank" {
+            policy = decision.0
+            checked.fulfill()
+        }
+        return decision
     }
 }
 

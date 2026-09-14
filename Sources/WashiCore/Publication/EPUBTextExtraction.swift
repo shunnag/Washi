@@ -272,10 +272,23 @@ extension EPUBPublication {
                                 spineIndex: Int,
                                 options searchOptions: EPUBSearchOptions,
                                 snippetRadius: Int) -> [EPUBSearchHit] {
+        guard !Task.isCancelled else { return [] }
         let widthSensitive = searchOptions.contains(.widthSensitive)
         // 全角/半角形の UTF-8 は必ず 0xEF で始まる。不在なら畳み込みと配列化を省く。
-        let foldedChars = !widthSensitive && text.utf8.contains(0xEF)
-            ? text.map(Self.foldForSearch) : nil
+        let foldedChars: [Character]?
+        if !widthSensitive && text.utf8.contains(0xEF) {
+            // 長い単一章でも、取消後に全体を畳み込み続けない。
+            var processed = 0
+            do {
+                foldedChars = try text.map { character in
+                    if processed.isMultiple(of: 1024) { try Task.checkCancellation() }
+                    processed += 1
+                    return Self.foldForSearch(character)
+                }
+            } catch { return [] }
+        } else {
+            foldedChars = nil
+        }
         let foldedText = foldedChars.map { String($0) } ?? text
         let foldedNeedle = widthSensitive
             ? needle : String(needle.map(Self.foldForSearch))
@@ -292,7 +305,9 @@ extension EPUBPublication {
         }
         // 初ヒットがなければ、原文の文字配列と位置写像は不要。
         // 畳み込み済みの本文・検索語と同じ比較指定で判定し、偽陰性を生まない。
-        guard var range = foldedText.range(of: foldedNeedle, options: comparisonOptions)
+        guard !Task.isCancelled,
+              var range = foldedText.range(of: foldedNeedle, options: comparisonOptions),
+              !Task.isCancelled
         else { return [] }
         let chars = Array(text)
         // 元の文字ごとに、原文と畳み込み後の UTF-16 前方和を対応付ける。
@@ -300,6 +315,7 @@ extension EPUBPublication {
         var utf16Offsets: [Int] = [0]
         utf16Offsets.reserveCapacity(chars.count + 1)
         for character in chars {
+            if utf16Offsets.count.isMultiple(of: 1024), Task.isCancelled { return [] }
             utf16Offsets.append(utf16Offsets.last! + character.utf16.count)
         }
         let foldedUTF16Offsets: [Int]
@@ -307,6 +323,7 @@ extension EPUBPublication {
             var offsets: [Int] = [0]
             offsets.reserveCapacity(foldedChars.count + 1)
             for character in foldedChars {
+                if offsets.count.isMultiple(of: 1024), Task.isCancelled { return [] }
                 offsets.append(offsets.last! + character.utf16.count)
             }
             foldedUTF16Offsets = offsets
@@ -320,6 +337,8 @@ extension EPUBPublication {
         var offset = 0
         var matchEnd = 0
         while true {
+            // ヒット数に比例する処理も章内で中断し、取消確認の負担はまとめる。
+            if hits.count.isMultiple(of: 64), Task.isCancelled { break }
             let foldedLower = baseUTF16Offset
                 + foldedText.utf16.distance(from: searchStart, to: range.lowerBound)
             let foldedUpper = foldedLower

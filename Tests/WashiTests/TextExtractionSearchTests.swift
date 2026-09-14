@@ -4,6 +4,23 @@ import XCTest
 
 /// cooViewer-oxr.10/11/89/92: 本文抽出と検索の追加仕様を検証する。
 final class PublicationTestsTextExtractionSearch: XCTestCase {
+    /// 章の読み取り中に取り消された検索では、その章の全ヒットを作り続けない。
+    func testCancellationDuringChapterReadStopsSearch() async throws {
+        let reader = CancellingSearchReader(entries: EPUBFixtures.singleSpineEntries(
+            bodyHTML: "<p>target target target</p>"))
+        let publication = try EPUBPublication(
+            url: URL(fileURLWithPath: "/tmp/washi-cancel-search.epub"), reader: reader)
+        reader.cancelWhenReading("OEBPS/text/c.xhtml")
+
+        let result = await Task.detached {
+            let hits = publication.search("target")
+            return (hits, Task.isCancelled)
+        }.value
+
+        XCTAssertTrue(result.1, "本文の読み取り中に取消が発生していない")
+        XCTAssertTrue(result.0.isEmpty, "取消後も章内の検索結果を作り続けた")
+    }
+
     func testSearchSnippetRadiusAtIntegerLimits() throws {
         let publication = try makePublication(body: "<p>Before target after.</p>")
         XCTAssertEqual(publication.search("target", snippetRadius: Int.max).first?.snippet,
@@ -285,5 +302,30 @@ final class PublicationTestsTextExtractionSearch: XCTestCase {
         return try EPUBPublication(
             data: ZipBuilder.build(entries, method: 8),
             displayURL: URL(fileURLWithPath: "/tmp/text-extraction-search.epub"))
+    }
+}
+
+private final class CancellingSearchReader: ContainerReader, @unchecked Sendable {
+    private let entries: [String: Data]
+    private let lock = NSLock()
+    private var cancellationPath: String?
+
+    init(entries: [(name: String, data: Data)]) {
+        self.entries = Dictionary(uniqueKeysWithValues: entries.map { ($0.name, $0.data) })
+    }
+
+    var allPaths: [String] { entries.keys.sorted() }
+    func exists(_ path: String) -> Bool { entries[path] != nil }
+
+    func cancelWhenReading(_ path: String) {
+        lock.withLock { cancellationPath = path }
+    }
+
+    func read(_ path: String) throws -> Data {
+        guard let data = entries[path] else { throw EPUBError.resourceNotFound(path) }
+        if lock.withLock({ cancellationPath == path }) {
+            withUnsafeCurrentTask { $0?.cancel() }
+        }
+        return data
     }
 }

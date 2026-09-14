@@ -55,6 +55,7 @@ class GitHubReleaseTests(unittest.TestCase):
         (self.repo / "Scripts").mkdir(parents=True)
         self.script = self.repo / "Scripts" / SCRIPT.name
         shutil.copyfile(SCRIPT, self.script)
+        shutil.copyfile(SCRIPT.with_name("release_support.py"), self.script.with_name("release_support.py"))
         self.changelog = self.repo / "CHANGELOG.md"
         self.changelog.write_text(CHANGELOG, encoding="utf-8")
         self.git("init", "--initial-branch=main", "--quiet")

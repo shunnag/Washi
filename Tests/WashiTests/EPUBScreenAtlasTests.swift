@@ -55,6 +55,29 @@ private final class FakeThumbnailRenderer: ScreenThumbnailRendering {
 
 @MainActor
 final class EPUBScreenAtlasTests: XCTestCase {
+    /// 公開 API に渡された非有限値や変換不能な幅で、整数変換や WebKit が
+    /// プロセスごと落ちないこと。リフローと FXL の両経路で拒否する。
+    func testInvalidThumbnailWidthsReturnNil() async throws {
+        for entries in [EPUBFixtures.fxlComicEntries(),
+                        EPUBFixtures.verticalNovelEntries()] {
+            let publication = try EPUBPublication(
+                data: ZipBuilder.build(entries, method: 8),
+                displayURL: URL(fileURLWithPath: "/tmp/atlas-invalid-width.epub"))
+            let atlas = EPUBScreenAtlas(publication: publication)
+            defer { atlas.invalidate() }
+            let invalidWidths: [CGFloat] = [
+                .nan, .infinity, -.infinity, 0, -1,
+                .greatestFiniteMagnitude, CGFloat(Int.max) / 2,
+            ]
+            for width in invalidWidths {
+                let image = await atlas.thumbnail(
+                    spineIndex: 0, pageInItem: 0, metrics: metrics(width: 400),
+                    isDark: false, width: width)
+                XCTAssertNil(image, "不正な幅: \(width)")
+            }
+        }
+    }
+
     private func makePublication() throws -> EPUBPublication {
         try EPUBPublication(
             data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
