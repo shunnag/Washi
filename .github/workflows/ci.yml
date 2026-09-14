@@ -8,8 +8,8 @@
 # Scripts/build-washi-framework.sh はこの出荷構成で Washi.framework をビルドする。
 # xcode-27 は現時点ではプレビュー扱いの arm64 専用イメージ。
 # macos-26 の既定 Xcode が 27 になったら、重複する xcode-27 は畳んでよい。
-# タグも CI の対象とするが、これは結果の可視化であり、公開そのものは止めない。
-# 予防は運用側で行い、タグを打つ前に対象 commit の CI が緑であることを確認する。
+# タグの全検証が成功してから GitHub Release を作成する。
+# タグ自体は push 直後から利用できるため、作成前にも対象 commit の CI 成功を確認する。
 # 1.18.0 では push とタグ作成が同時に行われ、CI が失敗した commit d099ba2 が
 # 結果を待たずにそのまま公開済みタグになった。
 # macos-15 系の役割は古い Swift (6.1.2) での検査。DEVELOPER_DIR を固定し、
@@ -53,7 +53,7 @@ jobs:
             exit 1
           fi
       - uses: actions/checkout@v4
-      - name: Test release preflight
+      - name: Test release scripts
         run: python3 -m unittest discover -s Tests/Scripts -p 'test_*.py'
       - run: swift --version
       - run: swift build
@@ -121,3 +121,18 @@ jobs:
         env:
           WASHI_CORPUS_DIR: ${{ github.workspace }}/.build/epub-corpus
         run: swift test --filter CorpusSmokeTests
+  release:
+    name: Publish GitHub Release
+    needs: [test, release-artifact, corpus]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish verified tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: python3 Scripts/publish-github-release.py "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY"
