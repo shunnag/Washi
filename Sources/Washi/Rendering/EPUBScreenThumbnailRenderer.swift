@@ -78,7 +78,10 @@ final class EPUBScreenThumbnailRenderer {
     /// 指定画面のサムネイル。失敗時は nil(一覧側は空セルのまま先へ進める)
     func thumbnail(spineIndex: Int, pageInItem: Int, optionsJSON: String,
                    contentSize: NSSize, snapshotWidth: CGFloat) async -> CGImage? {
-        guard !isInvalidated else { return nil }
+        // FXL は幅を 2 倍して Int に変換する。非有限値や変換不能な値を
+        // WebKit の構築前に拒否し、例外で捕捉できない変換トラップを防ぐ。
+        guard !isInvalidated, snapshotWidth.isFinite, snapshotWidth > 0,
+              snapshotWidth < CGFloat(Int.max) / 2 else { return nil }
         // cooViewer-oxr.68: FIFO 待ちも要求中として数え、最後の呼び出しが
         // 完了するまで不可視 WebKit を解放しない。
         pendingRenderRequestCount += 1
@@ -176,7 +179,7 @@ final class EPUBScreenThumbnailRenderer {
             guard !Task.isCancelled, !isInvalidated else { return nil }
             // census と同じく didFinish 直後に測る(ページ数の一致が最優先。
             // 描画の確定は takeSnapshot(afterScreenUpdates: true)が担う)
-            let didSetup = await waitForOffscreenJavaScript { completion in
+            let didSetup = await waitForOffscreenResult { completion in
                 webView.callAsyncJavaScript(
                     "return __washi.setup(\(optionsJSON));",
                     arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
@@ -191,7 +194,7 @@ final class EPUBScreenThumbnailRenderer {
             loadedOptionsJSON = optionsJSON
         }
         // 指定画面へジャンプ(描画確定は afterScreenUpdates が担う)
-        let didShowPage = await waitForOffscreenJavaScript { completion in
+        let didShowPage = await waitForOffscreenResult { completion in
             webView.callAsyncJavaScript(
                 "__washi.showPage(\(pageInItem)); return true;",
                 arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
@@ -207,7 +210,7 @@ final class EPUBScreenThumbnailRenderer {
         // 白紙に写ることがある(実測)。img.decode() は Promise ベースで
         // rAF/可視性に依存しない。ラスタライザと同じ 1500ms の JS 側上限に
         // Swift 側 5 秒の上限を重ね、デコードも WebKit 自体の無応答も打ち切る。
-        let didDecode = await waitForOffscreenJavaScript { completion in
+        let didDecode = await waitForOffscreenResult { completion in
             webView.callAsyncJavaScript(
                 """
                 return await Promise.race([
@@ -230,11 +233,9 @@ final class EPUBScreenThumbnailRenderer {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = true
         configuration.snapshotWidth = NSNumber(value: Double(snapshotWidth))
-        var snapshot = try? await webView.takeSnapshot(
-            configuration: configuration)
+        var cgImage = try? await takeOffscreenSnapshot(
+            webView: webView, configuration: configuration)
         guard !Task.isCancelled, !isInvalidated else { return nil }
-        var cgImage = snapshot?.cgImage(forProposedRect: nil, context: nil,
-                                        hints: nil)
         // 新規 webview の最初のナビゲーションが画像ページ(表紙等)だと、
         // DOM・デコード完了後でも画像レイヤの合成が間に合わず**無地**の
         // スナップショットになることがある(実測)。無地を検知したら
@@ -247,11 +248,9 @@ final class EPUBScreenThumbnailRenderer {
                 return nil
             }
             guard !isInvalidated else { return nil }
-            snapshot = try? await webView.takeSnapshot(
-                configuration: configuration)
+            cgImage = try? await takeOffscreenSnapshot(
+                webView: webView, configuration: configuration)
             guard !Task.isCancelled, !isInvalidated else { return nil }
-            cgImage = snapshot?.cgImage(forProposedRect: nil, context: nil,
-                                        hints: nil)
             retries += 1
         }
         return cgImage

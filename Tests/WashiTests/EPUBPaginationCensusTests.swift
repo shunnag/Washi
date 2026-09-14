@@ -108,6 +108,36 @@ final class EPUBPaginationCensusTests: XCTestCase {
         XCTAssertNil(counts)
     }
 
+    /// 応答しない JS を 1 ページの正常計測として返すと、その値が atlas や
+    /// 保存済み census に残る。期限切れは失敗にし、次回は再計測できること。
+    func testJavaScriptTimeoutDoesNotBecomeSuccessfulPageCount() async throws {
+        let publication = try makeReflowPublication()
+        let timeout = ManualOffscreenIdleScheduler()
+        timeout.firesNextEntrySynchronously = true
+        let census = EPUBPaginationCensus(
+            javaScriptTimeoutScheduler: timeout.scheduler)
+        defer { census.invalidate() }
+        let metrics = makeMetrics()
+
+        // 正常な計測条件のまま、JS の応答より先に Swift 側の期限を発火する。
+        let timedOut = await census.measure(
+            publication: publication,
+            optionsJSON: metrics.censusOptionsJSON,
+            contentSize: metrics.contentSize)
+
+        guard let entry = timeout.entries.first else {
+            return try failOrSkipWebKitTest("WKWebView の読み込みが JS 計測まで進みませんでした")
+        }
+        XCTAssertEqual(timeout.entries.count, 1)
+        XCTAssertTrue(entry.isFired)
+        XCTAssertNil(timedOut)
+        XCTAssertFalse(census.hasLiveWebView)
+        let retried = await census.measure(
+            publication: publication, optionsJSON: metrics.censusOptionsJSON,
+            contentSize: metrics.contentSize)
+        XCTAssertEqual(retried, [1])
+    }
+
     /// cooViewer-oxr.22/53: WebKit の load 中断・プロセス終了は壊れた項目の
     /// 1 ページ縮退ではなく、census 全体を中断する一過性エラーとして扱う。
     func testTransientWebKitFailuresAbortMeasurement() {

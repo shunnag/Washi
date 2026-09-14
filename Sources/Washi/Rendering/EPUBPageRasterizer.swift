@@ -28,7 +28,8 @@ public final class EPUBPageRasterizer {
     private let schemeHandler: EPUBSchemeHandler
     private let allowsScriptedContent: Bool
     private var window: NSWindow?
-    private var webView: WKWebView?
+    private(set) var webView: WKWebView?
+    // navigationDelegate は弱参照なので、描画完了後も保持して外部遷移を遮断する。
     private var pendingNavigationWaiter: NavigationWaiter?
     /// cooViewer-oxr.68: 所有するサムネイルレンダラのアイドル診断用。
     var hasLiveWebView: Bool { webView != nil }
@@ -228,14 +229,11 @@ public final class EPUBPageRasterizer {
         let configuration = WKSnapshotConfiguration()
         configuration.rect = CGRect(origin: .zero, size: frameSize)
         configuration.afterScreenUpdates = true
-        let image = try await webView.takeSnapshot(configuration: configuration)
+        let image = try await takeOffscreenSnapshot(
+            webView: webView, configuration: configuration)
         try Task.checkCancellation()
         guard !isInvalidated else { throw RasterizeError.loadFailed }
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil,
-                                          hints: nil) else {
-            throw RasterizeError.snapshotFailed
-        }
-        return cgImage
+        return image
     }
 
     private func prepareWebView(size: NSSize) -> WKWebView {
@@ -274,34 +272,25 @@ public final class EPUBPageRasterizer {
         do {
             try await delegate.wait(timeout: .seconds(30))
         } catch {
-            if pendingNavigationWaiter === delegate {
-                pendingNavigationWaiter = nil
-            }
-            webView.navigationDelegate = nil
             if error is CancellationError || Task.isCancelled {
                 webView.stopLoading()
             }
             throw error
         }
-        if pendingNavigationWaiter === delegate {
-            pendingNavigationWaiter = nil
-        }
-        webView.navigationDelegate = nil
         // didFinish 直後はフォント・画像のデコードが残っていることがある。
         // cooViewer-oxr.2: 一度も表示しないウインドウでは rAF が発火しないため
         // 待ってはいけない。フォントと画像デコードを有界に待ち、描画の確定は
         // takeSnapshot(afterScreenUpdates: true)に任せる
         await waitForPostLoadReadiness(webView: webView)
         try Task.checkCancellation()
-        withExtendedLifetime(delegate) {}
     }
 
-    private func waitForPostLoadReadiness(webView: WKWebView) async {
-        let race = PostLoadReadinessRace()
-        // 優先度は renderPage と同じ userInitiated を明示する。低 QoS の
-        // WebKit JS 呼び出しが応答しない問題をここで再導入しない
-        let scriptTask = Task(priority: .userInitiated) { @MainActor in
-            _ = try? await webView.callAsyncJavaScript(
+    func waitForPostLoadReadiness(webView: WKWebView,
+                                  timeout: Duration = .seconds(5)) async {
+        // 呼び出し元の描画ジョブは userInitiated。キャンセル非対応の
+        // async 版で WebView を保持せず、期限後は応答の有無によらず解放する。
+        let _: Bool? = await waitForOffscreenResult(timeout: timeout) { completion in
+            webView.callAsyncJavaScript(
                 """
                 const work = (async () => {
                     await document.fonts.ready;
@@ -314,54 +303,11 @@ public final class EPUBPageRasterizer {
                     new Promise(resolve => setTimeout(() => resolve(false), 1500))
                 ]);
                 """,
-                arguments: [:], in: nil, contentWorld: .defaultClient)
-            race.finish()
+                arguments: [:], in: nil, in: .defaultClient) { _ in
+                    // 読み込み済みの内容は従来どおり最善努力で描画する。
+                    completion(true)
+                }
         }
-        // cooViewer-oxr.2: JS 側のタイマごと WebKit が応答しない場合も、
-        // FIFO の後続ジョブを塞がないよう Swift 側で待機を打ち切る
-        let timeoutTask = Task(priority: .userInitiated) { @MainActor in
-            do {
-                try await Task.sleep(for: .seconds(5))
-            } catch {
-                return
-            }
-            race.finish()
-        }
-        await withTaskCancellationHandler {
-            await race.wait()
-        } onCancel: {
-            scriptTask.cancel()
-            timeoutTask.cancel()
-            Task { @MainActor in race.finish() }
-        }
-        scriptTask.cancel()
-        timeoutTask.cancel()
-    }
-}
-
-/// WebKit の応答と Swift 側タイムアウトのうち先に終わった方だけを採用する。
-/// 非構造化 Task を使い、応答しない WebKit 子タスクの終了を待たずに戻す
-@MainActor
-private final class PostLoadReadinessRace {
-    private var isFinished = false
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    func wait() async {
-        guard !isFinished else { return }
-        await withCheckedContinuation { continuation in
-            if isFinished {
-                continuation.resume()
-            } else {
-                self.continuation = continuation
-            }
-        }
-    }
-
-    func finish() {
-        guard !isFinished else { return }
-        isFinished = true
-        continuation?.resume()
-        continuation = nil
     }
 }
 

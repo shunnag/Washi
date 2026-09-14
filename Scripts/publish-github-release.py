@@ -2,39 +2,18 @@
 """タグの CI が成功した後、検証済みコミットの変更履歴を GitHub Release に公開する。"""
 
 import argparse
-from datetime import date
 import json
 from pathlib import Path
-import re
 import subprocess
 import sys
 import tempfile
 
+# 検証した作業ツリーへ __pycache__ を作らない。
+sys.dont_write_bytecode = True
+from release_support import release_entry, stable_version
+
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def stable_version(tag):
-    match = re.fullmatch(r"v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", tag)
-    return tuple(map(int, match.groups())) if match else None
-
-
-def release_notes(changelog, tag):
-    if stable_version(tag) is None:
-        raise ValueError("タグは X.Y.Z または vX.Y.Z の確定版で指定してください")
-    version = re.escape(tag.removeprefix("v"))
-    headings = list(re.finditer(rf"^## \[{version}\].*$", changelog, re.MULTILINE))
-    if len(headings) != 1:
-        raise ValueError("CHANGELOG の対象バージョンの見出しはちょうど1件必要です")
-    heading = headings[0]
-    match = re.fullmatch(rf"## \[{version}\] - (\d{{4}}-\d{{2}}-\d{{2}})[ \t]*", heading[0])
-    if not match:
-        raise ValueError("CHANGELOG に YYYY-MM-DD を含む確定見出しが必要です")
-    date.fromisoformat(match[1])
-    notes = re.split(r"^## ", changelog[heading.end():], maxsplit=1, flags=re.MULTILINE)[0].strip()
-    if not notes:
-        raise ValueError("CHANGELOG の対象バージョンのリリースノートが空です")
-    return notes + "\n"
 
 
 def run(*args):
@@ -65,7 +44,7 @@ def publish(tag, repository):
             print(f"公開済みのため変更しません: {release['html_url']}")
             return
     # 作業ツリーではなく、CI が検証したコミットからノートを取得する。
-    notes = release_notes(run("git", "show", "HEAD:CHANGELOG.md"), tag)
+    _, notes = release_entry(run("git", "show", "HEAD:CHANGELOG.md"), tag)
     versions = [stable_version(item["name"]) for item in tags]
     latest = version == max(value for value in versions if value is not None)
     with tempfile.TemporaryDirectory(prefix="washi-github-release-") as temporary:

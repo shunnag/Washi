@@ -24,6 +24,7 @@ final class EPUBPaginationCensus {
     private var pendingNavigationWaiter: NavigationWaiter?
     private var configuredAllowsScriptedContent: Bool?
     private let idleReleaseTimer: EPUBOffscreenIdleReleaseTimer
+    private let javaScriptTimeoutScheduler: EPUBOffscreenIdleReleaseTimer.Scheduler
     private var pendingMeasurementCount = 0
 
     /// cooViewer-oxr.68: テストと所有者の診断用。アイドル解放後は false
@@ -32,10 +33,13 @@ final class EPUBPaginationCensus {
 
     init(
         idleTimerScheduler: @escaping EPUBOffscreenIdleReleaseTimer.Scheduler =
+            EPUBOffscreenIdleReleaseTimer.continuousScheduler,
+        javaScriptTimeoutScheduler: @escaping EPUBOffscreenIdleReleaseTimer.Scheduler =
             EPUBOffscreenIdleReleaseTimer.continuousScheduler
     ) {
         idleReleaseTimer = EPUBOffscreenIdleReleaseTimer(
             scheduler: idleTimerScheduler)
+        self.javaScriptTimeoutScheduler = javaScriptTimeoutScheduler
     }
 
     /// 各 spine 項目のページ数を実測する。cooViewer-oxr.22: 欠損などの
@@ -125,7 +129,9 @@ final class EPUBPaginationCensus {
             if Task.isCancelled { return nil }
             // 本番の runSetup と同タイミング(didFinish 直後)で測ることで、
             // フォント・画像の遅延読み込みによる誤差の出方まで揃える
-            let result = await waitForOffscreenJavaScript { completion in
+            let result = await waitForOffscreenResult(
+                timeoutScheduler: javaScriptTimeoutScheduler
+            ) { completion in
                 webView.callAsyncJavaScript(
                     "return __washi.setup(\(plan.optionsJSON));",
                     arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
@@ -137,9 +143,10 @@ final class EPUBPaginationCensus {
             }
             if Task.isCancelled { return nil }
             guard let result else {
-                // JS 応答の期限切れはこの項目だけ 1 ページに縮退して先へ進む。
-                counts.append(1)
-                continue
+                // 一時的な無応答を 1 ページとして確定・保存しない。
+                // 応答しない WebKit も手放し、次回は新しいビューで再計測する。
+                releaseOffscreenResources()
+                return nil
             }
             guard let count = try? result.get() else { return nil }
             counts.append(max(1, count))
