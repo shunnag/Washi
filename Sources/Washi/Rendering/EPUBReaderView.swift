@@ -1307,8 +1307,8 @@ public final class EPUBReaderView: NSView {
         }
     }
 
-    /// Draws the highlights for the item currently on screen. Called on every
-    /// change and after each spine load / repagination.
+    /// 現在表示している項目のハイライトを描画する。ハイライトの変更時と、
+    /// spine の読み込み・再ページ割りの完了後に呼び出す。
     func applyHighlights() {
         guard webView != nil, !isLoadingSpineItem else { return }
         let idref = publication?.readingOrder.indices.contains(currentSpineIndex) == true

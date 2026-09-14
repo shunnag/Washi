@@ -558,7 +558,7 @@ public struct EPUBReaderSettings: Sendable, Equatable {
         return (background, text)
     }
 
-    /// CSS-string escaping shared by the default and overriding font settings.
+    /// 既定フォントと上書きフォントの設定で共用する CSS 文字列のエスケープ。
     private func escapedFontFamily(_ family: String) -> String {
         let stripped = family.unicodeScalars.filter {
             !CharacterSet.controlCharacters.contains($0)
