@@ -746,6 +746,16 @@ public struct EPUBKeyEvent: Sendable, Equatable {
     public let option: Bool
     public let control: Bool
     public let command: Bool
+
+    public init(key: String, code: String, shift: Bool = false,
+                option: Bool = false, control: Bool = false, command: Bool = false) {
+        self.key = key
+        self.code = code
+        self.shift = shift
+        self.option = option
+        self.control = control
+        self.command = command
+    }
 }
 
 /// ページ面でのクリックの詳細(デリゲートへ転送する)。button は NSEvent と
