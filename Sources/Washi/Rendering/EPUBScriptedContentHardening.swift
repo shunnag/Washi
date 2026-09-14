@@ -92,5 +92,5 @@ public enum EPUBReadingSystem {
     /// パッケージの版に合わせて更新する
     ///
     /// Keep this in sync with the package version.
-    public static let version = "1.18.1"
+    public static let version = "1.19.0"
 }
