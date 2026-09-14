@@ -1,8 +1,9 @@
 .build/
 .swiftpm/
 .DS_Store
+__pycache__/
 
-# Beads / Dolt files (added by bd init)
+# beads / Dolt のローカル DB と認証情報
 .dolt/
 *.db
 .beads-credential-key

@@ -700,6 +700,39 @@ issues and pull requests are accepted.
 [cooViewer](https://github.com/shunnag/cooViewer) is one of the applications
 that uses this package.
 
+開発課題はこのリポジトリの beads で管理する。初回は `bd bootstrap --yes`、
+作業の確認は `bd ready` を使う。cooViewer から移した課題は旧 ID を維持している。
+詳しい手順は [.beads/README.md](.beads/README.md) を参照する。
+
+Development tasks are tracked in this repository's Beads database. Run
+`bd bootstrap --yes` on a new checkout and `bd ready` to find available work.
+Issues migrated from cooViewer retain their original IDs.
+
+## リリース前検証 / Release Preflight
+
+公開予定の版を CHANGELOG に `## [X.Y.Z] - YYYY-MM-DD` として記録し、変更を
+コミットしてから次を実行する。作業ツリー（未追跡ファイルを含む）がクリーンで、
+公開先の最新確定版タグより新しい版であることも検証する。
+
+Record the planned version in CHANGELOG as `## [X.Y.Z] - YYYY-MM-DD`, commit
+the changes, and run the command below. It also requires a clean working tree,
+including untracked files, and a version newer than the latest stable tag on
+the public remote.
+
+```sh
+Scripts/release.sh X.Y.Z
+# 公開先を切り替える場合
+Scripts/release.sh X.Y.Z --remote origin
+```
+
+このスクリプトは検証のみを行う。対象コミットの CI が成功したことを確認してから、
+タグの作成・公開を別途行う。Python 3.9 以降と Git が必要で、cooViewer には依存しない。
+スクリプトの検証は `python3 -m unittest discover -s Tests/Scripts -p 'test_*.py'` で実行する。
+
+The script performs validation only. Create and publish the tag separately,
+after the target commit's CI has passed. It requires Python 3.9 or later and
+Git, and works independently of cooViewer.
+
 ## ライセンス / License
 
 MIT License(LICENSE を参照)。依存パッケージはない。
