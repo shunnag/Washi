@@ -755,6 +755,33 @@ The script performs validation only. Create and publish the tag separately,
 after the target commit's CI has passed. It requires Python 3.9 or later and
 Git, and works independently of cooViewer.
 
+タグを push すると、テスト・配布構成ビルド・公開 EPUB コーパス検証がすべて
+成功した後、CI がそのタグの CHANGELOG から GitHub Release を自動作成する。
+確定版タグ (`X.Y.Z` または `vX.Y.Z`) と日付付きの変更履歴が必要。
+タグは CI 完了前にも SwiftPM から利用できるため、タグ作成前の確認も必要になる。
+
+After a tag is pushed, CI creates its GitHub Release from the tagged CHANGELOG
+only after all tests, release artifact builds, and public EPUB corpus checks pass.
+This requires a stable tag (`X.Y.Z` or `vX.Y.Z`) and a dated changelog entry.
+SwiftPM can resolve the tag before CI finishes, so the pre-tag check still matters.
+
+公開処理だけが失敗した場合は、そのタグの CI で失敗したジョブを再実行する。
+公開済みの Release は上書きせず、同じタグの下書きがある場合は自動公開を止める。
+下書きの内容を確認して手動公開するか、下書きを整理してから再実行する。
+旧タグの公開漏れを手動で補う場合も、ノートを確認した上で
+`gh release create X.Y.Z --verify-tag --notes-file notes.md --latest=false` を使う。
+自動公開では公開先の最新確定版タグだけを Latest にし、過去の版の再実行による
+巻き戻りを防ぐ。GitHub CLI (`gh`) が必要で、CI の認証には `GITHUB_TOKEN` を使う。
+
+If only publication fails, rerun the failed jobs in that tag's CI run. Published
+Releases are preserved; an existing draft stops automatic publication so its
+content can be reviewed and published manually, or the draft resolved before retrying.
+For historical tags, review the notes and use
+`gh release create X.Y.Z --verify-tag --notes-file notes.md --latest=false`.
+Automatic publication marks only the newest stable remote tag as Latest, so
+retries for older versions cannot move it backwards. The publisher uses GitHub
+CLI (`gh`) and authenticates in CI with `GITHUB_TOKEN`.
+
 ## ライセンス / License
 
 MIT License(LICENSE を参照)。依存パッケージはない。
