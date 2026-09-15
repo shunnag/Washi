@@ -87,8 +87,18 @@ final class ScrollReaderHarness: EPUBReaderViewDelegate {
     func readerView(_ view: EPUBReaderView, didReachBookEdge forward: Bool) { edges.append(forward) }
 
     func metrics() async throws -> [String: Any] {
-        let value = try await reader.evaluateForTest("return __washi.scrollMetrics();")
-        return try XCTUnwrap(value as? [String: Any])
+        // 位置通知の後にも AppKit の初回 layout が再計測を予約する場合がある。
+        // 連続表示は章の読み込みが非同期なので、途中の未確定寸法を検査しない。
+        let value = try await reader.evaluateForTest("""
+            const deadline = Date.now() + 10000;
+            while (!__washi.scrollMetrics().ready && Date.now() < deadline) {
+                await new Promise(resolve => setTimeout(resolve, 20));
+            }
+            return __washi.scrollMetrics();
+            """)
+        let metrics = try XCTUnwrap(value as? [String: Any])
+        XCTAssertEqual(metrics["ready"] as? Bool, true, "レイアウトが確定しない: \(metrics)")
+        return metrics
     }
 }
 
@@ -246,6 +256,25 @@ final class EPUBScrollLayoutTests: XCTestCase {
         XCTAssertTrue(harness.failures.isEmpty)
     }
 
+    func testContinuousResizeUpdatesGeometryAndPreservesPosition() async throws {
+        let book = try scrollPublication(flow: "scrolled-continuous", modes: ["vertical-lr", "vertical-lr"])
+        let harness = ScrollReaderHarness()
+        defer { harness.close() }
+        try await harness.load(book, at: book.locator(forSpineIndex: 1, progression: 0.55))
+        harness.reader.frame.size = CGSize(width: 380, height: 300)
+        harness.reader.layoutSubtreeIfNeeded()
+        let deadline = ContinuousClock.now + .seconds(15)
+        var metrics = try await harness.metrics()
+        while metrics["viewport"] as? Double != 380, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+            metrics = try await harness.metrics()
+        }
+        XCTAssertEqual(metrics["viewport"] as? Double, 380)
+        XCTAssertEqual(harness.reader.currentSpineIndex, 1)
+        XCTAssertEqual(harness.reader.currentLocator.progression, 0.55, accuracy: 0.01)
+        XCTAssertTrue(harness.failures.isEmpty)
+    }
+
     func testHorizontalDocumentScrollsWithoutColumnsOrSnapping() async throws {
         try await verifyDocument(mode: "horizontal-tb", horizontal: false, negative: false)
     }
@@ -280,7 +309,7 @@ final class EPUBScrollLayoutTests: XCTestCase {
         let initial = try await harness.metrics()
         let items = try XCTUnwrap(initial["items"] as? [[String: Any]])
         XCTAssertEqual(items.count, 2)
-        let secondStart = try XCTUnwrap(items[1]["start"] as? Double)
+        let secondStart = try XCTUnwrap((items[1]["start"] as? NSNumber)?.doubleValue, "\(initial)")
         let horizontal = mode != "horizontal-tb"
         let sign = mode == "vertical-rl" ? -1.0 : 1.0
         let boundaryPosition = (secondStart - 120) * sign

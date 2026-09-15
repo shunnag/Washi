@@ -277,7 +277,7 @@ extension ReaderScripts {
             return 'turned';
         };
         api.activeDocument = () => active && active.frame ? active.frame.contentDocument : document;
-        api.scrollMetrics = () => ({ scrolled: true, continuous: true,
+        api.scrollMetrics = () => ({ ready: ready, scrolled: true, continuous: true,
             mode: active ? active.mode : 'htb', extent: total, viewport: viewport(), offset: offset(),
             items: items.map(item => ({ index: item.index, start: item.start, extent: item.extent,
                 pageCount: count(item), loaded: !!item.child, rect: item.frame
