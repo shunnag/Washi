@@ -35,6 +35,19 @@ extension ReaderScripts {
                    pageCount: count(active), pagesPerScreen: 1, mode: active.mode,
                    progression: progression(active), printPageMarkers: active.markers });
         }
+        function setupResult() {
+            return { pageCount: count(active), pagesPerScreen: 1, imagePage: false,
+                     mode: active.mode, printPageMarkers: active.markers,
+                     firstPageOnRight: false, supportsColumnAxis: true };
+        }
+        function sameOptions(a, b) {
+            if (a === b) { return true; }
+            if (!a || !b || typeof a !== 'object' || typeof b !== 'object') { return false; }
+            const keys = Object.keys(a);
+            return keys.length === Object.keys(b).length
+                && keys.every(key => Object.prototype.hasOwnProperty.call(b, key)
+                    && sameOptions(a[key], b[key]));
+        }
         function transformRect(item, rect) {
             const bounds = item.frame.getBoundingClientRect();
             return { x: bounds.left + rect.x * item.scale, y: bounds.top + rect.y * item.scale,
@@ -251,11 +264,15 @@ extension ReaderScripts {
             }
             ready = true;
             select(active, 0);
-            return { pageCount: count(active), pagesPerScreen: 1, imagePage: false,
-                     mode: active.mode, printPageMarkers: active.markers,
-                     firstPageOnRight: false, supportsColumnAxis: true };
+            return setupResult();
         };
         api.repaginate = async function (next) {
+            // 初回 AppKit layout などの同値要求では、文書・選択・操作途中の位置を
+            // 保つ。再読み込みを挟むと、その間の入力を復元前の位置へ巻き戻してしまう。
+            if (ready && sameOptions({ ...options, spineIndex: next.spineIndex }, next)) {
+                options = next;
+                return setupResult();
+            }
             const index = active && active.index;
             const fraction = active ? progression(active) : 0;
             const result = await api.setup({ ...next, spineIndex: index });
