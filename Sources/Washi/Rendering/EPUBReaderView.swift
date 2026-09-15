@@ -183,6 +183,13 @@ public final class EPUBReaderView: NSView {
     var accessibilityDifferentiateWithoutColorOverride: Bool? {
         didSet { accessibilityDisplayOptionsDidChange() }
     }
+    // OS の設定を変更せず、演出の有無と取り消しを両方検証する。
+    // 未指定なら常に現在のアクセシビリティ設定に従う。
+    var accessibilityReduceMotionOverride: Bool?
+    var accessibilityShouldReduceMotion: Bool {
+        accessibilityReduceMotionOverride
+            ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
     private var accessibilityAnnouncementTask: Task<Void, Never>?
     private struct SettledPageIdentity: Equatable {
         let spineIndex: Int
@@ -311,6 +318,8 @@ public final class EPUBReaderView: NSView {
     }
     /// めくりアニメーションのオーバーレイ(spine 切替時に掃除)
     var turnOverlays: [NSView] = []
+    // 直近に予約した演出処理。テストは固定時間の sleep でなく、この終了を待つ。
+    private(set) var lastAnimatedTurnTask: Task<Void, Never>?
     /// 直前のめくり時刻(高速連打時はアニメーションを省略して即めくり)
     private var lastTurnDate = Date.distantPast
     /// セットアップ実行中に届いた再ページ割り要求(捨てずに後追い実行する)
@@ -1396,7 +1405,7 @@ public final class EPUBReaderView: NSView {
             navigationRequest: navigationRequestGeneration)
         let wantsAnimation = settings.pageTurnStyle != .none
             && allowsVisibleRenderingWork
-            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            && !accessibilityShouldReduceMotion
             && Date().timeIntervalSince(lastTurnDate) > 0.3
             // spine 読込中は演出を張らない: 章境界の重い読込中に再度めくると、
             // 読込中 webView のスナップショットでゴミカバーを作り pendingSpineTurn を
@@ -1408,9 +1417,9 @@ public final class EPUBReaderView: NSView {
             // FXL 項目は常に隣接 spine への移動。演出ありなら旧ページの
             // カバーを持ち越して spine 遷移演出(下の boundary 経路と同じ)
             if wantsAnimation {
-                Task { [weak self] in
-                    await self?.beginFXLSpineTurn(forward: forward,
-                                                  context: context)
+                lastAnimatedTurnTask = Task { [weak self] in
+                    guard let self else { return }
+                    await self.beginFXLSpineTurn(forward: forward, context: context)
                 }
             } else {
                 advanceSpine(forward: forward)
@@ -1421,7 +1430,7 @@ public final class EPUBReaderView: NSView {
             evaluate("__washi.turnInDoc(\(forward));")
             return
         }
-        Task { [weak self] in
+        lastAnimatedTurnTask = Task { [weak self] in
             guard let self else { return }
             await self.performAnimatedTurn(forward: forward, context: context)
         }

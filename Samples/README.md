@@ -54,6 +54,14 @@ ReaderSession and ReaderSurface are sample types, not library products. Copy and
 them under the MIT license. Own one session per SwiftUI window; do not reload a book
 from `updateNSView`. Call `close()` when discarding the session.
 
+そのままライブラリ API にしない理由と、保存・権限・状態・delegate の変更点は
+[SwiftUI 組み込みガイド](../Sources/Washi/Washi.docc/SwiftUIIntegration.md#セッションを自分のアプリへ移す--adapt-the-session-to-your-app)
+にまとめてある。`ReaderSurface` の識別子が同じ間はセッションも同じものを渡す。
+
+The SwiftUI integration guide explains why these remain sample types and how to
+adapt persistence, access, state, and delegate policies. Keep the same session while
+the ReaderSurface identity is unchanged.
+
 本を閉じると、解析の結果を捨て、検索・位置移動をキャンセルし、`reader.unload()` の後に
 ファイル権限を解放する。`EPUBPublication.open` 内の同期解析そのものはキャンセルで
 即座に中断されないため、その完了まで当該要求は権限を保持する。

@@ -216,11 +216,7 @@ final class EPUBReaderReentrancyTests: XCTestCase {
     }
 
     func testPageChangeCallbackOpeningAnotherBookCancelsInFlightAnimation() async throws {
-        // 現行の CI ではこの条件で恒常的にスキップされ、ページめくりアニメーションの
-        // 取り消し経路は検査されていないとみられる。
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            throw XCTSkip("Animations are disabled by Reduce Motion")
-        }
+        // CI の Reduce Motion 設定は変更せず、このビューだけで演出を検証する。
         let original = try EPUBPublication(
             data: ZipBuilder.build(EPUBFixtures.singleSpineEntries(
                 bodyHTML: String(repeating: "<p>ページめくり中の本の差し替えを検証する本文です。</p>", count: 150)), method: 8),
@@ -228,6 +224,7 @@ final class EPUBReaderReentrancyTests: XCTestCase {
         let replacement = try publication("replacement-fxl", fixed: true)
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         view.settings.pageTurnStyle = .fade
+        view.accessibilityReduceMotionOverride = false
         let delegate = ReentrantReaderDelegate()
         view.delegate = delegate
         let window = NSWindow(contentRect: view.frame.offsetBy(dx: -20_000, dy: -20_000),
@@ -248,17 +245,18 @@ final class EPUBReaderReentrancyTests: XCTestCase {
             return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
         XCTAssertGreaterThan(view.pageCountInItem, 1)
+        var sawInFlightCover = false
         delegate.onMove = { view in
             delegate.onMove = nil
+            sawInFlightCover = !view.turnOverlays.isEmpty
             view.load(publication: replacement)
         }
 
         view.goForward()
-        for _ in 0..<250 where view.publication !== replacement {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        try await Task.sleep(for: .milliseconds(300))
+        let turn = try XCTUnwrap(view.lastAnimatedTurnTask)
+        await turn.value
 
+        XCTAssertTrue(sawInFlightCover, "スナップショット失敗による演出なしの経路では検証にならない")
         XCTAssertTrue(view.publication === replacement)
         XCTAssertEqual(view.currentSpineIndex, 0)
         XCTAssertEqual(delegate.animationCount, 0)
@@ -266,13 +264,10 @@ final class EPUBReaderReentrancyTests: XCTestCase {
     }
 
     func testScheduledAnimatedTurnDoesNotAdvanceReplacementBook() async throws {
-        // 現行の CI ではこの条件で恒常的にスキップされ、ページめくりアニメーションの
-        // 取り消し経路は検査されていないとみられる。
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            throw XCTSkip("Animations are disabled by Reduce Motion")
-        }
+        // 予約済みの演出が実行される前に本を差し替え、その演出の終了まで待つ。
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         view.settings.pageTurnStyle = .fade
+        view.accessibilityReduceMotionOverride = false
         let delegate = ReentrantReaderDelegate()
         view.delegate = delegate
         let window = NSWindow(contentRect: view.frame.offsetBy(dx: -20_000, dy: -20_000),
@@ -295,11 +290,57 @@ final class EPUBReaderReentrancyTests: XCTestCase {
         let replacement = try publication("replacement-fxl", fixed: true)
 
         view.goForward()
+        let turn = try XCTUnwrap(view.lastAnimatedTurnTask)
         view.load(publication: replacement)
-        try await Task.sleep(for: .milliseconds(600))
+        await turn.value
 
         XCTAssertTrue(view.publication === replacement)
         XCTAssertEqual(view.currentSpineIndex, 0)
+        XCTAssertEqual(delegate.animationCount, 0)
+        XCTAssertTrue(view.turnOverlays.isEmpty)
+    }
+
+    func testReduceMotionUsesSystemSettingUnlessOverridden() {
+        let view = EPUBReaderView(frame: .zero)
+        XCTAssertEqual(view.accessibilityShouldReduceMotion,
+                       NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        view.accessibilityReduceMotionOverride = false
+        XCTAssertFalse(view.accessibilityShouldReduceMotion)
+        view.accessibilityReduceMotionOverride = true
+        XCTAssertTrue(view.accessibilityShouldReduceMotion)
+        view.accessibilityReduceMotionOverride = nil
+        XCTAssertEqual(view.accessibilityShouldReduceMotion,
+                       NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
+
+    func testReduceMotionDisablesAnimationWithoutPreventingNavigation() async throws {
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+        view.settings.pageTurnStyle = .fade
+        view.accessibilityReduceMotionOverride = true
+        let delegate = ReentrantReaderDelegate()
+        view.delegate = delegate
+        let window = NSWindow(contentRect: view.frame.offsetBy(dx: -20_000, dy: -20_000),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        defer {
+            view.unload()
+            window.contentView = nil
+            window.close()
+        }
+        view.load(publication: try publication("reduced-motion-fxl", fixed: true))
+        for _ in 0..<250 where delegate.moveCount == 0 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        guard delegate.moveCount > 0 else {
+            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+        }
+
+        view.goForward()
+
+        XCTAssertEqual(view.currentSpineIndex, 1)
+        XCTAssertNil(view.lastAnimatedTurnTask)
+        XCTAssertEqual(delegate.animationCount, 0)
         XCTAssertTrue(view.turnOverlays.isEmpty)
     }
 }
