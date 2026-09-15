@@ -40,6 +40,10 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
     /// scripted コンテンツを許可するか(CSP の script-src に反映)
     let allowsScripts: Bool
 
+    // 本文と衝突しない、ビューごとに生成した連続スクロール用の文書。
+    var scrollDocumentPath: String { "__washi-scroll-\(instanceID).xhtml" }
+    var scrollDocumentURL: URL? { url(forContainerPath: scrollDocumentPath) }
+
     private var liveTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
 
     /// 直近に Range 要求で展開したリソース(1件)。audio/video のシークは同じ
@@ -121,6 +125,14 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
         let publication = self.publication
         let cacheGeneration = rangeResourceCacheGeneration
         liveTasks[id] = Task { [weak self] in
+            if let self, path == self.scrollDocumentPath {
+                guard self.liveTasks[id] != nil else { return }
+                self.liveTasks[id] = nil
+                self.reply(to: urlSchemeTask, url: url,
+                           data: EPUBScrollDocument.containerData,
+                           mediaType: EPUBMediaType.xhtml, rangeHeader: nil)
+                return
+            }
             if Self.isImageWrapperURL(url),
                let entry = publication.readingOrder.first(where: {
                    $0.resolvedContainerPath == path

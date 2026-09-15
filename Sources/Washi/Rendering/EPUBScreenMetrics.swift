@@ -19,14 +19,14 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
     /// キャッシュと census のキーに埋め込むページ割りアルゴリズムの版。
     /// 変更すると、古いエンジンで実測して保存した値が無効になる。
     /// EPUBPrefixedCSS など配信時のリソース変換でページ割りが変わる場合も
-    /// この版を上げる。版 4 は配信時 CSS ポリフィル導入前の実測値を無効化する。
+    /// この版を上げる。版 5 はスクロール表示導入前の実測値を無効化する。
     ///
     /// Version of the pagination algorithm encoded in cache and census keys.
     /// A change invalidates persisted measurements made by older engines.
     /// Bump this version when resource transformations at delivery time, such as
-    /// EPUBPrefixedCSS, affect pagination. Version 4 invalidates measurements
-    /// made before the delivery-time CSS polyfills were introduced.
-    public static let paginationVersion = 4
+    /// EPUBPrefixedCSS, affect pagination. Version 5 invalidates measurements
+    /// made before scrolled rendering was introduced.
+    public static let paginationVersion = 5
 
     /// 余白(insets)を差し引いた内容寸法。実際の WKWebView の大きさに当たる。
     ///
@@ -53,6 +53,8 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
     private let allowsScriptedContent: Bool
     private let fontScale: Double
     private let defaultFontCSS: String
+    private let renditionSpread: RenditionSpread
+    private let renditionFlow: RenditionFlow
 
     public init(viewportSize: CGSize, settings: EPUBReaderSettings) {
         self.init(viewportSize: viewportSize, settings: settings,
@@ -77,13 +79,14 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
     }
 
     private init(viewportSize: CGSize, settings: EPUBReaderSettings,
-                 renditionSpread: RenditionSpread, layoutCSS: String,
+                 renditionSpread: RenditionSpread, renditionFlow: RenditionFlow = .auto,
+                 layoutCSS: String,
                  themedCSSLight: String, themedCSSDark: String,
                  fontScale: Double, defaultFontCSS: String) {
         // 見開き判定は基準余白(insets)の内容幅で行う。モード別余白
         // (spreadInsets)を入れても見開き/単ページの切替閾値が揺れないように
         let base = settings.insets
-        let usesSpread = Self.plansSpread(
+        let usesSpread = !Self.isScrolled(renditionFlow) && Self.plansSpread(
             viewportSize: viewportSize, settings: settings,
             renditionSpread: renditionSpread)
         // 実際の内容寸法は、そのモードの余白で算出(見開きは spreadInsets が
@@ -107,6 +110,8 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
         allowsScriptedContent = settings.allowsScriptedContent
         self.fontScale = fontScale
         self.defaultFontCSS = defaultFontCSS
+        self.renditionSpread = renditionSpread
+        self.renditionFlow = renditionFlow
     }
 
     /// 基準余白後の内容幅と viewport の向きから見開きを計画する
@@ -154,9 +159,33 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
         settings.allowsScriptedContent = allowsScriptedContent
         return EPUBScreenMetrics(
             viewportSize: viewportSize, settings: settings,
-            renditionSpread: renditionSpread, layoutCSS: layoutCSS,
+            renditionSpread: renditionSpread, renditionFlow: renditionFlow,
+            layoutCSS: layoutCSS,
             themedCSSLight: themedCSSLight, themedCSSDark: themedCSSDark,
             fontScale: fontScale, defaultFontCSS: defaultFontCSS)
+    }
+
+    /// フローを反映した画面計画。スクロールでは見開きを使わず、単ページ用余白を使う。
+    ///
+    /// Applies a flow preference. Scrolled content uses one viewport and the
+    /// single-page insets, independently of the column preference.
+    public func applyingRenditionFlow(_ flow: RenditionFlow) -> EPUBScreenMetrics {
+        var settings = EPUBReaderSettings()
+        settings.insets = insets
+        settings.spreadInsets = spreadInsets
+        settings.columnMode = columnMode
+        settings.pageGap = gap
+        settings.allowsScriptedContent = allowsScriptedContent
+        return EPUBScreenMetrics(
+            viewportSize: viewportSize, settings: settings,
+            renditionSpread: renditionSpread, renditionFlow: flow,
+            layoutCSS: layoutCSS, themedCSSLight: themedCSSLight,
+            themedCSSDark: themedCSSDark, fontScale: fontScale,
+            defaultFontCSS: defaultFontCSS)
+    }
+
+    static func isScrolled(_ flow: RenditionFlow) -> Bool {
+        flow == .scrolledDoc || flow == .scrolledContinuous
     }
 
     /// 見開き時の中央ノド幅(Apple Books の版面比を目安に内容幅の約 7%)
@@ -191,6 +220,7 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
             "spread": spread,
             "gutter": gutter,
             "fixedLayout": false,
+            "flow": renditionFlow.rawValue,
             "keysEnabled": false,
             // cooViewer-oxr.60 / cooViewer-oxr.76 / cooViewer-oxr.77:
             // runtime 計測値と著者 CSS より前の既定フォントを全描画経路で共有する。
@@ -245,7 +275,9 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
     /// itemref の spread を反映した setup と WebView 寸法を導出する。
     static func setupPlan(
         optionsJSON: String,
-        applying renditionSpread: RenditionSpread
+        applying renditionSpread: RenditionSpread,
+        flow: RenditionFlow = .auto,
+        fullViewport: Bool = false
     ) -> (optionsJSON: String, contentSize: CGSize) {
         guard let data = optionsJSON.data(using: .utf8),
               var options = try? JSONSerialization.jsonObject(with: data)
@@ -271,10 +303,15 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
               let spreadRight = number(context["spreadRight"]),
               let rawColumnMode = number(context["columnMode"]),
               let columnMode = EPUBColumnMode(rawValue: Int(rawColumnMode))
-        else { return (optionsJSON, fallbackSize) }
+        else {
+            options["flow"] = flow.rawValue
+            if isScrolled(flow) { options["spread"] = false }
+            let data = try? JSONSerialization.data(withJSONObject: options, options: [.sortedKeys])
+            return (data.flatMap { String(data: $0, encoding: .utf8) } ?? optionsJSON, fallbackSize)
+        }
 
         let baseContentWidth = max(1, viewportWidth - singleLeft - singleRight)
-        let usesSpread = usesSpread(
+        let usesSpread = !isScrolled(flow) && usesSpread(
             contentWidth: baseContentWidth,
             columnMode: columnMode,
             renditionSpread: renditionSpread,
@@ -283,11 +320,12 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
             ? spreadLeft + spreadRight : singleLeft + singleRight
         let verticalInsets = usesSpread
             ? spreadTop + spreadBottom : singleTop + singleBottom
-        let size = CGSize(width: max(1, viewportWidth - horizontalInsets),
-                          height: max(1, viewportHeight - verticalInsets))
+        let size = CGSize(width: max(1, viewportWidth - (fullViewport ? 0 : horizontalInsets)),
+                          height: max(1, viewportHeight - (fullViewport ? 0 : verticalInsets)))
         options["width"] = Double(size.width.rounded(.down))
         options["height"] = Double(size.height.rounded(.down))
         options["spread"] = usesSpread
+        options["flow"] = flow.rawValue
         options["gutter"] = Double(spreadGutter(forContentWidth: size.width))
         guard let derived = try? JSONSerialization.data(
             withJSONObject: options, options: [.sortedKeys])

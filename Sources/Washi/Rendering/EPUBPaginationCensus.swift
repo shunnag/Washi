@@ -82,9 +82,10 @@ final class EPUBPaginationCensus {
             in: optionsJSON)
         var counts: [Int] = []
         counts.reserveCapacity(publication.readingOrder.count)
-        for entry in publication.readingOrder {
+        for (index, entry) in publication.readingOrder.enumerated() {
             if Task.isCancelled { return nil }
-            if publication.package.effectiveLayout(for: entry.itemRef) == .prePaginated {
+            if publication.package.effectiveLayout(for: entry.itemRef) == .prePaginated,
+               !EPUBScreenMetrics.isScrolled(publication.renderingFlow(at: index)) {
                 counts.append(1)  // FXL は本番(setup の fxl 分岐)と同じ 1 ページ
                 continue
             }
@@ -92,7 +93,10 @@ final class EPUBPaginationCensus {
             // rendition:spread と実効余白を導出し、この項目だけへ渡す。
             let plan = EPUBScreenMetrics.setupPlan(
                 optionsJSON: optionsJSON,
-                applying: publication.package.effectiveSpread(for: entry.itemRef))
+                applying: publication.package.effectiveSpread(for: entry.itemRef),
+                flow: publication.renderingFlow(at: index),
+                fullViewport: publication.renderingFlow(at: index) == .scrolledContinuous
+                    && publication.package.effectiveLayout(for: entry.itemRef) != .reflowable)
             let itemSize = plan.contentSize.width >= 1 && plan.contentSize.height >= 1
                 ? plan.contentSize : contentSize
             // cooViewer-oxr.22: 欠損項目は本番表示と同じ 1 ページとして扱い、
@@ -104,7 +108,8 @@ final class EPUBPaginationCensus {
             prepareIfNeeded(publication: publication, contentSize: itemSize,
                             allowsScriptedContent: allowsScriptedContent)
             guard let webView, let schemeHandler,
-                  let url = schemeHandler.url(forReadingOrderItem: entry)
+                  let url = publication.renderingFlow(at: index) == .scrolledContinuous
+                    ? schemeHandler.scrollDocumentURL : schemeHandler.url(forReadingOrderItem: entry)
             else {
                 counts.append(1)
                 continue
@@ -127,13 +132,16 @@ final class EPUBPaginationCensus {
                 continue
             }
             if Task.isCancelled { return nil }
+            let setupJSON = EPUBScrollDocument.options(
+                plan.optionsJSON, publication: publication, index: index,
+                handler: schemeHandler, onlyItem: true)
             // 本番の runSetup と同タイミング(didFinish 直後)で測ることで、
             // フォント・画像の遅延読み込みによる誤差の出方まで揃える
             let result = await waitForOffscreenResult(
                 timeoutScheduler: javaScriptTimeoutScheduler
             ) { completion in
                 webView.callAsyncJavaScript(
-                    "return __washi.setup(\(plan.optionsJSON));",
+                    "return __washi.setup(\(setupJSON));",
                     arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
                     completionHandler: { result in
                         completion(result.map {
@@ -225,12 +233,7 @@ final class EPUBPaginationCensus {
             // メッセージハンドラは登録しない: setup() は post しない。
             // wheel/click 等の post 経路は不可視ウインドウでは発火しない
             let controller = configuration.userContentController
-            controller.addUserScript(WKUserScript(
-                source: ReaderScripts.pageScript, injectionTime: .atDocumentStart,
-                forMainFrameOnly: true, in: EPUBReaderView.washiWorld))
-            controller.addUserScript(WKUserScript(
-                source: ReaderScripts.baseCSSInjector, injectionTime: .atDocumentStart,
-                forMainFrameOnly: true, in: EPUBReaderView.washiWorld))
+            EPUBScrollDocument.install(in: controller, handler: handler)
             let webView = WKWebView(frame: NSRect(origin: .zero, size: contentSize),
                                     configuration: configuration)
             window?.contentView = webView

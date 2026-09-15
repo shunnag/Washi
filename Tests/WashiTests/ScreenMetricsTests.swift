@@ -93,8 +93,8 @@ final class ScreenMetricsTests: XCTestCase {
         let options = try XCTUnwrap(
             JSONSerialization.jsonObject(with: data) as? [String: Any])
 
-        // 配信時 CSS ポリフィルが行組みを変えるため、版 3 も再計測する。
-        XCTAssertEqual(EPUBScreenMetrics.paginationVersion, 4)
+        // スクロール対応で画面構成が変わるため、旧ページ割りも再計測する。
+        XCTAssertEqual(EPUBScreenMetrics.paginationVersion, 5)
         XCTAssertEqual(options["engine"] as? Int,
                        EPUBScreenMetrics.paginationVersion)
         XCTAssertTrue(EPUBScreenMetrics.usesCurrentPaginationVersion(
@@ -107,6 +107,8 @@ final class ScreenMetricsTests: XCTestCase {
             #"{"engine":2,"spread":true,"width":800}"#))
         XCTAssertFalse(EPUBScreenMetrics.usesCurrentPaginationVersion(
             #"{"engine":3,"spread":true,"width":800}"#))
+        XCTAssertFalse(EPUBScreenMetrics.usesCurrentPaginationVersion(
+            #"{"engine":4,"spread":true,"width":800}"#))
         XCTAssertFalse(EPUBScreenMetrics.usesCurrentPaginationVersion(
             #"{"engine":2.9,"spread":true,"width":800}"#))
     }
