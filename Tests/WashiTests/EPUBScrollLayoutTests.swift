@@ -275,6 +275,26 @@ final class EPUBScrollLayoutTests: XCTestCase {
         XCTAssertTrue(harness.failures.isEmpty)
     }
 
+    func testUnchangedContinuousLayoutPreservesFramesAndScrollInput() async throws {
+        let book = try scrollPublication(flow: "scrolled-continuous", modes: ["horizontal-tb", "horizontal-tb"])
+        let harness = ScrollReaderHarness()
+        defer { harness.close() }
+        try await harness.load(book)
+        _ = try await harness.metrics()
+        let options = harness.reader.setupOptionsJSON()
+        let value = try await harness.reader.evaluateForTest("""
+            const frame = document.querySelector('iframe');
+            const pending = __washi.repaginate(\(options));
+            window.scrollTo(0, 137);
+            await pending;
+            return { sameFrame: frame === document.querySelector('iframe'),
+                     offset: __washi.scrollMetrics().offset };
+            """)
+        let result = try XCTUnwrap(value as? [String: Any])
+        XCTAssertEqual(result["sameFrame"] as? Bool, true)
+        XCTAssertEqual(try XCTUnwrap(result["offset"] as? Double), 137, accuracy: 1)
+    }
+
     func testHorizontalDocumentScrollsWithoutColumnsOrSnapping() async throws {
         try await verifyDocument(mode: "horizontal-tb", horizontal: false, negative: false)
     }
