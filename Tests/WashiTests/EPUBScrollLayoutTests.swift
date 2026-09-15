@@ -139,9 +139,9 @@ final class EPUBScrollLayoutTests: XCTestCase {
                 const doc = __washi.activeDocument();
                 const image = doc.querySelector('img') || doc.documentElement;
                 const rect = image.getBoundingClientRect();
-                return [rect.width, rect.height];
+                return [rect.x, rect.y, rect.width, rect.height];
                 """)
-            XCTAssertEqual(dimensions as? [Double], [200, 800], name)
+            XCTAssertEqual(dimensions as? [Double], [0, 0, 200, 800], name)
             let thumbnail = await harness.reader.screenThumbnail(spineIndex: 0, pageInItem: 3, width: 200)
             XCTAssertNotNil(thumbnail, name)
             try await saveSnapshot(harness.reader, name: "roll-" + name)

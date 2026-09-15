@@ -234,11 +234,14 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         // cooViewer-oxr.15: body を画像 1 枚だけに保ち、既存の image-page
         // 判定と中央寄せ CSS をそのまま再利用する。
+        // roll は自然寸法をそのまま使うため、ブラウザ既定の余白と行の隙間を除く。
         let document = """
             <?xml version="1.0" encoding="UTF-8"?>
             <!DOCTYPE html>
             <html xmlns="http://www.w3.org/1999/xhtml">
-              <head><title>\(escaped(title))</title></head>
+              <head><title>\(escaped(title))</title>
+                <style>html, body { margin: 0; padding: 0; } img { display: block; }</style>
+              </head>
               <body><img src="\(escaped(imageURL.absoluteString))" alt=""/></body>
             </html>
             """
