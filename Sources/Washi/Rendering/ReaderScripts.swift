@@ -582,7 +582,7 @@ enum ReaderScripts {
         }
 
         washi.scrollMetrics = function () {
-            return { scrolled: scrolled, mode: mode, extent: scrollExtent(),
+            return { ready: ready, scrolled: scrolled, mode: mode, extent: scrollExtent(),
                      viewport: clientExtent(), offset: scrollOffset() };
         };
 
