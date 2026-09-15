@@ -35,6 +35,7 @@ before handing them to a reader or an offscreen renderer.
 - <doc:SearchAndRendering>
 - <doc:Footnotes>
 - <doc:Pagination>
+- <doc:Scrolling>
 
 ## Topics
 

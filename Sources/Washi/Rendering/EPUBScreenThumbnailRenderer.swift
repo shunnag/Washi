@@ -138,9 +138,19 @@ final class EPUBScreenThumbnailRenderer {
         guard !isInvalidated,
               publication.readingOrder.indices.contains(spineIndex) else { return nil }
         let entry = publication.readingOrder[spineIndex]
+        let flow = publication.renderingFlow(at: spineIndex)
+        let plan = EPUBScreenMetrics.setupPlan(
+            optionsJSON: optionsJSON,
+            applying: publication.package.effectiveSpread(for: entry.itemRef), flow: flow,
+            fullViewport: flow == .scrolledContinuous
+                && publication.package.effectiveLayout(for: entry.itemRef) != .reflowable)
+        let optionsJSON = plan.optionsJSON
+        let contentSize = plan.contentSize.width >= 1 && plan.contentSize.height >= 1
+            ? plan.contentSize : contentSize
         let allowsScriptedContent = EPUBScreenMetrics.allowsScriptedContent(
             in: optionsJSON)
-        if publication.package.effectiveLayout(for: entry.itemRef) == .prePaginated {
+        if publication.package.effectiveLayout(for: entry.itemRef) == .prePaginated,
+           !EPUBScreenMetrics.isScrolled(flow) {
             // FXL は viewport・spread 指定を解釈する専用ラスタライザで
             if fxlRasterizer == nil
                 || fxlAllowsScriptedContent != allowsScriptedContent {
@@ -158,7 +168,8 @@ final class EPUBScreenThumbnailRenderer {
                         allowsScriptedContent: allowsScriptedContent)
         guard let webView, let schemeHandler else { return nil }
         if loadedSpineIndex != spineIndex || loadedOptionsJSON != optionsJSON {
-            guard let url = schemeHandler.url(forReadingOrderItem: entry)
+            guard let url = flow == .scrolledContinuous ? schemeHandler.scrollDocumentURL
+                    : schemeHandler.url(forReadingOrderItem: entry)
             else { return nil }
             loadedSpineIndex = nil  // 途中失敗時に半端な状態を再利用しない
             loadedOptionsJSON = nil
@@ -177,11 +188,13 @@ final class EPUBScreenThumbnailRenderer {
                 return nil
             }
             guard !Task.isCancelled, !isInvalidated else { return nil }
+            let setupJSON = EPUBScrollDocument.options(
+                optionsJSON, publication: publication, index: spineIndex, handler: schemeHandler)
             // census と同じく didFinish 直後に測る(ページ数の一致が最優先。
             // 描画の確定は takeSnapshot(afterScreenUpdates: true)が担う)
             let didSetup = await waitForOffscreenResult { completion in
                 webView.callAsyncJavaScript(
-                    "return __washi.setup(\(optionsJSON));",
+                    "return __washi.setup(\(setupJSON));",
                     arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
                     completionHandler: { result in
                         completion((try? result.get()) != nil)
@@ -316,12 +329,7 @@ final class EPUBScreenThumbnailRenderer {
             configuration.setURLSchemeHandler(handler,
                                               forURLScheme: EPUBSchemeHandler.scheme)
             let controller = configuration.userContentController
-            controller.addUserScript(WKUserScript(
-                source: ReaderScripts.pageScript, injectionTime: .atDocumentStart,
-                forMainFrameOnly: true, in: EPUBReaderView.washiWorld))
-            controller.addUserScript(WKUserScript(
-                source: ReaderScripts.baseCSSInjector, injectionTime: .atDocumentStart,
-                forMainFrameOnly: true, in: EPUBReaderView.washiWorld))
+            EPUBScrollDocument.install(in: controller, handler: handler)
             let webView = WKWebView(frame: NSRect(origin: .zero, size: contentSize),
                                     configuration: configuration)
             window?.contentView = webView

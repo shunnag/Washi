@@ -611,11 +611,22 @@ FXL spread composition must be handled by the host.
   Font obfuscation, NCX, and OPF 2 `meta` remain supported for compatibility.
   The `collection` element is not supported.
 
-- `rendition:flow` の scrolled モード(`scrolled-doc` / `scrolled-continuous`)は
-  まだ実装していない。
+- `scrolled-doc` は章単位、`scrolled-continuous` は連続する章をつないで表示する。
+  `roll` と旧 `pre-paginated` + `scrolled-continuous` は、幅を合わせて隙間なく並べる。
+  スクロール中のページ番号は画面サイズに基づく区切りで、印刷ページ番号とは異なる。
+  詳細は [スクロール表示](Sources/Washi/Washi.docc/Scrolling.md) を参照。
 
-  The scrolled modes of `rendition:flow` (`scrolled-doc` /
-  `scrolled-continuous`) are not yet implemented.
+  `scrolled-doc` scrolls each chapter; `scrolled-continuous` joins consecutive chapters.
+  Roll and legacy fixed continuous content fit the viewport width without gaps.
+  Screen numbers in these modes describe viewport-sized steps, not printed pages.
+
+- `text/html` 宣言の非準拠 spine は、ヘッドレスの本文抽出・検索では可能な範囲で
+  読むが、表示には XHTML 等の対応形式への fallback が必要。表示できない項目の
+  正確な検索位置・選択矩形・テキストアンカーは返さない。
+
+  Nonconforming text/html spine items remain available for best-effort headless
+  extraction/search, but rendering requires a supported fallback such as XHTML.
+  Unrenderable items do not return exact text positions, range rectangles, or text anchors.
 
 - `defersTapsForDoubleClick = true` は、ダブルクリックによる単語選択より先に
   ページ送りが起きるのを防ぐ代わりに、primary click の通知をシステムの

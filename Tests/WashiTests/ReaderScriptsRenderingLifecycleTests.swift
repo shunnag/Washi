@@ -215,6 +215,7 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
             class Element {
                 constructor(name) {
                     this.localName = name;
+                    this.namespaceURI = 'http://www.w3.org/1999/xhtml';
                     this.id = '';
                     this.dataset = {};
                     this.textContent = '';
@@ -239,7 +240,12 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
                     el.parentNode = this;
                     return el;
                 }
-                getAttribute() { return null; }
+                getAttribute(name) {
+                    return name === 'data-washi-owned' ? this.dataset?.washiOwned || null : null;
+                }
+                setAttribute(name, value) {
+                    if (name === 'data-washi-owned') { this.dataset.washiOwned = value; }
+                }
             }
             var window = this;
             window.addEventListener = function () {};
@@ -248,6 +254,11 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
             var document = {
                 head: new Element('head'), body: new Element('body'),
                 createElement: name => new Element(name),
+                createElementNS(namespace, name) {
+                    const el = new Element(name);
+                    el.namespaceURI = namespace;
+                    return el;
+                },
                 addEventListener() {}, removeEventListener() {},
                 getElementById(id) {
                     return [...this.head.children, ...this.body.children]

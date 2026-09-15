@@ -20,6 +20,12 @@ gutter, typography, and scripted-content state from a viewport and
 census use the same setup, while ``EPUBScreenAtlas`` applies the publication's
 effective `rendition:spread` preference before measuring or rendering.
 
+スクロール表示では同じ仕組みで画面単位の区切りを数える。項目ごとのフロー、
+見開きの無効化、進行率と画面番号の関係は <doc:Scrolling> を参照。
+
+Scrolled rendering uses the same pipeline to count screen-sized steps. See
+<doc:Scrolling> for per-item flow, single-viewport layout, and locator mapping.
+
 静的プロパティ `EPUBScreenMetrics.paginationVersion` の値は、すべての
 メトリクスキーに埋め込まれます。``EPUBReaderView/importCensus(_:)`` は、
 古いページ割りエンジンのレコードを拒否します。ホストアプリが独自の

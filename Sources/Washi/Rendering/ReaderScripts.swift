@@ -16,7 +16,21 @@ enum ReaderScripts {
     // id は既存 CSS との互換性のため維持し、同名の著者要素は変更しない。
     private static let styleOwnershipScript = #"""
         function isOwnedStyle(el) {
-            return !!el && el.localName === 'style' && el.dataset?.washiOwned === '1';
+            return !!el && el.localName === 'style' && el.getAttribute('data-washi-owned') === '1';
+        }
+
+        function styleContainer() {
+            // XHTML は head の出現を待つ。SVG コンテンツ文書には head がないため、
+            // SVG の名前空間でルート直下に style を置き、外部参照もそのまま維持する。
+            return document.head || (document.documentElement?.localName === 'svg'
+                ? document.documentElement : null);
+        }
+
+        function newOwnedStyle(id) {
+            const el = document.createElementNS(styleContainer().namespaceURI, 'style');
+            el.id = id;
+            el.setAttribute('data-washi-owned', '1');
+            return el;
         }
 
         function findOwnedStyle(id) {
@@ -46,6 +60,7 @@ enum ReaderScripts {
         let page0DocStart = 0;   // ページ 0 の文書内開始座標(縦書き見開の校正値)
         let viewportW = 0;
         let fixedLayout = false;
+        let scrolled = false;
         let imagePage = false;   // 表紙等「画像 1 枚だけのページ」
         let keysEnabled = true;
         let horizontalRTL = false;
@@ -83,6 +98,10 @@ enum ReaderScripts {
         let documentToken = '';
 
         function post(message) {
+            if (typeof washi.hostPost === 'function') {
+                washi.hostPost(message);
+                return;
+            }
             if (documentToken) { message.token = documentToken; }
             try { window.webkit.messageHandlers.washi.postMessage(message); }
             catch (e) { /* ハンドラ未登録(ラスタライザ等)は黙って無視 */ }
@@ -93,12 +112,8 @@ enum ReaderScripts {
         function ensureStyle(id) {
             let el = findOwnedStyle(id);
             if (!el) {
-                el = document.createElement('style');
-                el.id = id;
-                el.dataset.washiOwned = '1';
-                // runtime style API は navigation 完了後にだけ呼ばれるため head は存在する。
-                // root へ退避すると著者の構造 selector を壊すので許可しない。
-                document.head.appendChild(el);
+                el = newOwnedStyle(id);
+                styleContainer().appendChild(el);
             }
             return el;
         }
@@ -106,8 +121,7 @@ enum ReaderScripts {
         // cooViewer-oxr.77: 既定フォントだけは著者 stylesheet より前の
         // 最初の layer へ置き、:where(html) と合わせて「本が常に勝つ」を保証する。
         function installDefaultFontCSS(css) {
-            // setup は navigation 完了後に実行されるため、root へは挿入しない。
-            const container = document.head;
+            const container = styleContainer();
             const el = ensureStyle('washi-default-font');
             el.textContent = css || '';
             const firstBookSheet = Array.from(container.children).find(node => {
@@ -356,10 +370,12 @@ enum ReaderScripts {
         // 見開き=x(-webkit-column-axis: horizontal でページボックスが
         // 横に並ぶ。WKWebView 専用の実測済み経路)
         function axisIsX() {
+            if (scrolled) { return mode !== 'htb'; }
             return mode === 'htb' || pagesPerScreen === 2;
         }
 
         function stride() {
+            if (scrolled) { return axisIsX() ? pageW : pageH; }
             if (mode === 'htb' || pagesPerScreen === 2) { return pageW + gap; }
             return pageH + gap;
         }
@@ -394,6 +410,11 @@ enum ReaderScripts {
         // 先のページが小口の逆=右スロットに来るよう合わせる(右綴じの紙の本)。
         // vlr(縦書き左綴じ)はページが右方向へ増えるので左スロット基準
         function scrollTargetFor(s) {
+            if (scrolled) {
+                const offset = pageCount <= 1 ? 0
+                    : s / (pageCount - 1) * Math.max(0, scrollExtent() - clientExtent());
+                return mode === 'vrl' ? -offset : offset;
+            }
             if (mode === 'htb') {
                 // cooViewer-oxr.57: horizontal RTL multicol は右端 0 から負方向へ進む。
                 return (horizontalRTL ? -s : s) * stride();
@@ -411,6 +432,9 @@ enum ReaderScripts {
 
         // 実スクロール位置 → 表示中スプレッドの先頭ページ(クランプ自己補正)
         function pageFromScroll() {
+            if (scrolled) {
+                return Math.round(washi.currentProgression() * Math.max(0, pageCount - 1));
+            }
             if (!axisIsX()) {
                 return Math.max(0, Math.round(window.scrollY / stride()));
             }
@@ -514,6 +538,53 @@ enum ReaderScripts {
                     ${safeguards}`;
             }
         }
+
+        // スクロールでは段組を作らず、書字方向のブロック軸へ本文を流す。
+        // 画像のブロック方向は切らないため、縦長画像も幅合わせのまま読める。
+        function applyScrollCSS() {
+            ensureStyle('washi-pagination').textContent = `
+                html {
+                    margin: 0 !important; padding: 0 !important;
+                    box-sizing: border-box !important;
+                    width: ${pageW}px !important; height: ${pageH}px !important;
+                    min-width: 0 !important; min-height: 0 !important;
+                    max-width: none !important; max-height: none !important;
+                    column-width: auto !important; column-count: auto !important;
+                    column-gap: normal !important;
+                    overflow: auto !important; scroll-behavior: auto !important;
+                    scrollbar-width: none !important;
+                }
+                body {
+                    margin: 0 !important;
+                    width: ${mode === 'htb' ? '100%' : 'auto'} !important;
+                    height: ${mode === 'htb' ? 'auto' : '100%'} !important;
+                    min-width: 0 !important; min-height: 0 !important;
+                    max-width: none !important; max-height: none !important;
+                    column-width: auto !important; column-count: auto !important;
+                    overflow: visible !important;
+                }
+                img, svg, video { max-inline-size: 100% !important; object-fit: contain; }
+                html::-webkit-scrollbar { display: none !important; }
+            `;
+        }
+
+        function scrollOffset() {
+            return axisIsX() ? (mode === 'vrl' ? -window.scrollX : window.scrollX) : window.scrollY;
+        }
+
+        function showScrollOffset(offset) {
+            const value = Math.max(0, Math.min(offset, Math.max(0, scrollExtent() - clientExtent())));
+            window.scrollTo({ left: axisIsX() ? (mode === 'vrl' ? -value : value) : 0,
+                              top: axisIsX() ? 0 : value, behavior: 'instant' });
+            currentPage = Math.max(0, Math.min(pageCount - 1, pageFromScroll()));
+            report();
+            return currentPage;
+        }
+
+        washi.scrollMetrics = function () {
+            return { scrolled: scrolled, mode: mode, extent: scrollExtent(),
+                     viewport: clientExtent(), offset: scrollOffset() };
+        };
 
         function resetPaginationMarkers() {
             // cooViewer-oxr.58: 前回だけに使った pseudo selector を無効化し、
@@ -846,8 +917,10 @@ enum ReaderScripts {
         }
 
         function report() {
-            post({ type: 'pageChanged', page: currentPage, pageCount: pageCount,
-                   mode: mode, pagesPerScreen: pagesPerScreen });
+            const message = { type: 'pageChanged', page: currentPage, pageCount: pageCount,
+                              mode: mode, pagesPerScreen: pagesPerScreen };
+            if (scrolled) { message.progression = washi.currentProgression(); }
+            post(message);
         }
 
         washi.showPage = function (n) {
@@ -864,17 +937,32 @@ enum ReaderScripts {
 
         /// 項目内進行率(0..1)からの復元
         washi.showProgression = function (p) {
+            if (scrolled) {
+                return showScrollOffset(Math.max(0, Math.min(1, Number(p) || 0))
+                    * Math.max(0, scrollExtent() - clientExtent()));
+            }
             const n = Math.round(p * Math.max(0, pageCount - 1));
             return washi.showPage(n);
         };
 
         washi.currentProgression = function () {
+            if (scrolled) {
+                const extent = Math.max(0, scrollExtent() - clientExtent());
+                return extent > 0 ? Math.max(0, Math.min(1, scrollOffset() / extent)) : 0;
+            }
             return pageCount <= 1 ? 0 : currentPage / (pageCount - 1);
         };
 
         // viewport 矩形の文書座標から、その位置を含むページを求める。
         // showFragment と本文 Range の着地で同じ校正式を使う
         function pageForRect(rect) {
+            if (scrolled) {
+                const offset = scrollOffset() + (mode === 'htb' ? rect.top
+                    : mode === 'vrl' ? viewportW - rect.right : rect.left);
+                const maximum = Math.max(0, scrollExtent() - clientExtent());
+                return maximum > 0 ? Math.max(0, Math.min(pageCount - 1,
+                    Math.floor(offset / maximum * (pageCount - 1)))) : 0;
+            }
             if (!axisIsX()) {
                 return Math.floor(Math.max(0, window.scrollY + rect.top) / stride());
             }
@@ -1293,7 +1381,7 @@ enum ReaderScripts {
         /// 抽出本文における UTF-16 位置。しおり・読書位置を font 倍率や
         /// 画面幅の変化を跨いで同じ文へ戻すためのアンカーに使う。
         /// 特定できなければ -1(呼び出し側は progression のみで復元する)。
-        washi.visibleTextOffset = function () {
+        washi.visibleTextOffset = function (clipX = 0, clipY = 0) {
             if (!ready) { return -1; }
             // ページ左上(縦書きは右上)から少しずつ内側を突いて、最初に
             // 本文の文字を拾えた点を採る。余白・画像・空行での取りこぼし対策。
@@ -1307,10 +1395,10 @@ enum ReaderScripts {
             const rightToLeft = (mode === 'vrl');
             for (const y of ys) {
                 for (const x of xs) {
-                    const px = rightToLeft ? (viewportW - 1 - x) : x;
+                    const px = rightToLeft ? (viewportW - 1 - x - clipX) : x + clipX;
                     let range = null;
                     try {
-                        range = document.caretRangeFromPoint(px, y);
+                        range = document.caretRangeFromPoint(px, y + clipY);
                     } catch (e) { range = null; }
                     if (!range || !(range.startContainer instanceof Text)) { continue; }
                     const offset = washi.textOffsetFor(range.startContainer,
@@ -1519,6 +1607,16 @@ enum ReaderScripts {
         /// pageCount=1 のまま境界扱いになり章を飛ばすのを防ぐ)
         washi.turnInDoc = function (forward) {
             if (!ready) { return 'ignored'; }
+            if (scrolled) {
+                const offset = scrollOffset();
+                const maximum = Math.max(0, scrollExtent() - clientExtent());
+                if (forward ? offset >= maximum - 1 : offset <= 1) {
+                    post({ type: 'boundary', forward: !!forward });
+                    return 'boundary';
+                }
+                showScrollOffset(offset + (forward ? 1 : -1) * clientExtent());
+                return 'turned';
+            }
             const next = currentPage + (forward ? pagesPerScreen : -pagesPerScreen);
             if (next < 0 || next >= pageCount) {
                 post({ type: 'boundary', forward: !!forward });
@@ -1546,6 +1644,7 @@ enum ReaderScripts {
             }
             resetPaginationMarkers();
             fixedLayout = !!options.fixedLayout;
+            scrolled = !fixedLayout && ['scrolled-doc', 'scrolled-continuous'].includes(options.flow);
             keysEnabled = options.keysEnabled !== false;
             configureTapDeferral(options.deferTaps, options.doubleClickDelayMS);
             const columnAxisSupported = supportsColumnAxis();
@@ -1591,7 +1690,7 @@ enum ReaderScripts {
             imagePage = detectImagePage();
             excludesGlyphClassification = imagePage;
             classifyGlyphImages(excludesGlyphClassification);
-            if (imagePage) {
+            if (imagePage && !scrolled) {
                 // 表紙等は段組せず 1 ページの中央フィット(見開き時も単独表示。
                 // Apple Books の表紙表示と同じ)
                 pageW = viewportW;
@@ -1618,6 +1717,21 @@ enum ReaderScripts {
             root().classList.toggle('washi-vertical', mode !== 'htb');
             horizontalRTL = mode === 'htb'
                 && getComputedStyle(root()).direction === 'rtl';
+            if (scrolled) {
+                pageW = viewportW;
+                pagesPerScreen = 1;
+                gap = 0;
+                imagePage = false;
+                applyScrollCSS();
+                pageCount = Math.max(1, Math.ceil(scrollExtent() / stride()));
+                paddedPageCount = pageCount;
+                currentPage = Math.max(0, Math.min(currentPage, pageCount - 1));
+                ready = true;
+                return { pageCount: pageCount, mode: mode, imagePage: false,
+                         pagesPerScreen: 1, paddedPageCount: pageCount,
+                         printPageMarkers: collectPrintPageMarkers(),
+                         firstPageOnRight: false, supportsColumnAxis: columnAxisSupported };
+            }
             if (options.spread && viewportW >= 2
                 && (mode === 'htb' || columnAxisSupported)) {
                 // 見開き: 中央ノド(gutter)を挟んだ半幅 2 ページ
@@ -1944,6 +2058,13 @@ enum ReaderScripts {
         }
         wheelQuietTimer = setTimeout(wheelUnlatch, 250);
         document.addEventListener('wheel', function (event) {
+            if (typeof washi.scrollHostWheel === 'function') {
+                event.preventDefault();
+                washi.scrollHostWheel(event);
+                return;
+            }
+            // スクロール表示は WebKit の連続した移動と慣性に委ねる。
+            if (scrolled) { return; }
             // 混在本の FXL ページでも spine 送りとして機能させる
             // (native 側の goForward が FXL 項目を advanceSpine に振り分ける)
             event.preventDefault();
@@ -2027,6 +2148,11 @@ enum ReaderScripts {
             clearTimeout(scrollGuard);
             scrollGuard = setTimeout(function () {
                 if (!ready) { return; }
+                if (scrolled) {
+                    currentPage = Math.max(0, Math.min(pageCount - 1, pageFromScroll()));
+                    report();
+                    return;
+                }
                 const off = axisIsX() ? window.scrollX : window.scrollY;
                 const expected = Math.round(clampScroll(scrollTargetFor(currentPage)));
                 if (Math.abs(off - expected) <= 2) { return; }
@@ -2072,7 +2198,7 @@ enum ReaderScripts {
         background-color: color-mix(in srgb, currentColor 18%, transparent);         border-radius: 0.15em; }
         """
 
-    /// 基礎 CSS を挿し込む起動スクリプト(atDocumentStart。head 出現を待つ)
+    /// 基礎 CSS を挿し込む起動スクリプト(atDocumentStart。XHTML は head 出現を待つ)
     static var baseCSSInjector: String {
         let escaped = baseCSS
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -2083,13 +2209,11 @@ enum ReaderScripts {
 
             let observer = null;
             function install() {
-                const head = document.head;
+                const head = styleContainer();
                 if (!head) { return false; }
                 let el = findOwnedStyle('washi-base');
                 if (!el) {
-                    el = document.createElement('style');
-                    el.id = 'washi-base';
-                    el.dataset.washiOwned = '1';
+                    el = newOwnedStyle('washi-base');
                     el.textContent = `\(escaped)`;
                 }
                 if (el.parentNode !== head || el !== head.firstChild) {

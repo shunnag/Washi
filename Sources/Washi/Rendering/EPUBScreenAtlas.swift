@@ -110,17 +110,21 @@ public final class EPUBScreenAtlas {
     }
 
     /// 項目ごとのページ数と、その出版物で 1 画面に表示するページ数を返す。
-    /// 出版物全体の `rendition:spread` の指定を、両方の値へ不可分に適用する。
+    /// 出版物全体の `rendition:spread` と flow を両方の値へ適用する。
+    /// 項目ごとの上書きを持つ本では ``pagesPerScreen(forSpineIndex:metrics:)`` を使う。
     ///
     /// Returns per-item page counts together with the publication-specific
     /// number of pages shown on each screen. The publication-wide
-    /// `rendition:spread` preference is applied atomically to both values.
+    /// spread and flow preferences are applied to both values. For per-item
+    /// overrides, use ``pagesPerScreen(forSpineIndex:metrics:)``.
     public func screenPlan(
         metrics: EPUBScreenMetrics
     ) async -> (counts: [Int], pagesPerScreen: Int)? {
         guard !isInvalidated else { return nil }
         let m = metrics.applyingRenditionSpread(
             publication.metadata.rendition.spread)
+            .applyingRenditionFlow(publication.metadata.rendition.layout == .roll
+                ? .scrolledContinuous : publication.metadata.rendition.flow)
         let key = m.censusOptionsJSON
         if let cached = countsCache[key] {
             return (cached, m.pagesPerScreen)
@@ -181,6 +185,8 @@ public final class EPUBScreenAtlas {
         guard !isInvalidated else { return nil }
         let m = metrics.applyingRenditionSpread(
             publication.metadata.rendition.spread)
+            .applyingRenditionFlow(publication.metadata.rendition.layout == .roll
+                ? .scrolledContinuous : publication.metadata.rendition.flow)
         let renderer = self.renderer
             ?? EPUBScreenThumbnailRenderer(publication: publication)
         self.renderer = renderer
@@ -188,5 +194,19 @@ public final class EPUBScreenAtlas {
             spineIndex: spineIndex, pageInItem: pageInItem,
             optionsJSON: m.themedOptionsJSON(isDark: isDark),
             contentSize: m.contentSize, snapshotWidth: width)
+    }
+
+    /// 各項目の画面を列挙する際のページ番号の増分。スクロールと固定レイアウトは 1。
+    /// 範囲外の項目には nil を返す。画像だけのリフロー項目は実測数が 1 になる。
+    ///
+    /// Page-number increment when enumerating an item's screens. Scrolled and
+    /// fixed-layout items use 1. Returns nil for an invalid index. Image-only
+    /// reflowable items have a measured count of 1.
+    public func pagesPerScreen(forSpineIndex index: Int, metrics: EPUBScreenMetrics) -> Int? {
+        guard publication.readingOrder.indices.contains(index) else { return nil }
+        let item = publication.readingOrder[index].itemRef
+        if publication.package.effectiveLayout(for: item) == .prePaginated { return 1 }
+        return metrics.applyingRenditionSpread(publication.package.effectiveSpread(for: item))
+            .applyingRenditionFlow(publication.renderingFlow(at: index)).pagesPerScreen
     }
 }

@@ -231,6 +231,11 @@ public final class EPUBReaderView: NSView {
     public private(set) var pageInItem = 0
     public private(set) var pageCountInItem = 1
     private var isFixedLayoutItem = false
+    private var scrollProgression: Double?
+    private var loadedScrollGroup: Range<Int>?
+    private var effectiveFlow: RenditionFlow {
+        publication?.renderingFlow(at: currentSpineIndex) ?? .auto
+    }
 
     /// 過去に記録した移動位置へ戻れるかどうか。
     ///
@@ -797,7 +802,14 @@ public final class EPUBReaderView: NSView {
         let index = resolved.map {
             max(0, min($0.spineIndex, publication.readingOrder.count - 1))
         } ?? 0
-        let target: PendingTarget = resolved.map { .progression($0.progression) } ?? .start
+        // 再オープン時も go(to:) と同じアンカーを使い、表示寸法の変更を吸収する。
+        let target: PendingTarget
+        if let resolved, let offset = resolved.textOffset {
+            target = .textRange(utf16Offset: offset, utf16Length: 1,
+                                fallbackProgression: resolved.progression)
+        } else {
+            target = resolved.map { .progression($0.progression) } ?? .start
+        }
         pendingRestoreLocator = resolved
         rebuildWebView(for: publication)
         loadSpineItem(at: index, target: target)
@@ -845,6 +857,8 @@ public final class EPUBReaderView: NSView {
         pageCountInItem = 1
         pagesPerScreen = 1
         isFixedLayoutItem = false
+        scrollProgression = nil
+        loadedScrollGroup = nil
         isImagePage = false
         firstPageOnRight = false
         highlights.removeAll()
@@ -944,12 +958,7 @@ public final class EPUBReaderView: NSView {
         EPUBScriptedContentHardening.install(
             in: controller,
             allowsScriptedContent: settings.allowsScriptedContent)
-        controller.addUserScript(WKUserScript(
-            source: ReaderScripts.pageScript, injectionTime: .atDocumentStart,
-            forMainFrameOnly: true, in: Self.washiWorld))
-        controller.addUserScript(WKUserScript(
-            source: ReaderScripts.baseCSSInjector, injectionTime: .atDocumentStart,
-            forMainFrameOnly: true, in: Self.washiWorld))
+        EPUBScrollDocument.install(in: controller, handler: handler)
 
         let webView = WashiWebView(frame: contentFrame,
                                    configuration: configuration)
@@ -993,9 +1002,7 @@ public final class EPUBReaderView: NSView {
 
     /// 見開き判定は現在 itemref の実効 rendition:spread を含む画面計画へ一本化する
     private var isSpread: Bool {
-        EPUBScreenMetrics.plansSpread(
-            viewportSize: bounds.size, settings: settings,
-            renditionSpread: effectiveSpread(forSpineIndex: currentSpineIndex))
+        currentScreenMetrics.pagesPerScreen == 2
     }
 
     /// 現在のネイティブ余白の内側にある本文ページ領域。
@@ -1004,7 +1011,7 @@ public final class EPUBReaderView: NSView {
     /// The content page area inside the active native margins, expressed in
     /// reader-view coordinates.
     public var contentFrame: CGRect {
-        if isFixedLayoutItem {
+        if isFixedLayoutItem || isRollItem {
             return NSRect(origin: .zero, size: bounds.size)
         }
         let insets = activeInsets
@@ -1062,7 +1069,7 @@ public final class EPUBReaderView: NSView {
     /// FXL・画像ページ(表紙)では隠す。右綴じは右スロットが先のページ
     private func updateFurniture() {
         let visible = settings.showsPageFurniture && publication != nil
-            && !isFixedLayoutItem && !isImagePage && !furnitureSuppressed
+            && !isFixedLayoutItem && !isRollItem && !isImagePage && !furnitureSuppressed
         guard visible else {
             for label in pageNumberLabels { label.isHidden = true }
             updateAccessibilityMetadata()
@@ -1109,6 +1116,7 @@ public final class EPUBReaderView: NSView {
         EPUBScreenMetrics(
             viewportSize: bounds.size, settings: settings,
             renditionSpread: effectiveSpread(forSpineIndex: currentSpineIndex))
+            .applyingRenditionFlow(effectiveFlow)
     }
 
     /// cooViewer-oxr.24: ライブ再ページ割りの判定にも census と同じ導出値を使う。
@@ -1116,6 +1124,7 @@ public final class EPUBReaderView: NSView {
         EPUBScreenMetrics(
             viewportSize: bounds.size, settings: settings,
             renditionSpread: effectiveSpread(forSpineIndex: currentSpineIndex))
+            .applyingRenditionFlow(effectiveFlow)
             .cacheKey
     }
 
@@ -1125,6 +1134,8 @@ public final class EPUBReaderView: NSView {
         EPUBScreenMetrics(
             viewportSize: bounds.size, settings: settings,
             renditionSpread: publication?.metadata.rendition.spread ?? .auto)
+            .applyingRenditionFlow(publication?.metadata.rendition.layout == .roll
+                ? .scrolledContinuous : (publication?.metadata.rendition.flow ?? .auto))
     }
 
     private func effectiveSpread(forSpineIndex index: Int) -> RenditionSpread {
@@ -1135,6 +1146,13 @@ public final class EPUBReaderView: NSView {
         // cooViewer-oxr.51: 見開き可否は現在項目の itemref override を使う。
         return publication.package.effectiveSpread(
             for: publication.readingOrder[index].itemRef)
+    }
+
+    private var isRollItem: Bool {
+        guard effectiveFlow == .scrolledContinuous, let publication,
+              publication.readingOrder.indices.contains(currentSpineIndex) else { return false }
+        return publication.package.effectiveLayout(
+            for: publication.readingOrder[currentSpineIndex].itemRef) != .reflowable
     }
 
     private func loadSpineItem(at index: Int, target: PendingTarget,
@@ -1172,6 +1190,7 @@ public final class EPUBReaderView: NSView {
         pendingRestoreLocator = locator(for: target, at: index)
         pageInItem = 0
         pageCountInItem = 1
+        scrollProgression = nil
         isImagePage = false
         // setup 応答までは OPF を暫定値にし、旧 item の CSS 方向を持ち越さない。
         firstPageOnRight = isRTL
@@ -1187,8 +1206,11 @@ public final class EPUBReaderView: NSView {
             foldTurnCover(overlay)
         }
         let entry = publication.readingOrder[index]
+        loadedScrollGroup = effectiveFlow == .scrolledContinuous
+            ? publication.scrollGroup(containing: index) : nil
         isFixedLayoutItem =
             publication.package.effectiveLayout(for: entry.itemRef) == .prePaginated
+            && !EPUBScreenMetrics.isScrolled(effectiveFlow)
         // FXL aspect fitting changes pageZoom on the shared WebView. Restore
         // normal CSS pixels before a reflowable document begins loading/setup.
         if !isFixedLayoutItem { webView.pageZoom = 1 }
@@ -1198,16 +1220,18 @@ public final class EPUBReaderView: NSView {
         webView.frame = contentFrame
         updateFurniture()
         guard validateSpineResource(entry, in: publication) else { return }
-        guard let url = schemeHandler.url(forReadingOrderItem: entry) else {
+        guard let url = loadedScrollGroup != nil ? schemeHandler.scrollDocumentURL
+                : schemeHandler.url(forReadingOrderItem: entry) else {
             reportNavigationFailure(EPUBError.malformed(
                 "Cannot load spine resource: \(entry.resolvedContainerPath)"))
             return
         }
         webView.alphaValue = 0
-        spineNavigationGate.expect(entry.resolvedContainerPath)
+        let navigationPath = schemeHandler.containerPath(for: url) ?? entry.resolvedContainerPath
+        spineNavigationGate.expect(navigationPath)
         let navigation = webView.load(URLRequest(url: url))
         if navigation == nil {
-            spineNavigationGate.cancelExpectation(for: entry.resolvedContainerPath)
+            spineNavigationGate.cancelExpectation(for: navigationPath)
         }
         currentNavigation = navigation
     }
@@ -1224,6 +1248,11 @@ public final class EPUBReaderView: NSView {
         return (mediaType == EPUBMediaType.xhtml
                 || EPUBMediaType.coreImageTypes.contains(mediaType))
             && publication.resourceExists(at: entry.resolvedContainerPath)
+    }
+
+    private func canRenderSpine(at index: Int) -> Bool {
+        guard let publication, publication.readingOrder.indices.contains(index) else { return false }
+        return Self.canRenderSpineResource(publication.readingOrder[index], in: publication)
     }
 
     /// 描画可能な fallback がない項目は、WebKit が無通知の 102 にする前に
@@ -1272,15 +1301,13 @@ public final class EPUBReaderView: NSView {
     /// `pre-paginated` + `scrolled-continuous` pair Japanese publishers used
     /// before `roll` existed).
     ///
-    /// 現在のリーダーは常に CSS マルチカラムでページ割りするため、
-    /// この指定を表示には適用せず、ホストが独自の表示方法を選べるよう
-    /// 情報として返す。スクロール専用モードは別途対応する
-    /// (cooViewer-gse.8 / cooViewer-oxr.46 C27)。
+    /// リーダーは項目ごとの上書きを反映し、scrolled-doc は章単位、
+    /// scrolled-continuous は連続する章をつないでスクロール表示する。
+    /// このプロパティは上書き前の出版物全体の宣言を返す。
     ///
-    /// The reader paginates with CSS multi-column in every case today, so this
-    /// is reported rather than obeyed: a host can use it to pick its own
-    /// presentation. A dedicated scrolled mode is separate work
-    /// (cooViewer-gse.8 / cooViewer-oxr.46 C27).
+    /// The reader honors item overrides, scrolling individual chapters for
+    /// scrolled-doc and joining consecutive chapters for scrolled-continuous.
+    /// This property returns the publication-wide declaration before overrides.
     public var requestedFlow: RenditionFlow {
         publication?.package.metadata.rendition.flow ?? .auto
     }
@@ -1348,7 +1375,8 @@ public final class EPUBReaderView: NSView {
     /// plain locator when the position cannot be resolved (images, empty pages).
     public func currentLocatorWithTextAnchor() async -> EPUBLocator {
         var locator = currentLocator
-        guard !isLoadingSpineItem, let webView else { return locator }
+        guard !isLoadingSpineItem, canRenderSpine(at: currentSpineIndex),
+              let webView else { return locator }
         let result = try? await webView.callAsyncJavaScript(
             "return __washi.visibleTextOffset();",
             arguments: [:], in: nil, contentWorld: Self.washiWorld)
@@ -1367,8 +1395,8 @@ public final class EPUBReaderView: NSView {
         // 復元がまだ適用されていない間は復元先を答える(開いてすぐ閉じたときに
         // 保存済み位置を (0,0) で潰さない)
         if let pendingRestoreLocator { return pendingRestoreLocator }
-        let progression = pageCountInItem <= 1
-            ? 0 : Double(pageInItem) / Double(pageCountInItem - 1)
+        let progression = scrollProgression ?? (pageCountInItem <= 1
+            ? 0 : Double(pageInItem) / Double(pageCountInItem - 1))
         // idref 併記(publication.resolve で改版追跡できる形)で返す
         return publication?.locator(forSpineIndex: currentSpineIndex,
                                     progression: progression)
@@ -1404,6 +1432,7 @@ public final class EPUBReaderView: NSView {
             webView: webView, spineGeneration: spineLoadGeneration,
             navigationRequest: navigationRequestGeneration)
         let wantsAnimation = settings.pageTurnStyle != .none
+            && !EPUBScreenMetrics.isScrolled(effectiveFlow)
             && allowsVisibleRenderingWork
             && !accessibilityShouldReduceMotion
             && Date().timeIntervalSince(lastTurnDate) > 0.3
@@ -1726,10 +1755,10 @@ public final class EPUBReaderView: NSView {
         }
     }
 
-    /// リフローの spine 項目内で、指定した UTF-16 テキスト範囲へ
+    /// リフローまたは roll の spine 項目内で、指定した UTF-16 テキスト範囲へ
     /// 正確に移動する。
     ///
-    /// Navigates to an exact UTF-16 text range in a reflowable spine item.
+    /// Navigates to an exact UTF-16 text range in a reflowable or roll spine item.
     ///
     /// 返す矩形は、このリーダービューの座標系で表す。locator または
     /// 範囲を解決できない場合は `nil` を返すので、呼び出し側は進行率に
@@ -1757,9 +1786,11 @@ public final class EPUBReaderView: NSView {
               let locator = publication.resolve(locator),
               textRange.utf16Offset >= 0, textRange.utf16Length > 0,
               textRange.utf16Offset <= Int.max - textRange.utf16Length,
-              publication.package.effectiveLayout(
+              canRenderSpine(at: locator.spineIndex),
+              (publication.package.effectiveLayout(
                 for: publication.readingOrder[locator.spineIndex].itemRef)
                 != .prePaginated
+                || publication.renderingFlow(at: locator.spineIndex) == .scrolledContinuous)
         else { return nil }
 
         let request = beginNavigationRequest()
@@ -1861,7 +1892,12 @@ public final class EPUBReaderView: NSView {
 
     private func advanceSpine(forward: Bool) {
         guard let publication else { return }
-        let next = currentSpineIndex + (forward ? 1 : -1)
+        let next: Int
+        if let group = loadedScrollGroup {
+            next = forward ? group.upperBound : group.lowerBound - 1
+        } else {
+            next = currentSpineIndex + (forward ? 1 : -1)
+        }
         guard publication.readingOrder.indices.contains(next) else {
             // 巻頭/巻末超え: ホストの反応(ループ・隣の本・何もしない)は
             // めくり演出ではないので、持ち越しカバーを先に畳む
@@ -2034,6 +2070,7 @@ public final class EPUBReaderView: NSView {
         forTextRange range: Range<Int>, inSpineIndex index: Int
     ) async -> [CGRect] {
         guard index == currentSpineIndex, !isLoadingSpineItem,
+              canRenderSpine(at: index),
               !isFixedLayoutItem, range.lowerBound >= 0, !range.isEmpty,
               let webView else { return [] }
         let result = await callWashiAsync(
@@ -2204,6 +2241,7 @@ public final class EPUBReaderView: NSView {
             "spread": isSpread,
             "gutter": Double(spreadGutter(forContentWidth: frame.width)),
             "fixedLayout": isFixedLayoutItem,
+            "flow": effectiveFlow.rawValue,
             "keysEnabled": settings.handlesKeyboardNavigation,
             // cooViewer-oxr.46 C35: 通知が今の文書のものかを判別する印。
             "documentToken": currentDocumentToken,
@@ -2222,7 +2260,10 @@ public final class EPUBReaderView: NSView {
         }
         if isFixedLayoutItem { options["width"] = 0; options["height"] = 0 }
         let data = (try? JSONSerialization.data(withJSONObject: options)) ?? Data("{}".utf8)
-        return String(data: data, encoding: .utf8) ?? "{}"
+        let json = String(data: data, encoding: .utf8) ?? "{}"
+        guard let publication, let schemeHandler else { return json }
+        return EPUBScrollDocument.options(json, publication: publication,
+                                          index: currentSpineIndex, handler: schemeHandler)
     }
 
     /// JS へ復元先の適用を依頼した時点では実位置が未確定なので、locator は
@@ -2465,8 +2506,8 @@ public final class EPUBReaderView: NSView {
         var remaining = max(0, page)
         for (index, count) in counts.enumerated() {
             if remaining < count {
-                let progression = count <= 1
-                    ? 0 : Double(remaining) / Double(count - 1)
+                let divisions = censusProgressionDivisions(at: index, count: count)
+                let progression = divisions <= 0 ? 0 : Double(remaining) / Double(divisions)
                 return publication?.locator(forSpineIndex: index,
                                             progression: progression)
                     ?? EPUBLocator(spineIndex: index, progression: progression)
@@ -2496,9 +2537,18 @@ public final class EPUBReaderView: NSView {
         let safeProgression = Self.clampedProgression(locator.progression)
         // Double(Int.max - 1) rounds up beyond Int.max. A clamped progression
         // alone does not make conversion safe for a very large imported count.
-        let inItem = Int(exactly: (safeProgression * Double(count - 1)).rounded())
+        let divisions = censusProgressionDivisions(at: locator.spineIndex, count: count)
+        let raw = safeProgression * Double(divisions)
+        let value = divisions == count ? (raw + 0.000001).rounded(.down) : raw.rounded()
+        let inItem = Int(exactly: value)
             ?? (count - 1)
         return offset + min(max(0, inItem), count - 1)
+    }
+
+    private func censusProgressionDivisions(at index: Int, count: Int) -> Int {
+        if let publication, publication.renderingFlow(at: index) == .scrolledContinuous,
+           index < publication.scrollGroup(containing: index).upperBound - 1 { return count }
+        return count - 1
     }
 
     private static func clampedProgression(_ value: Double) -> Double {
@@ -2553,6 +2603,7 @@ public final class EPUBReaderView: NSView {
         let itemMetrics = EPUBScreenMetrics(
             viewportSize: bounds.size, settings: settings,
             renditionSpread: effectiveSpread(forSpineIndex: spineIndex))
+            .applyingRenditionFlow(publication.renderingFlow(at: spineIndex))
         return await renderer.thumbnail(
             spineIndex: spineIndex, pageInItem: pageInItem,
             optionsJSON: itemMetrics.themedOptionsJSON(isDark: isDarkEffective),
@@ -2984,8 +3035,17 @@ public final class EPUBReaderView: NSView {
 
     func handleScriptMessage(_ body: Any) {
         guard let dict = body as? [String: Any],
-              let type = dict["type"] as? String else { return }
+              let type = dict["type"] as? String,
+              isFromCurrentDocument(dict) else { return }
+        if let index = dict["spineIndex"] as? Int {
+            guard !isLoadingSpineItem, isFromCurrentDocument(dict),
+                  loadedScrollGroup?.contains(index) == true else { return }
+        }
         switch type {
+        case "scrollFailure":
+            guard loadedScrollGroup != nil else { break }
+            delegate?.readerView(self, didFailWith: EPUBError.malformed(
+                dict["reason"] as? String ?? "Cannot load continuous chapter"))
         case "pageChanged":
             // cooViewer-oxr.19/23: 旧文書から遅配された位置通知で、新しい
             // pending target / 復元位置とホストの保存位置を上書きしない。
@@ -2994,8 +3054,17 @@ public final class EPUBReaderView: NSView {
             guard !isLoadingSpineItem, isFromCurrentDocument(dict) else { break }
             let request = navigationRequestGeneration
             let generation = spineLoadGeneration
+            if let index = dict["spineIndex"] as? Int, index != currentSpineIndex {
+                currentSpineIndex = index
+                setCurrentSelection(nil)
+                guard request == navigationRequestGeneration,
+                      generation == spineLoadGeneration else { break }
+                applyHighlights()
+            }
+            if dict["printPageMarkers"] != nil { applySetupResult(dict) }
             pageInItem = dict["page"] as? Int ?? 0
             pageCountInItem = max(1, dict["pageCount"] as? Int ?? 1)
+            scrollProgression = (dict["progression"] as? Double).map(Self.clampedProgression)
             pagesPerScreen = max(1, dict["pagesPerScreen"] as? Int ?? pagesPerScreen)
             pendingRestoreLocator = nil  // 実位置が確定した
             updateCurrentPrintPage()
@@ -3291,6 +3360,7 @@ public final class EPUBReaderView: NSView {
         let generation = spineLoadGeneration
         let result = await callWashiAsync(
             """
+            const document = __washi.activeDocument ? __washi.activeDocument() : window.document;
             function epubTypeOf(element) {
                 return element.getAttributeNS(
                     'http://www.idpf.org/2007/ops', 'type')

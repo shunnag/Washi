@@ -436,20 +436,17 @@ public struct EPUBPackage: Sendable {
     }
 
     /// 出版物が 1 本の連続したスクロール表示を求めているか。
-    /// `rendition:layout="roll"`(EPUB 3.4)、および `roll` が登場する前に日本の
-    /// 出版社が採用していた `pre-paginated` + `scrolled-continuous` の組み合わせで
-    /// true になる。EPUB Reading Systems 3.4 では両者を同じように扱うことが
-    /// 記されている(cooViewer-oxr.46 C27)。
+    /// `rendition:layout="roll"`(EPUB 3.4)、または出版物全体の
+    /// `rendition:flow="scrolled-continuous"` で true になる。
+    /// 後者には、roll 導入前の `pre-paginated` との組み合わせも含む。
     ///
     /// Whether the publication asks to be shown as one continuous scroll.
-    /// True for `rendition:layout="roll"` (EPUB 3.4) and for the
-    /// `pre-paginated` + `scrolled-continuous` combination that Japanese
-    /// publishers shipped before `roll` existed; EPUB Reading Systems 3.4
-    /// notes the two are to be treated alike (cooViewer-oxr.46 C27).
+    /// True for `rendition:layout="roll"` (EPUB 3.4) or a publication-wide
+    /// `rendition:flow="scrolled-continuous"`, including its legacy combination
+    /// with `pre-paginated`.
     public var isScrollLike: Bool {
         if metadata.rendition.layout == .roll { return true }
-        return metadata.rendition.layout == .prePaginated
-            && metadata.rendition.flow == .scrolledContinuous
+        return metadata.rendition.flow == .scrolledContinuous
     }
 
     /// spine の 1 項目の実効レイアウト(itemref の rendition:layout-* による
@@ -457,6 +454,8 @@ public struct EPUBPackage: Sendable {
     ///
     /// The effective layout for a single spine item (the itemref's rendition:layout-* override).
     public func effectiveLayout(for itemRef: SpineItemRef) -> RenditionLayout {
+        // roll は出版物全体に適用し、項目単位の上書きは採用しない。
+        if metadata.rendition.layout == .roll { return .roll }
         // cooViewer-oxr.14: 重複指定は properties(Set) ではなく文書順に
         // 走査し、最初の rendition:layout-* だけを有効にする。
         for property in itemRef.propertyList {
@@ -467,6 +466,25 @@ public struct EPUBPackage: Sendable {
             }
         }
         return metadata.rendition.layout
+    }
+
+    /// 項目ごとの実効フロー。最初の itemref 上書きを出版物の既定値より優先する。
+    /// roll は常に連続スクロールになる。
+    ///
+    /// The effective flow for an item, honoring its first override before the
+    /// publication default. Roll layouts always use continuous scrolling.
+    public func effectiveFlow(for itemRef: SpineItemRef) -> RenditionFlow {
+        if metadata.rendition.layout == .roll { return .scrolledContinuous }
+        for property in itemRef.propertyList {
+            switch property {
+            case "rendition:flow-auto": return .auto
+            case "rendition:flow-paginated": return .paginated
+            case "rendition:flow-scrolled-doc": return .scrolledDoc
+            case "rendition:flow-scrolled-continuous": return .scrolledContinuous
+            default: continue
+            }
+        }
+        return metadata.rendition.flow
     }
 
     /// spine の 1 項目の実効的な見開き設定を返す。出版物全体の既定値より、
