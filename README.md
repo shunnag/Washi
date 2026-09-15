@@ -10,12 +10,12 @@ tate-chu-yoko, emphasis marks, and right binding.
 ## すぐに試す / Quick Start
 
 **macOS 14 以降・Swift 6**。Xcode の **File → Add Package Dependencies…** に
-`https://github.com/shunnag/Washi.git` を入力し、**Up to Next Major Version: 1.19.0**
+`https://github.com/shunnag/Washi.git` を入力し、**Up to Next Major Version: 1.20.0**
 で追加する。アプリのターゲットには、表示するなら **Washi**、解析・表紙・検索だけなら
 **WashiCore** を選ぶ。通常の SwiftPM 利用で WashiDynamic を選ぶ必要はない。
 
 Requires **macOS 14+ and Swift 6**. In Xcode, choose **File → Add Package Dependencies…**,
-enter `https://github.com/shunnag/Washi.git`, and use **Up to Next Major Version: 1.19.0**.
+enter `https://github.com/shunnag/Washi.git`, and use **Up to Next Major Version: 1.20.0**.
 Add **Washi** to your app target for rendering, or **WashiCore** for parsing, covers,
 and search. Ordinary SwiftPM clients do not need WashiDynamic.
 
@@ -42,10 +42,10 @@ Scripts/run-sample.sh SwiftUIReader
 - [読み込みと終了 / Loading and lifetime](Sources/Washi/Washi.docc/ReaderLifecycle.md)
 
 公開ガイドとサンプルは main ブランチに追従する。利用 API は各ガイドに記載し、
-現在のサンプルは Washi 1.19.0 の公開 API で動作する。
+現在のサンプルは Washi 1.20.0 の公開 API で動作する。
 
 The online guides and samples follow the main branch. The current samples use
-the public API available in Washi 1.19.0.
+the public API available in Washi 1.20.0.
 
 **Washi** は macOS のシステムフレームワークだけで構成した、MIT ライセンスの
 EPUB 3 ツールキット。第三者パッケージには依存しない。解析層は Foundation /
@@ -329,7 +329,7 @@ Add Washi as a SwiftPM dependency:
 
 ```swift
 // Package.swift
-.package(url: "https://github.com/shunnag/Washi.git", from: "1.19.0")
+.package(url: "https://github.com/shunnag/Washi.git", from: "1.20.0")
 ```
 
 通常利用するプロダクトは 2 つ:
