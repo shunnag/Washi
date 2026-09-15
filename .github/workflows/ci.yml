@@ -58,6 +58,38 @@ jobs:
       - run: swift --version
       - run: swift build
       - run: swift test
+      - name: Test standalone AppKit and SwiftUI samples
+        run: swift test --package-path Samples
+  documentation:
+    name: Documentation and guide examples
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build documentation and typecheck all guide examples
+        run: python3 Scripts/build-documentation.py --output-dir .build/documentation/site --derived-data .build/documentation/DerivedData
+      - uses: actions/upload-pages-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          path: .build/documentation/site
+  pages:
+    name: Publish documentation
+    needs: [test, documentation]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment
   release-artifact:
     name: Release artifact (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -123,7 +155,7 @@ jobs:
         run: swift test --filter CorpusSmokeTests
   release:
     name: Publish GitHub Release
-    needs: [test, release-artifact, corpus]
+    needs: [test, release-artifact, corpus, documentation]
     if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:

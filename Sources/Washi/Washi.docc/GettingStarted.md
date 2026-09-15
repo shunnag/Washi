@@ -26,6 +26,8 @@ final class ReaderViewController: NSViewController, EPUBReaderViewDelegate {
 
     var saveLocator: (EPUBLocator) -> Void = { _ in }
     var saveCensus: (EPUBCensusRecord) -> Void = { _ in }
+    var showError: (any Error) -> Void = { _ in }
+    private var request = UUID()
 
     override func loadView() {
         reader.autoresizingMask = [.width, .height]
@@ -38,12 +40,25 @@ final class ReaderViewController: NSViewController, EPUBReaderViewDelegate {
         restoring locator: EPUBLocator? = nil,
         census: EPUBCensusRecord? = nil
     ) async throws {
+        let current = UUID()
+        request = current
         let publication = try await EPUBPublication.open(url: url)
+        guard !Task.isCancelled, request == current else { return }
+        _ = view
         reader.load(publication: publication, at: locator)
 
         if let census {
             _ = reader.importCensus(census)
         }
+    }
+
+    func close() {
+        request = UUID()
+        reader.unload()
+    }
+
+    func readerView(_ view: EPUBReaderView, didFailWith error: any Error) {
+        showError(error)
     }
 
     func readerView(
@@ -62,6 +77,15 @@ final class ReaderViewController: NSViewController, EPUBReaderViewDelegate {
     }
 }
 ```
+
+ファイルアクセス権は <doc:FileAccess> の所有オブジェクトなどで、このコントローラーと
+進行中の解析が出版物を使い終わるまで保持する。`open` の throw は呼び出し側で処理し、
+描画中の失敗は `showError` へ接続する。状態とキャンセルの詳細は <doc:ReaderLifecycle> を参照。
+
+Retain file access as described in <doc:FileAccess> until this controller and pending
+parsing finish using the publication. Handle errors thrown by `open` at its call site
+and connect `showError` to your rendering-error UI. See <doc:ReaderLifecycle> for states
+and cancellation.
 
 `EPUBLocator` は `Codable` に準拠しているため、ホストアプリは delegate で
 受け取った値を永続化し、次回開くときに `at` 引数で渡せます。識別子がある

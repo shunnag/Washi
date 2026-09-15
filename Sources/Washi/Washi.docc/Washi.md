@@ -27,7 +27,12 @@ before handing them to a reader or an offscreen renderer.
 
 ### ガイド / Guides
 
+- <doc:Installation>
 - <doc:GettingStarted>
+- <doc:SwiftUIIntegration>
+- <doc:FileAccess>
+- <doc:ReaderLifecycle>
+- <doc:SearchAndRendering>
 - <doc:Footnotes>
 - <doc:Pagination>
 

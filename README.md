@@ -7,6 +7,46 @@ An EPUB 3 toolkit built entirely with macOS-native technologies, with
 first-class support for Japanese typography: vertical writing, ruby,
 tate-chu-yoko, emphasis marks, and right binding.
 
+## すぐに試す / Quick Start
+
+**macOS 14 以降・Swift 6**。Xcode の **File → Add Package Dependencies…** に
+`https://github.com/shunnag/Washi.git` を入力し、**Up to Next Major Version: 1.19.0**
+で追加する。アプリのターゲットには、表示するなら **Washi**、解析・表紙・検索だけなら
+**WashiCore** を選ぶ。通常の SwiftPM 利用で WashiDynamic を選ぶ必要はない。
+
+Requires **macOS 14+ and Swift 6**. In Xcode, choose **File → Add Package Dependencies…**,
+enter `https://github.com/shunnag/Washi.git`, and use **Up to Next Major Version: 1.19.0**.
+Add **Washi** to your app target for rendering, or **WashiCore** for parsing, covers,
+and search. Ordinary SwiftPM clients do not need WashiDynamic.
+
+まず動作を見たい場合は、独立したサンプルを起動する。両方とも小さな EPUB を同梱し、
+ファイル選択、ページ送り、検索とハイライト、読書位置の保存・復元を試せる。
+
+To try a working app first, run either standalone sample. Both include a small EPUB
+and demonstrate file selection, paging, search and highlights, and position restoration.
+
+```sh
+git clone https://github.com/shunnag/Washi.git
+cd Washi
+Scripts/run-sample.sh AppKitReader
+# SwiftUI 版 / SwiftUI version
+Scripts/run-sample.sh SwiftUIReader
+```
+
+- [導入と最初の表示 / Installation and first display](Sources/Washi/Washi.docc/Installation.md)
+- [サンプルの構成・実行方法 / Sample apps](Samples/README.md)
+- [公開ドキュメント / Online documentation](https://shunnag.github.io/Washi/)
+- [SwiftUI への組み込み / SwiftUI integration](Sources/Washi/Washi.docc/SwiftUIIntegration.md)
+- [ファイルアクセス / File access](Sources/Washi/Washi.docc/FileAccess.md)
+- [検索・表紙・サムネイル / Search, covers, and thumbnails](Sources/Washi/Washi.docc/SearchAndRendering.md)
+- [読み込みと終了 / Loading and lifetime](Sources/Washi/Washi.docc/ReaderLifecycle.md)
+
+公開ガイドとサンプルは main ブランチに追従する。利用 API は各ガイドに記載し、
+現在のサンプルは Washi 1.19.0 の公開 API で動作する。
+
+The online guides and samples follow the main branch. The current samples use
+the public API available in Washi 1.19.0.
+
 **Washi** は macOS のシステムフレームワークだけで構成した、MIT ライセンスの
 EPUB 3 ツールキット。第三者パッケージには依存しない。解析層は Foundation /
 CoreFoundation / Compression / CryptoKit / CoreGraphics / ImageIO だけを使うため
@@ -289,7 +329,7 @@ Add Washi as a SwiftPM dependency:
 
 ```swift
 // Package.swift
-.package(url: "https://github.com/shunnag/Washi.git", from: "1.0.0")
+.package(url: "https://github.com/shunnag/Washi.git", from: "1.19.0")
 ```
 
 通常利用するプロダクトは 2 つ:
@@ -685,6 +725,12 @@ Apple Silicon and Intel. The build bundled with cooViewer is arm64-only.
 
 ## ドキュメント / Documentation
 
+[公開 DocC / Online DocC](https://shunnag.github.io/Washi/) から Washi と
+WashiCore の両方を参照できる。main 更新時にガイドのコード例とサンプルを検証して公開する。
+
+Browse both modules in the [online DocC documentation](https://shunnag.github.io/Washi/).
+Guides and samples are checked before documentation is published from main.
+
 公開 API の doc コメントと DocC カタログ記事は、日本語を正(ベース)として
 英語を併記する方針で、後続の文書整備で順次対応する。DocC では両者を合わせて
 ドキュメントを生成できる。
@@ -709,6 +755,16 @@ Build DocC documentation locally from the Washi package root with:
 
 ```sh
 xcodebuild docbuild -scheme Washi -destination 'platform=macOS'
+```
+
+ガイド内の全 Swift コード例の型検査と静的サイトの生成も実行できる。出力先には
+空のディレクトリを指定する。サンプルの実行検証は `swift test --package-path Samples`。
+
+To typecheck all Swift examples in the guides and generate the static site, use an
+empty output directory. Run sample integration tests with `swift test --package-path Samples`.
+
+```sh
+python3 Scripts/build-documentation.py --output-dir .build/docs-site --derived-data .build/docs-derived
 ```
 
 ## 開発体制 / Project Organization
