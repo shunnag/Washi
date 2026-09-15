@@ -25,12 +25,17 @@ XML parsing runs outside the main actor:
 
 ```swift
 import WashiCore
+import Foundation
 
-let publication = try await EPUBPublication.open(url: epubURL)
-print(publication.metadata.mainTitle ?? "Untitled")
-
-for hit in publication.search("paper") {
-    print(hit.spineIndex, hit.utf16Range, hit.snippet)
+func inspectBook(at epubURL: URL) async throws {
+    let publication = try await EPUBPublication.open(url: epubURL)
+    print(publication.metadata.mainTitle ?? "Untitled")
+    let hits = await Task.detached(priority: .userInitiated) {
+        publication.search("paper")
+    }.value
+    for hit in hits {
+        print(hit.spineIndex, hit.utf16Range, hit.snippet)
+    }
 }
 ```
 

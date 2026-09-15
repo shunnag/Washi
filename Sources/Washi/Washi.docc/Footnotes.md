@@ -74,9 +74,14 @@ If notes are always presented outside the page, hide recognized footnote and
 endnote asides from the paginated flow:
 
 ```swift
-var settings = reader.settings
-settings.hidesFootnoteAsides = true
-reader.settings = settings
+import Washi
+
+@MainActor
+func hideFootnoteAsides(in reader: EPUBReaderView) {
+    var settings = reader.settings
+    settings.hidesFootnoteAsides = true
+    reader.settings = settings
+}
 ```
 
 この設定はレイアウトに影響します。Washi は現在の項目を再ページ割りします。
