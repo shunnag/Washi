@@ -142,8 +142,9 @@ final class EPUBScreenThumbnailRenderer {
         let plan = EPUBScreenMetrics.setupPlan(
             optionsJSON: optionsJSON,
             applying: publication.package.effectiveSpread(for: entry.itemRef), flow: flow,
-            fullViewport: flow == .scrolledContinuous
-                && publication.package.effectiveLayout(for: entry.itemRef) != .reflowable)
+            // ライブ側の contentFrame と同じ項目単位の判断にそろえる。そろえないと
+            // サムネイルだけ余白ぶん内側の箱になり、画像の収まりが実表示と食い違う
+            fullViewport: EPUBScreenMetrics.fillsViewport(publication, spineIndex: spineIndex))
         let optionsJSON = plan.optionsJSON
         let contentSize = plan.contentSize.width >= 1 && plan.contentSize.height >= 1
             ? plan.contentSize : contentSize
