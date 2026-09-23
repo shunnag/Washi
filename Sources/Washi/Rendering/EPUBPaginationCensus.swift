@@ -95,8 +95,9 @@ final class EPUBPaginationCensus {
                 optionsJSON: optionsJSON,
                 applying: publication.package.effectiveSpread(for: entry.itemRef),
                 flow: publication.renderingFlow(at: index),
-                fullViewport: publication.renderingFlow(at: index) == .scrolledContinuous
-                    && publication.package.effectiveLayout(for: entry.itemRef) != .reflowable)
+                // ライブ側の contentFrame と同じ項目単位の判断にそろえる
+                // (版面が違うと page 数がずれる)
+                fullViewport: EPUBScreenMetrics.fillsViewport(publication, spineIndex: index))
             let itemSize = plan.contentSize.width >= 1 && plan.contentSize.height >= 1
                 ? plan.contentSize : contentSize
             // cooViewer-oxr.22: 欠損項目は本番表示と同じ 1 ページとして扱い、

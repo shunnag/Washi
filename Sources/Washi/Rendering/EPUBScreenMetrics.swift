@@ -188,6 +188,21 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
         flow == .scrolledDoc || flow == .scrolledContinuous
     }
 
+    /// その spine 項目を余白なしのビュー全面に置くか。census と画面サムネイルが
+    /// `EPUBReaderView.contentFrame` と同じ判断で箱を作るために使う。
+    /// roll・FXL・リフローの画像 1 枚だけの項目は全面。それ以外の scrolled は
+    /// ページ数が高さに依存するため余白を残す。
+    static func fillsViewport(_ publication: EPUBPublication, spineIndex: Int) -> Bool {
+        guard publication.readingOrder.indices.contains(spineIndex) else { return false }
+        let flow = publication.renderingFlow(at: spineIndex)
+        let layout = publication.package.effectiveLayout(
+            for: publication.readingOrder[spineIndex].itemRef)
+        if flow == .scrolledContinuous { return layout != .reflowable }
+        if isScrolled(flow) { return false }
+        return layout == .prePaginated
+            || publication.isSingleImageItem(atSpineIndex: spineIndex)
+    }
+
     /// 見開き時の中央ノド幅(Apple Books の版面比を目安に内容幅の約 7%)
     static func spreadGutter(forContentWidth width: CGFloat) -> CGFloat {
         min(96, max(44, (width * 0.07).rounded()))

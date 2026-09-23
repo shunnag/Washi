@@ -204,6 +204,9 @@ public final class EPUBReaderView: NSView {
                                     NSTextField(labelWithString: "")]
     /// 現在ページが「画像 1 枚だけのページ」(表紙等)か。ノンブルを隠す
     private var isImagePage = false
+    /// 画像 1 枚だけの項目(表紙・挿絵)か。項目の読み込み時に publication から判定するので、
+    /// JS のページ割り結果を待つ ``isImagePage`` と違い、最初のページ割りの前に決まる。
+    private var isImageOnlyItem = false
     /// 実行時の 1 画面あたりのページ数(1 = 単ページ / 2 = 見開き)。
     /// 画像 1 枚だけのページでは見開きモードでも 1 になる。見開きの
     /// 切り替えには ``plannedPagesPerScreen`` または
@@ -862,6 +865,7 @@ public final class EPUBReaderView: NSView {
         scrollProgression = nil
         loadedScrollGroup = nil
         isImagePage = false
+        isImageOnlyItem = false
         firstPageOnRight = false
         highlights.removeAll()
         clearPendingSpineTurn()
@@ -996,7 +1000,7 @@ public final class EPUBReaderView: NSView {
     }
 
     /// リフロー時の webView 配置(設定の余白でインセット)。
-    /// FXL は全面(余白なし)に配置してページ自体を版面として見せる
+    /// FXL・roll・画像 1 枚だけの項目は全面(余白なし)に配置してページ自体を版面として見せる
     /// 現在の表示モード(単ページ/見開き)に応じた実効余白。見開きは
     /// spreadInsets があればそちら、無ければ insets(EPUBScreenMetrics と同じ規則)
     private var activeInsets: EPUBReaderInsets {
@@ -1010,14 +1014,18 @@ public final class EPUBReaderView: NSView {
     }
 
     /// 現在のネイティブ余白の内側にある本文ページ領域。
-    /// リーダービューの座標系で表す。spine 項目の読み込み中は、新しい項目の
+    /// リーダービューの座標系で表す。FXL・roll・画像 1 枚だけの項目(表紙・挿絵)では
+    /// 余白を使わず、ビューの全面を返す。spine 項目の読み込み中は、新しい項目の
     /// 領域を返す(WebView には新しい文書のコミット時に当てる)。
     ///
     /// The content page area inside the active native margins, expressed in
-    /// reader-view coordinates. While a spine item is loading, this returns the
-    /// new item's area; the web view adopts it when the new document commits.
+    /// reader-view coordinates. For FXL, roll, and single-image items (cover,
+    /// illustration), this returns the full view with no margins. While a spine
+    /// item is loading, this returns the new item's area; the web view adopts it
+    /// when the new document commits.
     public var contentFrame: CGRect {
-        if isFixedLayoutItem || isRollItem {
+        // census・サムネイルは EPUBScreenMetrics.fillsViewport で同じ判断をする
+        if isFixedLayoutItem || isRollItem || isImageOnlyItem {
             return NSRect(origin: .zero, size: bounds.size)
         }
         let insets = activeInsets
@@ -1075,8 +1083,8 @@ public final class EPUBReaderView: NSView {
     /// FXL・画像ページ(表紙)では隠す。右綴じは右スロットが先のページ
     private func updateFurniture() {
         let visible = settings.showsPageFurniture && publication != nil
-            && !isFixedLayoutItem && !isRollItem && !isImagePage && !furnitureSuppressed
-            && !isAwaitingCommit
+            && !isFixedLayoutItem && !isRollItem && !isImagePage && !isImageOnlyItem
+            && !furnitureSuppressed && !isAwaitingCommit
         guard visible else {
             for label in pageNumberLabels { label.isHidden = true }
             updateAccessibilityMetadata()
@@ -1422,6 +1430,7 @@ public final class EPUBReaderView: NSView {
         pageCountInItem = 1
         scrollProgression = nil
         isImagePage = false
+        isImageOnlyItem = false
         // setup 応答までは OPF を暫定値にし、旧 item の CSS 方向を持ち越さない。
         firstPageOnRight = isRTL
         isLoadingSpineItem = true
@@ -1443,6 +1452,15 @@ public final class EPUBReaderView: NSView {
         isFixedLayoutItem =
             publication.package.effectiveLayout(for: entry.itemRef) == .prePaginated
             && !EPUBScreenMetrics.isScrolled(effectiveFlow)
+        // 画像 1 枚だけの項目(表紙・挿絵)は余白を使わず全面に置く。ページ割りの前に
+        // 決めておく。scrolled は対象外(ページ数が高さに依存するため。ReaderScripts の
+        // imagePage && !scrolled と同じ)。判定は publication がキャッシュし、
+        // census・サムネイルも同じ答えを使う
+        if isFixedLayoutItem || EPUBScreenMetrics.isScrolled(effectiveFlow) {
+            isImageOnlyItem = false
+        } else {
+            isImageOnlyItem = publication.isSingleImageItem(atSpineIndex: index)
+        }
         // 新しい項目の矩形と倍率は読み込み前に決め、当てるのは didCommit にする。
         // WebKit はコミットまで旧文書を描き続けるので、ここで当てると旧ページが
         // 新しい矩形・倍率で一瞬描かれる。setup は didFinish の後なので、
