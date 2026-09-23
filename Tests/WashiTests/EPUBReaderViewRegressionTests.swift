@@ -854,6 +854,11 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         guard await waitUntil({ delegate.moveCount > 0 }) else {
             return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
         }
+        // 最初の表示は描画フレームを待ってから戻り、その間は setup 中の扱いになる。
+        // 表示が戻る(setup が終わる)まで待ってから設定を変える
+        let web = try XCTUnwrap(view.subviews.compactMap { $0 as? WKWebView }.first)
+        let didRestoreDisplay = await waitUntil { web.alphaValue == 1 }
+        XCTAssertTrue(didRestoreDisplay)
 
         var updated = view.settings
         updated.userCSS = "body { line-height: 1.8; }"

@@ -845,6 +845,8 @@ public final class EPUBReaderView: NSView {
         messageProxy?.owner = nil
         messageProxy = nil
         currentNavigation = nil
+        pendingWebViewLayout = nil
+        isAwaitingCommit = false
         spineNavigationGate = SpineNavigationGate()
         isLoadingSpineItem = false
         isSettingUp = false
@@ -893,6 +895,8 @@ public final class EPUBReaderView: NSView {
         guard request == navigationRequestGeneration else { return nil }
         mediaOverlayController = nil
         self.publication = publication
+        // 前の本の控えを次の本に貼らない
+        discardPageCovers()
         updateAccessibilityMetadata()
         webContentReloadTask?.cancel()
         webContentReloadTask = nil
@@ -1006,10 +1010,12 @@ public final class EPUBReaderView: NSView {
     }
 
     /// 現在のネイティブ余白の内側にある本文ページ領域。
-    /// リーダービューの座標系で表す。
+    /// リーダービューの座標系で表す。spine 項目の読み込み中は、新しい項目の
+    /// 領域を返す(WebView には新しい文書のコミット時に当てる)。
     ///
     /// The content page area inside the active native margins, expressed in
-    /// reader-view coordinates.
+    /// reader-view coordinates. While a spine item is loading, this returns the
+    /// new item's area; the web view adopts it when the new document commits.
     public var contentFrame: CGRect {
         if isFixedLayoutItem || isRollItem {
             return NSRect(origin: .zero, size: bounds.size)
@@ -1070,6 +1076,7 @@ public final class EPUBReaderView: NSView {
     private func updateFurniture() {
         let visible = settings.showsPageFurniture && publication != nil
             && !isFixedLayoutItem && !isRollItem && !isImagePage && !furnitureSuppressed
+            && !isAwaitingCommit
         guard visible else {
             for label in pageNumberLabels { label.isHidden = true }
             updateAccessibilityMetadata()
@@ -1148,6 +1155,227 @@ public final class EPUBReaderView: NSView {
             for: publication.readingOrder[index].itemRef)
     }
 
+    /// spine 遷移中に被せる、現在ページの控えのスナップショット。
+    ///
+    /// 新しい文書のコミットから表示が戻るまで WebView は透明になる。演出なしの
+    /// 送りでは、表示が落ち着いたときに撮っておいたこの絵を被せて地色を見せない。
+    struct PrefetchedPageCover {
+        let image: NSImage
+        /// 撮ったときの webView.frame。貼るときもこの矩形に置く
+        let rect: NSRect
+        let backingScale: CGFloat
+        let spineIndex: Int
+        let pageInItem: Int
+        let size: NSSize
+        let fontScale: Double
+
+        /// 撮ったときと表示条件が一致するか(一致しなければ使わない)
+        func matches(spineIndex: Int, pageInItem: Int, size: NSSize,
+                     fontScale: Double, backingScale: CGFloat) -> Bool {
+            self.spineIndex == spineIndex && self.pageInItem == pageInItem
+                && self.size == size && self.fontScale == fontScale
+                && self.backingScale == backingScale
+        }
+    }
+
+    /// 控えは常に 1 枚だけ持つ(等倍なので全画面では数十 MB になる)
+    private(set) var prefetchedPageCover: PrefetchedPageCover?
+    private var pageCoverPrefetchTask: Task<Void, Never>?
+    private var pageCoverPrefetchRetries = 0
+    /// spine を離れる直前に、離れるページのものと確認できた控え。didCommit で貼る
+    private(set) var armedSpineCover: PrefetchedPageCover?
+    /// 読み込み前に決め、didCommit で当てる WebView の矩形と倍率
+    private var pendingWebViewLayout: (frame: NSRect, zoom: CGFloat, generation: Int)?
+    /// spine の読み込みを始めてからコミットまでの間か。前の文書が見えているので
+    /// ノンブルを隠す(新しい項目の番号を前のページの上に出さない)
+    private var isAwaitingCommit = false
+
+    /// テスト用: 撮影を経ずに控えを置く
+    func setPrefetchedPageCoverForTesting(_ cover: PrefetchedPageCover?) {
+        prefetchedPageCover = cover
+    }
+
+    /// 描画フレームを 2 回待つ処理。テストで差し替えられる
+    var animationFrameWait: @MainActor (WKWebView) async -> Void = { webView in
+        _ = try? await webView.callAsyncJavaScript(
+            "await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); return true;",
+            arguments: [:], in: nil, contentWorld: EPUBReaderView.washiWorld)
+    }
+    /// 描画フレームの待ちを打ち切るまでの時間。テストで差し替えられる
+    var animationFrameWaitTimeout = Duration.milliseconds(600)
+
+    /// `operation` の完了か `timeout` の早い方まで待つ。完了したら true。
+    /// 呼び出し側のタスクが取り消されたときも、その時点で戻る。
+    ///
+    /// `requestAnimationFrame` は合成されていないウィンドウ(最小化・別 Space・
+    /// 遮蔽)では進まないので、打ち切らないと表示が戻らなくなる。
+    static func race(_ operation: @escaping @MainActor () async -> Void,
+                     timeout: Duration) async -> Bool {
+        let gate = RaceGate()
+        let work = Task { @MainActor in
+            await operation()
+            gate.finish(completed: true)
+        }
+        let timer = Task {
+            try? await Task.sleep(for: timeout)
+            gate.finish(completed: false)
+        }
+        let completed = await withTaskCancellationHandler {
+            await withCheckedContinuation { gate.install($0) }
+        } onCancel: {
+            gate.finish(completed: false)
+        }
+        timer.cancel()
+        work.cancel()
+        return completed
+    }
+
+    /// race の結果を一度だけ返すための門。
+    private final class RaceGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Bool, Never>?
+        private var result: Bool?
+
+        func install(_ continuation: CheckedContinuation<Bool, Never>) {
+            lock.lock()
+            if let result {
+                lock.unlock()
+                continuation.resume(returning: result)
+                return
+            }
+            self.continuation = continuation
+            lock.unlock()
+        }
+
+        func finish(completed: Bool) {
+            lock.lock()
+            guard result == nil else { lock.unlock(); return }
+            result = completed
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume(returning: completed)
+        }
+    }
+
+    // MARK: - 先撮りカバー
+
+    /// 送りが止まってから撮るまでの待ち。連続した送りの間は取り消されて撮らない。
+    private static let pageCoverPrefetchDelay = Duration.milliseconds(80)
+    /// 控えが無いときは次のフレームで撮る(次の境界に間に合わせる)
+    private static let pageCoverFirstPrefetchDelay = Duration.milliseconds(16)
+    /// カバーの掲示中に撮り直す回数の上限
+    private static let pageCoverPrefetchRetryLimit = 8
+
+    /// 控えを使う条件: 演出なしの送り(または視差効果を減らす設定)で、
+    /// ページ単位の表示であること。演出ありの送りは既存の演出カバーが隠す
+    private var usesPrefetchedPageCover: Bool {
+        (settings.pageTurnStyle == .none || accessibilityShouldReduceMotion)
+            && !EPUBScreenMetrics.isScrolled(effectiveFlow)
+    }
+
+    /// 項目の最初か最後の画面にいるか(送りで spine 境界を越えうる)
+    private var isAtItemBoundaryScreen: Bool {
+        pageInItem == 0 || pageInItem + max(1, pagesPerScreen) >= pageCountInItem
+    }
+
+    /// ウィンドウが実際に画面に出ているか(最小化・遮蔽を除く)
+    private var isWindowOnScreen: Bool {
+        guard let window, allowsVisibleRenderingWork else { return false }
+        return !window.isMiniaturized && window.occlusionState.contains(.visible)
+    }
+
+    func schedulePageCoverPrefetch(after delay: Duration? = nil) {
+        pageCoverPrefetchTask?.cancel()
+        if delay == nil { pageCoverPrefetchRetries = 0 }
+        let wait = delay ?? (prefetchedPageCover == nil
+            ? Self.pageCoverFirstPrefetchDelay : Self.pageCoverPrefetchDelay)
+        pageCoverPrefetchTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: wait)
+            guard let self, !Task.isCancelled else { return }
+            await self.capturePageCover()
+        }
+    }
+
+    /// 控えを捨て、撮影の予約も取り消す
+    private func discardPageCovers() {
+        pageCoverPrefetchTask?.cancel()
+        pageCoverPrefetchTask = nil
+        pageCoverPrefetchRetries = 0
+        prefetchedPageCover = nil
+        armedSpineCover = nil
+    }
+
+    /// 現在の表示を等倍で 1 枚撮る。合成はしない(メインスレッドを止めないため)。
+    private func capturePageCover() async {
+        // 使わない場面では持たない(古い控えも捨てる)
+        guard usesPrefetchedPageCover, isAtItemBoundaryScreen, isWindowOnScreen else {
+            prefetchedPageCover = nil
+            return
+        }
+        guard let webView, publication != nil,
+              !isLoadingSpineItem, !isSettingUp else { return }
+        // カバーの掲示中はカバー自身を撮ってしまうので、少し後に撮り直す
+        guard turnOverlays.isEmpty else {
+            guard pageCoverPrefetchRetries < Self.pageCoverPrefetchRetryLimit else { return }
+            pageCoverPrefetchRetries += 1
+            schedulePageCoverPrefetch(after: Self.pageCoverPrefetchDelay)
+            return
+        }
+        pageCoverPrefetchRetries = 0
+        let spineIndex = currentSpineIndex
+        let page = pageInItem
+        let size = bounds.size
+        let rect = webView.frame
+        let backingScale = window?.backingScaleFactor ?? 2
+        let config = WKSnapshotConfiguration()
+        config.afterScreenUpdates = false
+        guard let image = try? await webView.takeSnapshot(configuration: config)
+        else { return }
+        // 撮影中にページや表示条件が変わっていたら捨てる
+        guard !Task.isCancelled, webView === self.webView,
+              !isLoadingSpineItem, turnOverlays.isEmpty,
+              spineIndex == currentSpineIndex, page == pageInItem,
+              size == bounds.size, rect == webView.frame else { return }
+        prefetchedPageCover = PrefetchedPageCover(
+            image: image, rect: rect, backingScale: backingScale,
+            spineIndex: spineIndex, pageInItem: page,
+            size: size, fontScale: settings.fontScale)
+    }
+
+    /// loadSpineItem が currentSpineIndex を書き換える前に呼ぶ。控えが離れるページの
+    /// ものなら取り置き、そうでなければカバー無しで読み込む
+    private func armSpineCoverForTransition() {
+        let held = prefetchedPageCover
+        prefetchedPageCover = nil
+        pageCoverPrefetchTask?.cancel()
+        guard let held, usesPrefetchedPageCover,
+              held.matches(spineIndex: currentSpineIndex, pageInItem: pageInItem,
+                           size: bounds.size, fontScale: settings.fontScale,
+                           backingScale: window?.backingScaleFactor ?? 2) else {
+            armedSpineCover = nil
+            return
+        }
+        armedSpineCover = held
+    }
+
+    /// 取り置いた控えをカバーとして撮影時の矩形に貼る。既存のカバーの回収経路
+    /// (pendingSpineTurn・時間切れ・runSetup)に乗せる
+    private func installSpineCover(_ held: PrefetchedPageCover) {
+        guard let webView, allowsVisibleRenderingWork else { return }
+        let cover = NSImageView(image: held.image)
+        cover.imageScaling = .scaleAxesIndependently
+        cover.frame = held.rect
+        addSubview(cover, positioned: .above, relativeTo: webView)
+        turnOverlays.append(cover)
+        updateFurnitureSuppression()
+        clearPendingSpineTurn()
+        pendingSpineTurn = PendingSpineTurn(
+            oldPage: held.image, cover: cover, forward: true, animated: false)
+        // 重い画像ページの読み込みにも耐えるよう、時間切れは長めにする
+        scheduleSpineTurnTimeout(for: cover, after: .seconds(8))
+    }
+
     private var isRollItem: Bool {
         guard effectiveFlow == .scrolledContinuous, let publication,
               publication.readingOrder.indices.contains(currentSpineIndex) else { return false }
@@ -1180,6 +1408,8 @@ public final class EPUBReaderView: NSView {
         guard request == navigationRequestGeneration,
               previousGeneration == spineLoadGeneration,
               webView === self.webView else { return }
+        // currentSpineIndex を書き換える前に控えを取り置く
+        armSpineCoverForTransition()
         printPageMarkers.removeAll(keepingCapacity: true)
         accessibilityAnnouncementTask?.cancel()
         accessibilityAnnouncementTask = nil
@@ -1196,6 +1426,8 @@ public final class EPUBReaderView: NSView {
         firstPageOnRight = isRTL
         isLoadingSpineItem = true
         spineLoadGeneration += 1
+        // コミット前に置き換わった読み込みの矩形を、新しい項目へ当てない
+        pendingWebViewLayout = nil
         repaginateWork?.cancel()  // 旧文書あての再ページ割りを新文書へ流さない
         // 進行中のめくり演出は新しい章の表示を隠すので畳む。
         // spine 遷移演出の持ち越しカバー(旧ページ)だけは読み込み中も残す。
@@ -1211,13 +1443,24 @@ public final class EPUBReaderView: NSView {
         isFixedLayoutItem =
             publication.package.effectiveLayout(for: entry.itemRef) == .prePaginated
             && !EPUBScreenMetrics.isScrolled(effectiveFlow)
-        // FXL aspect fitting changes pageZoom on the shared WebView. Restore
-        // normal CSS pixels before a reflowable document begins loading/setup.
-        if !isFixedLayoutItem { webView.pageZoom = 1 }
-        // cooViewer-oxr.51: spine 遷移直後から現在 itemref の spread 用余白を
-        // WebView の実寸へ反映し、didFinish/setup が旧項目の innerWidth で
-        // ページ割りしないようにする。
-        webView.frame = contentFrame
+        // 新しい項目の矩形と倍率は読み込み前に決め、当てるのは didCommit にする。
+        // WebKit はコミットまで旧文書を描き続けるので、ここで当てると旧ページが
+        // 新しい矩形・倍率で一瞬描かれる。setup は didFinish の後なので、
+        // ページ割りは新しい寸法で行われる(cooViewer-oxr.51)。
+        // FXL は宣言された viewport から矩形を決める(描いてから測って動かさない)。
+        // 旧文書が無いか透明なら見えないので即時に当てる。
+        let targetLayout: (frame: NSRect, zoom: CGFloat)? = isFixedLayoutItem
+            ? fixedItemLayout() : (contentFrame, 1)
+        if let layout = targetLayout {
+            let unchanged = webView.frame == layout.frame
+                && webView.pageZoom == layout.zoom
+            if unchanged || webView.url == nil || webView.alphaValue == 0 {
+                applyWebViewLayout(layout.frame, zoom: layout.zoom)
+            } else {
+                pendingWebViewLayout = (layout.frame, layout.zoom, spineLoadGeneration)
+            }
+        }
+        isAwaitingCommit = webView.url != nil && webView.alphaValue > 0
         updateFurniture()
         guard validateSpineResource(entry, in: publication) else { return }
         guard let url = loadedScrollGroup != nil ? schemeHandler.scrollDocumentURL
@@ -1226,12 +1469,15 @@ public final class EPUBReaderView: NSView {
                 "Cannot load spine resource: \(entry.resolvedContainerPath)"))
             return
         }
-        webView.alphaValue = 0
+        // 透明にするのは didCommit(それまでは前のページが見えている)
         let navigationPath = schemeHandler.containerPath(for: url) ?? entry.resolvedContainerPath
         spineNavigationGate.expect(navigationPath)
         let navigation = webView.load(URLRequest(url: url))
         if navigation == nil {
             spineNavigationGate.cancelExpectation(for: navigationPath)
+            // コミットの通知を追えないので今当てる
+            applyPendingWebViewLayout()
+            isAwaitingCommit = false
         }
         currentNavigation = navigation
     }
@@ -1515,6 +1761,8 @@ public final class EPUBReaderView: NSView {
         let oldPage: NSImage
         let cover: NSImageView
         let forward: Bool
+        /// false なら控えのカバー。新しいページが出た時点で演出なしに畳む
+        var animated: Bool = true
     }
     var pendingSpineTurn: PendingSpineTurn?
 
@@ -1557,13 +1805,15 @@ public final class EPUBReaderView: NSView {
 
     /// テスト用: カバーを本番と同じ手順で turnOverlays に載せる(任意で pending 化)。
     /// 実 WKWebView 無しでカバーのライフサイクル(孤児回収・所有権)を検証するため
-    func installTurnCover(_ cover: NSImageView, pending: Bool, forward: Bool = true) {
+    func installTurnCover(_ cover: NSImageView, pending: Bool, forward: Bool = true,
+                          animated: Bool = true) {
         addSubview(cover)
         turnOverlays.append(cover)
         updateFurnitureSuppression()
         if pending {
             pendingSpineTurn = PendingSpineTurn(
-                oldPage: cover.image ?? NSImage(), cover: cover, forward: forward)
+                oldPage: cover.image ?? NSImage(), cover: cover, forward: forward,
+                animated: animated)
         }
     }
 
@@ -2161,7 +2411,7 @@ public final class EPUBReaderView: NSView {
             // scheduleCensusIfNeeded はキーで重複排除するので毎回呼んで安全
             scheduleCensusIfNeeded()
         } else {
-            webView.frame = contentFrame
+            placeWebView(contentFrame, zoom: 1)
             if forcePagination || lastLaidOutSize != bounds.size {
                 schedulePagination(preserveProgression: true)
             }
@@ -2172,7 +2422,31 @@ public final class EPUBReaderView: NSView {
     /// FXL: ICB へのアスペクトフィット。中央寄せは webView フレームで行う。
     /// viewport はキャッシュする(リサイズ毎の XHTML 再パースを避ける)
     private func layoutFixedItem() {
-        guard let webView, let publication else { return }
+        guard let layout = fixedItemLayout() else { return }
+        placeWebView(layout.frame, zoom: layout.zoom)
+    }
+
+    /// WebView の矩形と倍率を当てる。コミット待ちの間は、当てる予定の値だけを更新する
+    private func placeWebView(_ frame: NSRect, zoom: CGFloat) {
+        if pendingWebViewLayout != nil {
+            pendingWebViewLayout?.frame = frame
+            pendingWebViewLayout?.zoom = zoom
+            return
+        }
+        applyWebViewLayout(frame, zoom: zoom)
+    }
+
+    /// コミット待ちの矩形と倍率を当てる(同じ読み込みのものに限る)。
+    private func applyPendingWebViewLayout() {
+        guard let pending = pendingWebViewLayout else { return }
+        pendingWebViewLayout = nil
+        guard pending.generation == spineLoadGeneration else { return }
+        applyWebViewLayout(pending.frame, zoom: pending.zoom)
+    }
+
+    /// FXL の収まる矩形と倍率(宣言された viewport と contentFrame から決まる)。
+    private func fixedItemLayout() -> (frame: NSRect, zoom: CGFloat)? {
+        guard webView != nil, let publication else { return nil }
         let available = contentFrame
         let viewport: CGSize
         if fxlDeviceSizedViewportItems.contains(currentSpineIndex) {
@@ -2191,15 +2465,21 @@ public final class EPUBReaderView: NSView {
             }
         }
         guard viewport.width > 0, viewport.height > 0,
-              available.width > 0, available.height > 0 else { return }
+              available.width > 0, available.height > 0 else { return nil }
         let scale = min(available.width / viewport.width,
                         available.height / viewport.height)
         let size = NSSize(width: viewport.width * scale,
                           height: viewport.height * scale)
-        webView.frame = NSRect(
+        let fitted = NSRect(
             x: available.minX + (available.width - size.width) / 2,
             y: available.minY + (available.height - size.height) / 2,
             width: size.width, height: size.height)
+        return (fitted, scale)
+    }
+
+    private func applyWebViewLayout(_ fitted: NSRect, zoom scale: CGFloat) {
+        guard let webView else { return }
+        webView.frame = fitted
         webView.pageZoom = scale
     }
 
@@ -2314,8 +2594,24 @@ public final class EPUBReaderView: NSView {
             scheduleCensusIfNeeded()  // メトリクス変化(フォント・寸法)に追従
             guard generation == spineLoadGeneration,
                   webView === self.webView else { return }
+            // 透明から戻すときは、描画フレームが 2 回進むのを待つ。直後はまだ前の
+            // フレームが合成されていて、引き伸ばされた古い絵が一瞬見えるため。
+            // 既に見えている再ページ割りでは待たない
+            if webView.alphaValue < 1 {
+                let wait = animationFrameWait
+                _ = await Self.race({ await wait(webView) },
+                                    timeout: animationFrameWaitTimeout)
+                guard generation == spineLoadGeneration,
+                      webView === self.webView else { return }
+            }
             webView.alphaValue = 1  // 持ち越しカバーがあればその下で戻る
-            if let pending = pendingSpineTurn {
+            // 次の spine 遷移にそなえて控えを撮り直す(カバーを畳んだ後に走る)
+            schedulePageCoverPrefetch()
+            if let pending = pendingSpineTurn, !pending.animated {
+                // 控えのカバーは、新しいページが合成された今の時点で演出なしに畳む
+                pendingSpineTurn = nil
+                foldTurnCover(pending.cover)
+            } else if let pending = pendingSpineTurn {
                 // spine 遷移演出の仕上げ: 新ページの描画完了を待って撮り、
                 // 項目内めくりと同じ演出でカバー(旧ページ)を取り除く
                 pendingSpineTurn = nil
@@ -2651,6 +2947,26 @@ public final class EPUBReaderView: NSView {
     /// does not leak. If shown again, the next runSetup / layout naturally
     /// resumes the census. Media overlays pause, preserving their position
     /// so the host can resume playback.
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        let center = NotificationCenter.default
+        for name in [NSWindow.didChangeOcclusionStateNotification,
+                     NSWindow.didMiniaturizeNotification] {
+            if let window { center.removeObserver(self, name: name, object: window) }
+            if let newWindow {
+                center.addObserver(self, selector: #selector(windowVisibilityDidChange(_:)),
+                                   name: name, object: newWindow)
+            }
+        }
+    }
+
+    /// 最小化・遮蔽されたら控えのスナップショットを捨てる(数十 MB になりうる)
+    @objc private func windowVisibilityDidChange(_ notification: Notification) {
+        guard !isWindowOnScreen else { return }
+        pageCoverPrefetchTask?.cancel()
+        prefetchedPageCover = nil
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateNativeKeyMonitor()
@@ -2666,6 +2982,7 @@ public final class EPUBReaderView: NSView {
         thumbnailRenderer = nil
         // 遅れて届く再生開始の JS 応答も無効化し、非表示中の再生復活を防ぐ。
         pauseMediaOverlay()
+        discardPageCovers()
     }
 
     public override func viewDidHide() {
@@ -2683,6 +3000,7 @@ public final class EPUBReaderView: NSView {
         thumbnailRenderer?.invalidate()
         thumbnailRenderer = nil
         pauseMediaOverlay()
+        discardPageCovers()
     }
 
     public override func viewDidUnhide() {
@@ -3077,6 +3395,8 @@ public final class EPUBReaderView: NSView {
             guard request == navigationRequestGeneration,
                   generation == spineLoadGeneration else { break }
             scheduleAccessibilityPageAnnouncement()
+            // ページが変わったので控えを撮り直す
+            schedulePageCoverPrefetch()
         case "boundary":
             // spine 切替の読み込み中に旧文書から届く境界イベントは捨てる
             // (トラックパッド慣性やキーリピートでの章飛び越し防止)
@@ -3579,11 +3899,38 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
         return (.cancel, preferences)
     }
 
+    /// 新しい文書のコミット時に WebView を透明にし、読み込み前に決めた矩形と倍率を
+    /// 当てる。コミットまでは WebKit が前の文書を描き続けるので、前のページが
+    /// 見えたままになる。控えのスナップショットがあれば、同時にカバーとして貼る。
+    /// 表示は setup の完了後に戻す。
+    ///
+    /// Makes the web view transparent when the new document commits and applies
+    /// the frame and zoom decided before loading. Until the commit, WebKit keeps
+    /// drawing the previous document, so the previous page stays visible. A
+    /// prepared snapshot of that page, if any, is installed as a cover at the
+    /// same time. The view becomes visible again after setup completes.
+    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard webView === self.webView,
+              navigation == nil || navigation === currentNavigation else { return }
+        // 演出のカバーが既にあるときは横取りしない
+        if pendingSpineTurn == nil, let armed = armedSpineCover {
+            installSpineCover(armed)
+        }
+        armedSpineCover = nil
+        webView.alphaValue = 0
+        applyPendingWebViewLayout()
+        isAwaitingCommit = false
+        updateFurniture()
+    }
+
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // 別の spine へ移った後に届いた古い didFinish は無視する
         // (これを通すと古いセットアップが新文書の pendingTarget を消費する)
         guard webView === self.webView,
               navigation == nil || navigation === currentNavigation else { return }
+        // 通常は didCommit で当たっている。取り残しがあればここで当てる
+        applyPendingWebViewLayout()
+        isAwaitingCommit = false
         if isFixedLayoutItem {
             layoutFixedItem()
         }
@@ -3622,6 +3969,10 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
         spineNavigationGate = SpineNavigationGate()
         webView?.stopLoading()
         clearPendingSpineTurn()
+        // コミットされなかった遷移の控えと矩形は捨てる
+        armedSpineCover = nil
+        pendingWebViewLayout = nil
+        isAwaitingCommit = false
         webView?.alphaValue = 1
         delegate?.readerView(self, didFailWith: error)
     }
