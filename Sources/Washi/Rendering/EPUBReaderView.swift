@@ -153,6 +153,9 @@ public final class EPUBReaderView: NSView {
                 // cooViewer-oxr.24: 個別フィールド列挙ではなく census と同じ
                 // 導出キーを正とし、userCSS を含む変更漏れを防ぐ。
                 needsLayout = true
+                // 組版(同じ代入で変えた配色を含む)が変わるので今の控えは使えない。
+                // 撮り直しは runSetup の最後。
+                dropPrefetchedPageCover()
                 schedulePagination(preserveProgression: true)
             } else {
                 // 配色・めくり演出・柱の表示などはページ割りを保ったまま反映
@@ -617,13 +620,16 @@ public final class EPUBReaderView: NSView {
 
     /// ページ側(Web コンテンツ)へ配色 CSS だけを差し替える(再ページ割りなし)
     private func applyThemeCSSOnly() {
-        guard webView != nil else { return }
+        guard let webView else { return }
         let css = settings.composedUserCSS(
             isDark: isDarkEffective,
             increaseContrast: shouldIncreaseContrast,
             differentiateWithoutColor: shouldDifferentiateWithoutColor)
-        callWashiAsync("return __washi.setUserCSS(css);",
-                       arguments: ["css": css])
+        // 撮り直しの描画待ちより前に届くよう、Task を挟まずに送る
+        webView.callAsyncJavaScript(
+            "return __washi.setUserCSS(css);", arguments: ["css": css],
+            in: nil, in: Self.washiWorld, completionHandler: nil)
+        retakePageCoverAfterRestyle()
     }
 
     /// cooViewer-oxr.27: opt-in 時だけシステムのダブルクリック間隔を JS へ渡す。
@@ -1303,9 +1309,14 @@ public final class EPUBReaderView: NSView {
         pageInItem == 0 || pageInItem + max(1, pagesPerScreen) >= pageCountInItem
     }
 
+    /// テスト用: ウインドウが画面に出ているかを OS の遮蔽判定に依らず決める。
+    /// 画面外に置いたテストウインドウは遮蔽扱いで、控えを撮らないため
+    var isWindowOnScreenOverride: Bool?
+
     /// ウィンドウが実際に画面に出ているか(最小化・遮蔽を除く)
     private var isWindowOnScreen: Bool {
         guard let window, allowsVisibleRenderingWork else { return false }
+        if let isWindowOnScreenOverride { return isWindowOnScreenOverride }
         return !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 
@@ -1321,12 +1332,43 @@ public final class EPUBReaderView: NSView {
         }
     }
 
-    /// 控えを捨て、撮影の予約も取り消す
-    private func discardPageCovers() {
+    /// 描画フレームを待ってから撮影を予約する。待ちも pageCoverPrefetchTask に載せるので、
+    /// 後の予約・破棄・armSpineCoverForTransition が取り消す。撮らない場面では待たない。
+    private func schedulePageCoverPrefetchAfterFrames() {
+        pageCoverPrefetchTask?.cancel()
+        pageCoverPrefetchTask = nil
+        guard let webView, usesPrefetchedPageCover, isAtItemBoundaryScreen,
+              isWindowOnScreen, !isLoadingSpineItem, !isSettingUp else { return }
+        let wait = animationFrameWait
+        let timeout = animationFrameWaitTimeout
+        pageCoverPrefetchTask = Task { @MainActor [weak self] in
+            guard !Task.isCancelled else { return }
+            _ = await EPUBReaderView.race({ await wait(webView) }, timeout: timeout)
+            guard let self, !Task.isCancelled, webView === self.webView else { return }
+            self.schedulePageCoverPrefetch()
+        }
+    }
+
+    /// 古い見た目の控えはその場で捨て、変更が描画されてから撮り直す。
+    /// washi ワールドの JS は送った順に実行されるので、見た目の変更を送った直後に
+    /// 呼び、描画フレーム待ちを後から送る。変更が続いたら前の待ちは取り消され、
+    /// 最後に 1 回だけ撮る。
+    private func retakePageCoverAfterRestyle() {
+        dropPrefetchedPageCover()
+        schedulePageCoverPrefetchAfterFrames()
+    }
+
+    /// 控えと撮影の予約を捨てる。撮影中の結果も取り消しで捨て、取り置いた控えは残す。
+    private func dropPrefetchedPageCover() {
         pageCoverPrefetchTask?.cancel()
         pageCoverPrefetchTask = nil
         pageCoverPrefetchRetries = 0
         prefetchedPageCover = nil
+    }
+
+    /// 控えと撮影の予約に加え、遷移のために取り置いた控えも捨てる。
+    private func discardPageCovers() {
+        dropPrefetchedPageCover()
         armedSpineCover = nil
     }
 
@@ -1622,6 +1664,9 @@ public final class EPUBReaderView: NSView {
         didSet {
             guard highlights != oldValue else { return }
             applyHighlights()
+            // ハイライトも控えに写る。runSetup・pageChanged からの applyHighlights は
+            // 直後に撮り直しを予約するので、ホストの変更のここでだけ撮り直す。
+            retakePageCoverAfterRestyle()
         }
     }
 
@@ -2970,12 +3015,13 @@ public final class EPUBReaderView: NSView {
         censusTask = nil
     }
 
-    // 最小化・遮蔽の通知を購読し、控えのスナップショットを捨てられるようにする
+    // 最小化・遮蔽とその解除を購読し、控えを捨て・撮り直す
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         let center = NotificationCenter.default
         for name in [NSWindow.didChangeOcclusionStateNotification,
-                     NSWindow.didMiniaturizeNotification] {
+                     NSWindow.didMiniaturizeNotification,
+                     NSWindow.didDeminiaturizeNotification] {
             if let window { center.removeObserver(self, name: name, object: window) }
             if let newWindow {
                 center.addObserver(self, selector: #selector(windowVisibilityDidChange(_:)),
@@ -2984,11 +3030,12 @@ public final class EPUBReaderView: NSView {
         }
     }
 
-    /// 最小化・遮蔽されたら控えのスナップショットを捨てる(数十 MB になりうる)
+    /// 最小化・遮蔽されたら控えを捨てる(数十 MB になりうる)。画面に戻ったら撮り直す。
     @objc private func windowVisibilityDidChange(_ notification: Notification) {
-        guard !isWindowOnScreen else { return }
-        pageCoverPrefetchTask?.cancel()
-        prefetchedPageCover = nil
+        guard isWindowOnScreen else { dropPrefetchedPageCover(); return }
+        // 見えたままの通知が重なっても、使える控えを撮り直さない
+        guard prefetchedPageCover == nil else { return }
+        schedulePageCoverPrefetchAfterFrames()
     }
 
     /// ウインドウから外れたとき(ウインドウを閉じる、ビューを取り除く)に、
@@ -3056,6 +3103,11 @@ public final class EPUBReaderView: NSView {
         guard let webView else { return }
         layoutFurniture()
         layoutVisibleContent(webView, forcePagination: true)
+        // 隠す・外すときに捨てた控えを撮り直す。固定レイアウトは再ページ割りを通らない。
+        // リフローは runSetup の最後で撮り直す。
+        if isFixedLayoutItem {
+            schedulePageCoverPrefetchAfterFrames()
+        }
     }
 
     /// cooViewer-oxr.54: 回帰テストが非表示中の延期状態を同期的に確認する。

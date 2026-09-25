@@ -7,6 +7,7 @@ import XCTest
 // 1. 読み込みの開始では透明にしない(前のページはコミットまで見えている)
 // 2. 描画フレームの待ちは必ず打ち切られ、取り消しにも即座に応じる
 // 3. 控えのカバーは条件が一致したときだけ、撮った矩形に貼られ、表示が戻ると畳まれる
+// 4. 見た目の変更と画面への復帰で控えを撮り直す
 
 /// ページ割りの通知を数える。WebKit がこの環境で動くかを alpha と無関係に見る
 @MainActor
@@ -97,6 +98,66 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             backingScale: view.window?.backingScaleFactor ?? 2,
             spineIndex: spineIndex, pageInItem: pageInItem,
             size: view.bounds.size, fontScale: view.settings.fontScale)
+    }
+
+    private func makeCoverReader(theme: EPUBReaderTheme = .light,
+                                 pageTurnStyle: EPUBPageTurnStyle = .none)
+        -> (view: EPUBReaderView, window: NSWindow)
+    {
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        view.settings.theme = theme
+        view.settings.pageTurnStyle = pageTurnStyle
+        view.accessibilityReduceMotionOverride = false
+        view.accessibilityIncreaseContrastOverride = false
+        view.accessibilityDifferentiateWithoutColorOverride = false
+        view.isWindowOnScreenOverride = true
+        // 画面外でも、見た目を変えた JS の実行後に撮影する順序を保つ
+        view.animationFrameWait = {
+            await EPUBReaderView.waitForWashiScript("return true;", in: $0)
+        }
+        return (view, makeWindow(containing: view))
+    }
+
+    private func waitForCover(
+        _ view: EPUBReaderView, replacing old: NSImage? = nil,
+        message: String? = nil, file: StaticString = #filePath, line: UInt = #line
+    ) async throws -> EPUBReaderView.PrefetchedPageCover {
+        let ready = await waitUntil {
+            guard let cover = view.prefetchedPageCover else { return false }
+            return cover.image !== old
+        }
+        return try XCTUnwrap(
+            ready ? view.prefetchedPageCover : nil,
+            message ?? (old == nil
+                ? "初回の控え A を撮影できない。画面外のウインドウで撮影できる前提を確認する"
+                : "控えの撮り直しが時間切れになった"),
+            file: file, line: line)
+    }
+
+    /// sRGB の 16×16 画素に縮小し、本文より広い地色の明るさを調べる
+    private func meanLuminance(_ image: NSImage) -> Double {
+        guard let source = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: nil, width: 16, height: 16, bitsPerComponent: 8,
+                bytesPerRow: 16 * 4, space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                    | CGBitmapInfo.byteOrder32Big.rawValue),
+              let data = context.data else {
+            XCTFail("控えの輝度を調べるための画像と描画領域を用意できない")
+            return .nan
+        }
+        let rect = CGRect(x: 0, y: 0, width: 16, height: 16)
+        context.clear(rect)
+        context.interpolationQuality = .high
+        context.draw(source, in: rect)
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        let total = stride(from: 0, to: 16 * 16 * 4, by: 4).reduce(0.0) { sum, offset in
+            sum + 0.2126 * Double(pixels[offset])
+                + 0.7152 * Double(pixels[offset + 1])
+                + 0.0722 * Double(pixels[offset + 2])
+        }
+        return total / (16 * 16 * 255)
     }
 
     // MARK: - 描画フレームの待ち
@@ -309,6 +370,121 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     }
 
     // MARK: - 控えのカバー
+
+    func testThemeChangeRetakesTheCoverInTheNewColors() async throws {
+        let (view, window) = makeCoverReader()
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
+        let initial = try await waitForCover(view)
+        XCTAssertGreaterThan(meanLuminance(initial.image), 0.6, "初回の控えは明るい配色で撮る")
+
+        view.settings.theme = .dark
+        XCTAssertNil(view.prefetchedPageCover, "古い配色の控えはその場で捨てる")
+        let updated = try await waitForCover(view, replacing: initial.image)
+        XCTAssertLessThan(meanLuminance(updated.image), 0.4, "撮り直した控えは暗い配色を反映する")
+
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        XCTAssertTrue(view.armedSpineCover?.image === updated.image, "新しい配色の控えを取り置く")
+    }
+
+    func testAppearanceOnlyChangesRetakeTheCover() async throws {
+        let (view, window) = makeCoverReader()
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
+        var current = try await waitForCover(view)
+        let stages: [(String, @MainActor () -> Void)] = [
+            ("コントラストの強調", { view.accessibilityIncreaseContrastOverride = true }),
+            ("外観の変更", { view.viewDidChangeEffectiveAppearance() }),
+            ("ハイライトの追加", {
+                view.highlights = [EPUBHighlight(
+                    id: "h", spineIndex: 0, utf16Offset: 0, utf16Length: 2)]
+            }),
+            ("ハイライトの削除", { view.highlights = [] }),
+        ]
+        for (stage, change) in stages {
+            let old = current
+            change()
+            XCTAssertNil(view.prefetchedPageCover, "\(stage): 古い見た目の控えはその場で捨てる")
+            current = try await waitForCover(
+                view, replacing: old.image, message: "\(stage): 控えの撮り直しが時間切れになった")
+        }
+
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        XCTAssertTrue(view.armedSpineCover?.image === current.image, "最後に撮り直した控えを取り置く")
+    }
+
+    func testLayoutAndThemeChangeDoesNotUseTheOldCover() async throws {
+        let (view, window) = makeCoverReader()
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
+        let initial = try await waitForCover(view)
+
+        var settings = view.settings
+        settings.theme = .dark
+        settings.lineHeightScale = 1.8
+        view.settings = settings
+        XCTAssertNil(view.prefetchedPageCover, "配色と組版を一緒に変えても古い控えはその場で捨てる")
+        let updated = try await waitForCover(view, replacing: initial.image)
+        XCTAssertLessThan(meanLuminance(updated.image), 0.4, "組版後の控えは暗い配色を反映する")
+    }
+
+    func testCoverIsRetakenWhenTheWindowIsVisibleAgain() async throws {
+        let (view, window) = makeCoverReader()
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
+        var current = try await waitForCover(view)
+        for notification in [NSWindow.didChangeOcclusionStateNotification,
+                             NSWindow.didDeminiaturizeNotification] {
+            let old = current
+            view.isWindowOnScreenOverride = false
+            NotificationCenter.default.post(
+                name: NSWindow.didChangeOcclusionStateNotification, object: window)
+            XCTAssertNil(view.prefetchedPageCover, "\(notification.rawValue): 画面外では控えを捨てる")
+
+            view.isWindowOnScreenOverride = true
+            NotificationCenter.default.post(name: notification, object: window)
+            current = try await waitForCover(
+                view, replacing: old.image,
+                message: "\(notification.rawValue): 画面への復帰後の撮り直しが時間切れになった")
+        }
+
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        XCTAssertTrue(view.armedSpineCover?.image === current.image, "画面に戻った後の控えを取り置く")
+    }
+
+    func testFixedLayoutCoverIsRetakenWhenTheViewIsShownAgain() async throws {
+        let publication = try EPUBPublication(
+            data: ZipBuilder.build(EPUBFixtures.fxlComicEntries(), method: 8),
+            displayURL: URL(fileURLWithPath: "/tmp/washi-cover-fxl.epub"))
+        let (view, window) = makeCoverReader()
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        try await openAndSettle(view, publication, delegate: MoveCountingDelegate())
+        let initial = try await waitForCover(view)
+
+        view.isHidden = true
+        XCTAssertNil(view.prefetchedPageCover, "固定レイアウトでも隠すときに控えを捨てる")
+        view.isHidden = false
+        let updated = try await waitForCover(view, replacing: initial.image)
+
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        XCTAssertTrue(view.armedSpineCover?.image === updated.image, "再表示後の固定レイアウトの控えを取り置く")
+    }
+
+    func testSwitchingOffPageTurnAnimationTakesTheCover() async throws {
+        let (view, window) = makeCoverReader(pageTurnStyle: .slide)
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
+        // setup の撮影予約が設定変更後に走ると、修正前でも控えができてしまう。
+        // 既存の差し替え口で目印を置き、演出ありの撮影処理が捨てるまで待つ。
+        view.setPrefetchedPageCoverForTesting(cover(for: view, rect: view.bounds))
+        view.schedulePageCoverPrefetch()
+        let cleared = await waitUntil { view.prefetchedPageCover == nil }
+        XCTAssertTrue(cleared, "演出ありの撮影処理が控えを捨てて完了する")
+        XCTAssertNil(view.prefetchedPageCover, "演出ありの送りでは控えを撮らない")
+
+        view.settings.pageTurnStyle = .none
+        _ = try await waitForCover(view, message: "演出を無効にした後の控えの撮影が時間切れになった")
+    }
 
     /// 撮ったときの表示条件と 1 つでも食い違えば使わない
     func testPrefetchedCoverMatchesOnlyTheSameDisplayConditions() {
