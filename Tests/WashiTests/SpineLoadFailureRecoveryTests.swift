@@ -525,6 +525,49 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         XCTAssertEqual(delegate.failures.count, 1)
     }
 
+    func testSamePathLoadSucceedsAfterWebContentTerminationBeforePolicy() async throws {
+        for flow in ["paginated", "scrolled-continuous"] {
+            let book = try scrollPublication(flow: flow, modes: Array(repeating: "horizontal-tb", count: 3))
+            for terminationCount in [3, 4] {
+                let (view, window, delegate) = reader()
+                defer { close(view, window) }
+                try await open(view, book, delegate)
+                let web = try webView(view)
+                let previousNavigation = try XCTUnwrap(view.currentNavigation)
+                let moves = delegate.moves.count
+                view.isHidden = true
+                var lostURL: URL?
+                // WebKit へ渡さず navigation だけ返し、プロセスと共に消えた policy 待ちを作る。
+                // 実際に load/stopLoading すると、終了通知の注入後にも判定が届いてしまう。
+                view.spineLoadHandler = { request in
+                    lostURL = request.url
+                    return previousNavigation
+                }
+                view.goToBookEnd()
+                let url = try XCTUnwrap(lostURL)
+                let now = Date(timeIntervalSinceReferenceDate: 6_000)
+                for _ in 0..<terminationCount { view.handleWebContentProcessTermination(at: now) }
+                XCTAssertEqual(view.hasPendingWebContentReload, terminationCount == 3)
+                XCTAssertEqual(delegate.failures.count, terminationCount == 4 ? 1 : 0)
+
+                // 自動再構築が延期・抑止された同じ WebView で、同じパスを実際に読み込む。
+                view.spineLoadHandler = { request in
+                    XCTAssertEqual(request.url, url)
+                    return web.load(request)
+                }
+                view.goToBookEnd()
+                view.spineLoadHandler = nil
+                XCTAssertFalse(view.hasPendingWebContentReload)
+                view.isHidden = false
+
+                try await assertRestored(view, delegate, after: moves, to: 2)
+                XCTAssertTrue(try webView(view) === web)
+                XCTAssertEqual(view.webContentReloadAttemptCount, 0)
+                XCTAssertEqual(delegate.failures.count, terminationCount == 4 ? 1 : 0)
+            }
+        }
+    }
+
     func testRejectedEntryPointsDoNotRecordHistory() async throws {
         let book = try publication()
         let (view, window, delegate) = reader()
@@ -592,6 +635,37 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         XCTAssertEqual(delegate.failures.count, failures + 1)
         XCTAssertNil(view.publication)
         XCTAssertFalse(view.canGoBack)
+    }
+
+    func testReentrantBackRejectsEachUnloadableHistoryEntryOnce() async throws {
+        let book = try publication(unrenderable: ["ch1", "ch2"])
+        let (view, window, delegate) = reader()
+        defer { close(view, window) }
+        // 文書をまだ表示していない間に失敗した二つの項目を履歴に積む。
+        view.load(publication: book, at: book.locator(forSpineIndex: 0))
+        view.go(to: book.locator(forSpineIndex: 1))
+        view.go(to: book.locator(forSpineIndex: 2))
+        let shown = await waitUntil { !delegate.moves.isEmpty && (try? self.webView(view).alphaValue) == 1 }
+        guard shown else { return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox") }
+        XCTAssertTrue(view.canGoBack)
+        let failures = delegate.failures.count
+        var historyAvailability: [Bool] = []
+        delegate.onFailure = { reader in
+            historyAvailability.append(reader.canGoBack)
+            if historyAvailability.count == 1 { reader.goBack() }
+        }
+
+        view.goBack()
+
+        XCTAssertEqual(delegate.failures.count, failures + 2)
+        let rejected = delegate.failures.dropFirst(failures).map { String(describing: $0) }
+        XCTAssertTrue(try XCTUnwrap(rejected.first).contains("ch2.xhtml"))
+        XCTAssertTrue(try XCTUnwrap(rejected.last).contains("ch1.xhtml"))
+        XCTAssertEqual(historyAvailability, [true, false], "失敗通知より前に履歴と利用可否を更新する")
+        XCTAssertFalse(view.canGoBack)
+        XCTAssertEqual(view.currentSpineIndex, 2)
+        view.goBack()
+        XCTAssertEqual(delegate.failures.count, failures + 2)
     }
 
     func testRejectedMoveKeepsAnInFlightTextRangeRequest() async throws {
@@ -702,8 +776,8 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
 
     func testAbandonedSpineLoadPoliciesAreCancelledOnce() {
         var gate = SpineNavigationGate()
-        gate.expect("OEBPS/text/ch1.xhtml")
-        gate.expect("OEBPS/text/ch2.xhtml")
+        gate.expect("OEBPS/text/ch1.xhtml", generation: 1)
+        gate.expect("OEBPS/text/ch2.xhtml", generation: 2)
         gate.abandonPendingExpectations()
 
         // 打ち切った全要求の遅配を、文書由来の移動へ戻さず一度ずつ取り消す。
@@ -716,9 +790,9 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
     func testAbandonedSpineLoadPolicyPrecedesExpectedLoadForSamePath() {
         var gate = SpineNavigationGate()
         let path = "OEBPS/text/ch1.xhtml"
-        gate.expect(path)
+        gate.expect(path, generation: 1)
         gate.abandonPendingExpectations()
-        gate.expect(path)
+        gate.expect(path, generation: 2)
 
         // 同じパスの古い読み込みが先に届く。古い要求を許可して新しい復旧を止めない。
         XCTAssertEqual(gate.disposition(for: path, navigationType: .other), .cancelAbandonedLoad)
@@ -731,12 +805,12 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         let origin = "OEBPS/text/ch1.xhtml"
         let first = "OEBPS/text/ch2.xhtml"
         let second = "OEBPS/text/colophon.xhtml"
-        gate.expect(first)
+        gate.expect(first, generation: 1)
         gate.abandonPendingExpectations()
-        gate.expect(origin)  // 最初の復旧。
-        gate.expect(second)  // 利用者の移動が復旧を置き換える。
+        gate.expect(origin, generation: 2)  // 最初の復旧。
+        gate.expect(second, generation: 3)  // 利用者の移動が復旧を置き換える。
         gate.abandonPendingExpectations()
-        gate.expect(origin)  // 同じパスへの二度目の復旧。
+        gate.expect(origin, generation: 4)  // 同じパスへの二度目の復旧。
 
         for path in [first, origin, second] {
             XCTAssertEqual(gate.disposition(for: path, navigationType: .other), .cancelAbandonedLoad)
@@ -744,37 +818,95 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         XCTAssertEqual(gate.disposition(for: origin, navigationType: .other), .allowExpectedLoad)
     }
 
-    func testDroppingAbandonedSpineLoadsKeepsExpectedEntries() {
+    func testSetupCompletionDropsOldExpectationsAndKeepsLaterLoads() {
         var gate = SpineNavigationGate()
-        let stale = "OEBPS/text/ch2.xhtml"
+        let abandoned = "OEBPS/text/ch2.xhtml"
+        let stale = "OEBPS/text/stale.xhtml"
         let shared = "OEBPS/text/ch1.xhtml"
         let expected = "OEBPS/text/colophon.xhtml"
-        gate.expect(stale)
-        gate.expect(shared)
+        gate.expect(abandoned, generation: 1)
         gate.abandonPendingExpectations()
-        gate.expect(shared)
-        gate.expect(expected)
-        gate.dropAbandonedExpectations()
+        gate.expect(stale, generation: 2)
+        gate.expect(shared, generation: 3)
+        // setup の通知から始まった次の移動の期待値は、同じパスでも消さない。
+        gate.expect(shared, generation: 4)
+        gate.expect(expected, generation: 5)
+        gate.dropExpectations(through: 3)
 
+        XCTAssertEqual(gate.disposition(for: abandoned, navigationType: .other), .routeThroughReader)
         XCTAssertEqual(gate.disposition(for: stale, navigationType: .other), .routeThroughReader)
         XCTAssertEqual(gate.disposition(for: shared, navigationType: .other), .allowExpectedLoad)
+        XCTAssertEqual(gate.disposition(for: shared, navigationType: .other), .routeThroughReader)
         XCTAssertEqual(gate.disposition(for: expected, navigationType: .other), .allowExpectedLoad)
+    }
+
+    func testSetupCompletionKeepsLaterAbandonedExpectations() {
+        var gate = SpineNavigationGate()
+        let old = "OEBPS/text/ch1.xhtml"
+        let later = "OEBPS/text/ch2.xhtml"
+        gate.expect(old, generation: 1)
+        gate.expect(later, generation: 2)
+        gate.abandonPendingExpectations()
+        gate.expect(later, generation: 3)
+
+        gate.dropExpectations(through: 1)
+
+        XCTAssertEqual(gate.disposition(for: old, navigationType: .other), .routeThroughReader)
+        XCTAssertEqual(gate.disposition(for: later, navigationType: .other), .cancelAbandonedLoad)
+        XCTAssertEqual(gate.disposition(for: later, navigationType: .other), .allowExpectedLoad)
+    }
+
+    func testTerminatedProcessKeepsQueuedPoliciesCancellableUntilNextLoad() {
+        var gate = SpineNavigationGate()
+        let queued = "OEBPS/text/ch1.xhtml"
+        let lost = "OEBPS/text/ch2.xhtml"
+        gate.expect(queued, generation: 1)
+        gate.expect(lost, generation: 2)
+
+        gate.abandonForProcessTermination()
+
+        // UI プロセスに届いていた判定は、次の読み込みまで取り消せる。
+        XCTAssertEqual(gate.disposition(for: queued, navigationType: .other), .cancelAbandonedLoad)
+        gate.dropTerminatedProcessExpectations()
+        XCTAssertEqual(gate.disposition(for: lost, navigationType: .other), .routeThroughReader)
+        gate.expect(lost, generation: 3)
+        XCTAssertEqual(gate.disposition(for: lost, navigationType: .other), .allowExpectedLoad)
+    }
+
+    func testTerminatedProcessPurgeKeepsNewerLoadsAfterPoliciesAreConsumed() {
+        var gate = SpineNavigationGate()
+        let shared = "OEBPS/text/ch1.xhtml"
+        let queued = "OEBPS/text/ch2.xhtml"
+        gate.expect(shared, generation: 1)
+        gate.expect(queued, generation: 2)
+        gate.abandonForProcessTermination()
+        gate.expect(shared, generation: 3)
+        XCTAssertEqual(gate.disposition(for: queued, navigationType: .other), .cancelAbandonedLoad)
+
+        // 途中で古い期待値が消費されても、件数で後の読み込みまで消してはいけない。
+        gate.dropTerminatedProcessExpectations()
+        XCTAssertEqual(gate.disposition(for: shared, navigationType: .other), .allowExpectedLoad)
+        XCTAssertEqual(gate.disposition(for: shared, navigationType: .other), .routeThroughReader)
+        gate.expect(shared, generation: 4)
+        gate.abandonPendingExpectations()
+        gate.dropTerminatedProcessExpectations()
+        XCTAssertEqual(gate.disposition(for: shared, navigationType: .other), .cancelAbandonedLoad)
     }
 
     func testCancellingExpectedSpineLoadKeepsAbandonedEntries() {
         var gate = SpineNavigationGate()
         let path = "OEBPS/text/ch1.xhtml"
-        gate.expect(path)
+        gate.expect(path, generation: 1)
         gate.abandonPendingExpectations()
-        gate.expect(path)
-        gate.expect(path)
+        gate.expect(path, generation: 2)
+        gate.expect(path, generation: 3)
         gate.cancelExpectation(for: path)
 
         XCTAssertEqual(gate.disposition(for: path, navigationType: .other), .cancelAbandonedLoad)
         XCTAssertEqual(gate.disposition(for: path, navigationType: .other), .allowExpectedLoad)
         XCTAssertEqual(gate.disposition(for: path, navigationType: .other), .routeThroughReader)
 
-        gate.expect(path)
+        gate.expect(path, generation: 4)
         gate.abandonPendingExpectations()
         gate.cancelExpectation(for: path)
         XCTAssertEqual(gate.disposition(for: path, navigationType: .other), .cancelAbandonedLoad)
@@ -784,9 +916,9 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         var gate = SpineNavigationGate()
         let abandoned = "OEBPS/text/ch2.xhtml"
         let recovery = "OEBPS/text/ch1.xhtml"
-        gate.expect(abandoned)
+        gate.expect(abandoned, generation: 1)
         gate.abandonPendingExpectations()
-        gate.expect(recovery)
+        gate.expect(recovery, generation: 2)
 
         XCTAssertEqual(gate.disposition(for: "OEBPS/text/other.xhtml", navigationType: .other),
                        .routeThroughReader)

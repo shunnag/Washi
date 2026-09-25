@@ -13,10 +13,11 @@ enum SpineNavigationDisposition: Equatable {
 struct SpineNavigationGate {
     // WebKit は stopLoading() で止めた読み込みも含めて発行順に policy 判定を届ける。
     // 同じパスの古い取消待ちと新しい期待値も、その順序を保って照合する。
-    private var entries: [(path: String, isAbandoned: Bool)] = []
+    private var entries: [(path: String, generation: Int, isAbandoned: Bool)] = []
+    private var terminatedProcessGeneration: Int?
 
-    mutating func expect(_ path: String) {
-        entries.append((path, false))
+    mutating func expect(_ path: String, generation: Int) {
+        entries.append((path, generation, false))
     }
 
     mutating func cancelExpectation(for path: String) {
@@ -31,10 +32,25 @@ struct SpineNavigationGate {
         for index in entries.indices { entries[index].isAbandoned = true }
     }
 
-    /// 新文書の setup 完了時には先行する policy 判定が済んでいる。通知が来ずに
-    /// 残った取消待ちを捨て、後の同じパスの読み込みを誤って止めない。
-    mutating func dropAbandonedExpectations() {
-        entries.removeAll { $0.isAbandoned }
+    /// setup を終えた世代以前に policy 待ちは残らない。取消の有無を問わず除去し、
+    /// 通知からの再入で始まった後の世代の期待値は残す。
+    mutating func dropExpectations(through generation: Int) {
+        entries.removeAll { $0.generation <= generation }
+    }
+
+    /// 終了直前の policy 判定が UI プロセスに届き、MainActor の実行待ちの場合が
+    /// あるため、ここでは除去せず取り消せる形で残す。
+    mutating func abandonForProcessTermination() {
+        abandonPendingExpectations()
+        terminatedProcessGeneration = entries.map { $0.generation }.max()
+    }
+
+    /// 次の読み込みでは、終了したプロセスからもう届かない期待値を除去する。
+    /// 同じパスの新しい読み込みを古い取消待ちに対応させない。
+    mutating func dropTerminatedProcessExpectations() {
+        guard let generation = terminatedProcessGeneration else { return }
+        dropExpectations(through: generation)
+        terminatedProcessGeneration = nil
     }
 
     mutating func disposition(for path: String,
@@ -1572,6 +1588,7 @@ public final class EPUBReaderView: NSView {
         guard request == navigationRequestGeneration,
               previousGeneration == spineLoadGeneration,
               webView === self.webView else { return }
+        spineNavigationGate.dropTerminatedProcessExpectations()
         if isShowingSetUpDocument { settledLocator = currentLocator }
         isShowingSetUpDocument = false
         isRecoveryLoad = isRecovery
@@ -1650,7 +1667,7 @@ public final class EPUBReaderView: NSView {
         guard let url else { return }  // URL が無い場合は上の失敗判定で処理済み。
         // 透明にするのは didCommit(それまでは前のページが見えている)
         let navigationPath = schemeHandler.containerPath(for: url) ?? entry.resolvedContainerPath
-        spineNavigationGate.expect(navigationPath)
+        spineNavigationGate.expect(navigationPath, generation: spineLoadGeneration)
         let urlRequest = URLRequest(url: url)
         let navigation: WKNavigation?
         if let spineLoadHandler {
@@ -2199,17 +2216,14 @@ public final class EPUBReaderView: NSView {
     /// no navigation history is available. An entry that cannot be displayed
     /// is removed from the history and the load failure is reported.
     public func goBack() {
-        guard let locator = navigationHistory.last else { return }
-        let request = navigationRequestGeneration
+        // 通知から再び goBack されても、同じ項目を二度取り出さない。
+        guard let locator = navigationHistory.popLast() else { return }
         if let resolved = publication?.resolve(locator),
-           rejectsUnloadableNavigation(to: resolved.spineIndex) {
-            // 失敗通知から本を閉じたり移動した場合、その後の履歴を取り除かない。
-            guard request == navigationRequestGeneration else { return }
-            navigationHistory.removeLast()
+           webView?.url != nil, let failure = spineLoadFailure(at: resolved.spineIndex) {
             updateCanGoBack()
+            reportRejectedNavigation(failure)
             return
         }
-        navigationHistory.removeLast()
         // cooViewer-oxr.31: 戻る移動そのものは新しい履歴として積まない。
         navigate(to: locator, recordsHistory: false)
         updateCanGoBack()
@@ -2845,7 +2859,7 @@ public final class EPUBReaderView: NSView {
             // (Range は文書に紐づくので、再ページ割りでも作り直す必要がある)
             applyHighlights()
             if !preserveProgression {
-                spineNavigationGate.dropAbandonedExpectations()
+                spineNavigationGate.dropExpectations(through: generation)
                 // フレーム待ち中に次の移動が始まっても、この文書を復旧先にする。
                 isShowingSetUpDocument = true
                 settledLocator = nil
@@ -4349,6 +4363,7 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
 
     /// cooViewer-oxr.47: 時刻注入可能な本体を分け、60 秒窓を sleep なしで検証する。
     func handleWebContentProcessTermination(at now: Date = Date()) {
+        spineNavigationGate.abandonForProcessTermination()
         // プロセスと一緒に前の文書も失われるため、通常の読み込み失敗の復旧先にしない。
         settledLocator = nil
         isShowingSetUpDocument = false

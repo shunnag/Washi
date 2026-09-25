@@ -238,7 +238,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
     /// 記録した loadSpineItem 自身の .other は一度だけ通す
     func testUnexpectedOtherNavigationRoutesWithoutConsumingExpectedLoad() {
         var gate = SpineNavigationGate()
-        gate.expect("OEBPS/text/ch1.xhtml")
+        gate.expect("OEBPS/text/ch1.xhtml", generation: 1)
         XCTAssertEqual(
             gate.disposition(
                 for: "OEBPS/text/ch1.xhtml", navigationType: .linkActivated),
@@ -258,8 +258,8 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
     /// 文書内遷移と誤認しない
     func testCompetingExpectedSpineLoadsAreBothAllowed() {
         var gate = SpineNavigationGate()
-        gate.expect("OEBPS/text/ch1.xhtml")
-        gate.expect("OEBPS/text/ch2.xhtml")
+        gate.expect("OEBPS/text/ch1.xhtml", generation: 1)
+        gate.expect("OEBPS/text/ch2.xhtml", generation: 2)
         XCTAssertEqual(
             gate.disposition(for: "OEBPS/text/ch1.xhtml", navigationType: .other),
             .allowExpectedLoad)
