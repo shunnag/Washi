@@ -13,11 +13,12 @@ WASHI_CORPUS_DIR="$PWD/.build/epub-corpus" swift test --filter CorpusSmokeTests
 
 The downloader verifies existing files as well as new downloads. The W3C site
 rebuilds its EPUB files on every deployment, which changes ZIP metadata such as
-timestamps (and therefore the SHA-256) without changing the publications. The
-content digest covers each entry's order, name, compression method, and bytes,
-but not timestamps or other metadata. A file whose SHA-256 differs but whose
-content digest matches is accepted and reported in a note; update its `sha256`
-when convenient. Any other change fails the check; review the upstream change
+timestamps and can also reorder entries. These changes affect the SHA-256
+without changing the publications. The content digest covers entry order, name,
+compression method, and bytes, but not timestamps or other metadata. A file whose
+SHA-256 differs but whose content digest matches is accepted and reported in a
+note; update its `sha256` when convenient. Any other change, including a reordering
+of entries, fails the check and requires review of the upstream change
 before updating the manifest. No account, third-party Python package, or
 application dependency is needed. The default destination is ignored by git.
 
