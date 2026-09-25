@@ -159,7 +159,16 @@ public final class EPUBReaderView: NSView {
                 schedulePagination(preserveProgression: true)
             } else {
                 // 配色・めくり演出・柱の表示などはページ割りを保ったまま反映
-                applyThemeCSSOnly()
+                let appearanceChanged = oldValue.composedUserCSS(
+                    isDark: isDark(for: oldValue.theme),
+                    increaseContrast: shouldIncreaseContrast,
+                    differentiateWithoutColor: shouldDifferentiateWithoutColor)
+                    != settings.composedUserCSS(
+                        isDark: isDark(for: settings.theme),
+                        increaseContrast: shouldIncreaseContrast,
+                        differentiateWithoutColor: shouldDifferentiateWithoutColor)
+                // 配色の CSS が変わらない設定(キー操作・読み上げの通知・柱の表示など)では控えを捨てない。
+                applyThemeCSSOnly(retakesCover: appearanceChanged)
                 updateFurniture()
             }
         }
@@ -580,7 +589,11 @@ public final class EPUBReaderView: NSView {
 
     /// 実効ダークか(theme=system はビューの実効外観に追従)
     private var isDarkEffective: Bool {
-        switch settings.theme {
+        isDark(for: settings.theme)
+    }
+
+    private func isDark(for theme: EPUBReaderTheme) -> Bool {
+        switch theme {
         case .light: return false
         case .dark: return true
         case .system:
@@ -619,7 +632,7 @@ public final class EPUBReaderView: NSView {
     }
 
     /// ページ側(Web コンテンツ)へ配色 CSS だけを差し替える(再ページ割りなし)
-    private func applyThemeCSSOnly() {
+    private func applyThemeCSSOnly(retakesCover: Bool = true) {
         guard let webView else { return }
         let css = settings.composedUserCSS(
             isDark: isDarkEffective,
@@ -629,7 +642,11 @@ public final class EPUBReaderView: NSView {
         webView.callAsyncJavaScript(
             "return __washi.setUserCSS(css);", arguments: ["css": css],
             in: nil, in: Self.washiWorld, completionHandler: nil)
-        retakePageCoverAfterRestyle()
+        if retakesCover {
+            retakePageCoverAfterRestyle()
+        } else if prefetchedPageCover == nil {
+            schedulePageCoverPrefetchAfterFrames()
+        }
     }
 
     /// cooViewer-oxr.27: opt-in 時だけシステムのダブルクリック間隔を JS へ渡す。
@@ -1664,21 +1681,27 @@ public final class EPUBReaderView: NSView {
         didSet {
             guard highlights != oldValue else { return }
             applyHighlights()
-            // ハイライトも控えに写る。runSetup・pageChanged からの applyHighlights は
-            // 直後に撮り直しを予約するので、ホストの変更のここでだけ撮り直す。
-            retakePageCoverAfterRestyle()
+            // 現在の項目に描くハイライトが変わったときだけ撮り直す。撮り直すまでは前の控えを残す
+            // (控えなしで地色が見えるより害が小さい。検索の例のように別の章のハイライトを
+            // 設定してすぐ移動しても控えを使える)。
+            if highlightsOnCurrentItem(oldValue) != highlightsOnCurrentItem(highlights) {
+                schedulePageCoverPrefetchAfterFrames()
+            }
         }
+    }
+
+    private func highlightsOnCurrentItem(_ list: [EPUBHighlight]) -> [EPUBHighlight] {
+        let idref = publication?.readingOrder.indices.contains(currentSpineIndex) == true
+            ? publication?.readingOrder[currentSpineIndex].itemRef.idref : nil
+        return list.filter { $0.spineIndex == currentSpineIndex
+            || ($0.idref != nil && $0.idref == idref) }
     }
 
     /// 現在表示している項目のハイライトを描画する。ハイライトの変更時と、
     /// spine の読み込み・再ページ割りの完了後に呼び出す。
     func applyHighlights() {
         guard webView != nil, !isLoadingSpineItem else { return }
-        let idref = publication?.readingOrder.indices.contains(currentSpineIndex) == true
-            ? publication?.readingOrder[currentSpineIndex].itemRef.idref : nil
-        let payload = highlights
-            .filter { $0.spineIndex == currentSpineIndex
-                || ($0.idref != nil && $0.idref == idref) }
+        let payload = highlightsOnCurrentItem(highlights)
             .map { ["offset": $0.utf16Offset, "length": $0.utf16Length,
                     "style": $0.style.rawValue] as [String: Any] }
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
