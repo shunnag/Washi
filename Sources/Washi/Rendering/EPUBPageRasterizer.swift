@@ -27,8 +27,18 @@ public final class EPUBPageRasterizer {
     private let publication: EPUBPublication
     private let schemeHandler: EPUBSchemeHandler
     private let allowsScriptedContent: Bool
-    private var window: NSWindow?
+    // Washi-cfm: テストから画面外ウインドウの寿命を弱参照で観測する。
+    private(set) var window: NSWindow?
     private(set) var webView: WKWebView?
+    // Washi-cfm: 描画中の停止箇所を調べる時刻だけを残し、WebView は保持しない。
+    struct RenderTrace {
+        var prepared: ContinuousClock.Instant?
+        var didFinish: ContinuousClock.Instant?
+        var readinessEnd: ContinuousClock.Instant?
+        var snapshotEnd: ContinuousClock.Instant?
+        var readinessTimedOut: Bool?
+    }
+    private(set) var lastRenderTrace = RenderTrace()
     // navigationDelegate は弱参照なので、描画完了後も保持して外部遷移を遮断する。
     private var pendingNavigationWaiter: NavigationWaiter?
     /// cooViewer-oxr.68: 所有するサムネイルレンダラのアイドル診断用。
@@ -189,6 +199,7 @@ public final class EPUBPageRasterizer {
         // 作り直さない(畳んだはずのウインドウ/プロセスを復活させない)
         try Task.checkCancellation()
         guard !isInvalidated else { throw RasterizeError.loadFailed }
+        lastRenderTrace = RenderTrace()
         guard publication.readingOrder.indices.contains(index) else {
             throw EPUBError.resourceNotFound("spine index \(index)")
         }
@@ -220,6 +231,7 @@ public final class EPUBPageRasterizer {
 
         let webView = prepareWebView(size: frameSize)
         webView.pageZoom = zoom
+        lastRenderTrace.prepared = .now
 
         let entry = publication.readingOrder[index]
         guard let url = schemeHandler.url(
@@ -234,6 +246,7 @@ public final class EPUBPageRasterizer {
         configuration.afterScreenUpdates = true
         let image = try await takeOffscreenSnapshot(
             webView: webView, configuration: configuration)
+        lastRenderTrace.snapshotEnd = .now
         try Task.checkCancellation()
         guard !isInvalidated else { throw RasterizeError.loadFailed }
         return image
@@ -280,19 +293,23 @@ public final class EPUBPageRasterizer {
             }
             throw error
         }
+        lastRenderTrace.didFinish = .now
         // didFinish 直後はフォント・画像のデコードが残っていることがある。
         // cooViewer-oxr.2: 一度も表示しないウインドウでは rAF が発火しないため
         // 待ってはいけない。フォントと画像デコードを有界に待ち、描画の確定は
         // takeSnapshot(afterScreenUpdates: true)に任せる
-        await waitForPostLoadReadiness(webView: webView)
+        let readinessReplied = await waitForPostLoadReadiness(webView: webView)
+        lastRenderTrace.readinessEnd = .now
+        lastRenderTrace.readinessTimedOut = !readinessReplied
         try Task.checkCancellation()
     }
 
+    @discardableResult
     func waitForPostLoadReadiness(webView: WKWebView,
-                                  timeout: Duration = .seconds(5)) async {
+                                  timeout: Duration = .seconds(5)) async -> Bool {
         // 呼び出し元の描画ジョブは userInitiated。キャンセル非対応の
         // async 版で WebView を保持せず、期限後は応答の有無によらず解放する。
-        let _: Bool? = await waitForOffscreenResult(timeout: timeout) { completion in
+        let result: Bool? = await waitForOffscreenResult(timeout: timeout) { completion in
             webView.callAsyncJavaScript(
                 """
                 const work = (async () => {
@@ -311,6 +328,8 @@ public final class EPUBPageRasterizer {
                     completion(true)
                 }
         }
+        // Washi-cfm: JS の結果ではなく、期限内に完了通知が届いたかを診断へ渡す。
+        return result != nil
     }
 }
 

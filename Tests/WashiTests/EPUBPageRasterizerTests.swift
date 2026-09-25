@@ -91,7 +91,14 @@ final class EPUBPageRasterizerTests: XCTestCase {
     /// JS と JS 側タイマーが応答しなくても、Swift の期限後に戻った処理が
     /// WebView を保持し続けないこと。テスト後は残った Promise も解決する。
     func testReadinessTimeoutDoesNotRetainWebView() async throws {
+        let testStart = ContinuousClock.now
         let views = NSHashTable<WKWebView>.weakObjects()
+        let windows = NSHashTable<NSWindow>.weakObjects()
+        var renderDone: ContinuousClock.Instant?
+        var jsInstallDone: ContinuousClock.Instant?
+        var readinessDone: ContinuousClock.Instant?
+        var invalidateDone: ContinuousClock.Instant?
+        var renderTrace = EPUBPageRasterizer.RenderTrace()
         defer {
             for view in views.allObjects {
                 view.callAsyncJavaScript(
@@ -105,14 +112,20 @@ final class EPUBPageRasterizerTests: XCTestCase {
                 data: ZipBuilder.build(Self.complexFixedLayoutEntries(), method: 8),
                 displayURL: URL(fileURLWithPath: "/tmp/washi-rasterizer-readiness.epub"))
             let rasterizer = EPUBPageRasterizer(publication: publication)
-            defer { rasterizer.invalidate() }
+            defer {
+                rasterizer.invalidate()
+                invalidateDone = .now
+            }
             do {
                 _ = try await rasterizer.renderPage(atSpineIndex: 0, maxPixelSize: 120)
             } catch {
                 return try failOrSkipWebKitTest("WKWebView による初期描画を実行できません: \(error)")
             }
+            renderDone = .now
+            renderTrace = rasterizer.lastRenderTrace
             let view = try XCTUnwrap(rasterizer.webView)
             views.add(view)
+            if let window = rasterizer.window { windows.add(window) }
             _ = try await view.callAsyncJavaScript(
                 """
                 const pending = new Promise(resolve => {
@@ -123,24 +136,171 @@ final class EPUBPageRasterizerTests: XCTestCase {
                 return true;
                 """,
                 arguments: [:], in: nil, contentWorld: .defaultClient)
+            jsInstallDone = .now
             await rasterizer.waitForPostLoadReadiness(
                 webView: view, timeout: .milliseconds(20))
+            readinessDone = .now
         }
 
         try await exerciseTimeout()
-        // 保持の不具合なら Promise を解決するまで解放されない。負荷の高い CI では
-        // 解放そのものが 2 秒を超えることがある(Washi-cfm: 10 秒かかった回で失敗)ので、
-        // 10 秒まで待ち、2 秒を超えたら遅い解放として経過時間を記録する
+        // Washi-cfm: 従来の 10 秒の判定を保存し、追加の診断で解放されても成功にしない。
         let start = ContinuousClock.now
+        var releasePollCount = 0
         for _ in 0..<500 {
             if autoreleasepool(invoking: { views.allObjects.isEmpty }) { break }
             try await Task.sleep(for: .milliseconds(20))
+            releasePollCount += 1
         }
-        let elapsed = ContinuousClock.now - start
-        if views.allObjects.isEmpty, elapsed > .seconds(2) {
-            print("[Washi-cfm] WebView released after \(elapsed)")
+        let releaseDone = ContinuousClock.now
+        let elapsed = releaseDone - start
+        let releasedWithinTenSeconds = autoreleasepool(invoking: { views.allObjects.isEmpty })
+        if releaseDone - testStart > .seconds(1) || elapsed > .milliseconds(500)
+            || !releasedWithinTenSeconds {
+            func duration(from start: ContinuousClock.Instant?,
+                          to end: ContinuousClock.Instant?) -> String {
+                guard let start, let end else { return "unavailable" }
+                return "\(end - start)"
+            }
+            func relative(_ instant: ContinuousClock.Instant?) -> String {
+                duration(from: testStart, to: instant)
+            }
+            var lines = [
+                "readiness timeout diagnostics",
+                "OS: \(ProcessInfo.processInfo.operatingSystemVersionString)",
+                "total through release poll: \(releaseDone - testStart)",
+                "render: \(duration(from: testStart, to: renderDone)); done at +\(relative(renderDone))",
+                "JS install: \(duration(from: renderDone, to: jsInstallDone)); done at +\(relative(jsInstallDone))",
+                "readiness: \(duration(from: jsInstallDone, to: readinessDone)); done at +\(relative(readinessDone))",
+                "invalidate: \(duration(from: readinessDone, to: invalidateDone)); done at +\(relative(invalidateDone))",
+                "render trace (+test start):",
+                "  prepared: \(relative(renderTrace.prepared))",
+                "  didFinish: \(relative(renderTrace.didFinish))",
+                "  readinessEnd: \(relative(renderTrace.readinessEnd))",
+                "  snapshotEnd: \(relative(renderTrace.snapshotEnd))",
+                "  readinessTimedOut: \(renderTrace.readinessTimedOut.map { String($0) } ?? "unavailable")",
+                "release: \(elapsed); polls: \(releasePollCount); released within 10 s: \(releasedWithinTenSeconds)",
+                "offscreen window alive: \(autoreleasepool { !windows.allObjects.isEmpty })",
+            ]
+            if !releasedWithinTenSeconds {
+                // Washi-cfm: 生存確認とログ取得の間も弱参照だけで 20 ms ごとに観測する。
+                let lateRelease = Task { @MainActor in
+                    while ContinuousClock.now - start < .seconds(30) {
+                        if autoreleasepool(invoking: { views.allObjects.isEmpty }) {
+                            return "released at \(ContinuousClock.now - start)"
+                        }
+                        do {
+                            try await Task.sleep(for: .milliseconds(20))
+                        } catch {
+                            return "release observation cancelled: \(error)"
+                        }
+                    }
+                    return autoreleasepool { views.allObjects.isEmpty }
+                        ? "released at \(ContinuousClock.now - start)" : "alive at 30 s"
+                }
+                lines += await Self.readinessTimeoutViewDiagnostics(views)
+                lines += await Self.recentWebKitLogDiagnostics()
+                lines.append(await lateRelease.value)
+            }
+            print(lines.map { "[Washi-cfm] \($0)" }.joined(separator: "\n"))
         }
-        XCTAssertTrue(views.allObjects.isEmpty, "期限切れの JS 待機が WebView を保持している")
+        XCTAssertTrue(releasedWithinTenSeconds, "期限切れの JS 待機が WebView を保持している")
+    }
+
+    func testResizeSnapshotHoldProbe() {
+        // Washi-cfm: 私的 API はテストの診断だけで使い、製品コードでは使わない。
+        let window = NSWindow(
+            contentRect: NSRect(x: -20000, y: -20000, width: 100, height: 100),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let selector = NSSelectorFromString("_holdResizeSnapshotWithReason:")
+        let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
+        guard window.responds(to: selector) else {
+            print("[Washi-cfm] resize-snapshot hold: unavailable (\(osVersion))")
+            return
+        }
+        if let result = window.perform(selector, with: "washi-probe" as NSString) {
+            print("[Washi-cfm] resize-snapshot hold: non-nil (\(osVersion))")
+            let object = result.takeUnretainedValue()
+            let releaseHold = unsafeBitCast(object, to: (@convention(block) () -> Void).self)
+            releaseHold()
+        } else {
+            print("[Washi-cfm] resize-snapshot hold: nil (\(osVersion))")
+        }
+    }
+
+    // Washi-cfm: 強参照は JS の送信中だけに限定し、応答待ちや解放観測へ持ち越さない。
+    private static func readinessTimeoutViewDiagnostics(_ views: NSHashTable<WKWebView>) async
+        -> [String] {
+        var attachment: String?
+        let replied: Bool? = await waitForOffscreenResult(timeout: .seconds(1)) { completion in
+            autoreleasepool {
+                guard let view = views.allObjects.first else {
+                    completion(false)
+                    return
+                }
+                attachment = "view.window == nil: \(view.window == nil); view.superview == nil: \(view.superview == nil)"
+                view.evaluateJavaScript("1") { _, _ in completion(true) }
+            }
+        }
+        guard let attachment else {
+            return ["WebView released before liveness probe"]
+        }
+        return [attachment, "WebView liveness: \(replied == true ? "replied" : "no reply")"]
+    }
+
+    // Washi-cfm: 失敗時だけログを集める。読み取りでメインアクターや子プロセスを塞がない。
+    private static func recentWebKitLogDiagnostics() async -> [String] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/log")
+        process.arguments = [
+            "show", "--last", "60s", "--style", "compact", "--predicate",
+            "processID == \(getpid()) AND subsystem == \"com.apple.WebKit\"",
+        ]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+        } catch {
+            return ["WebKit log: launch failed: \(error)"]
+        }
+        let result: Result<(status: Int32, output: String), any Error>? =
+            await waitForOffscreenResult(timeout: .seconds(10)) { completion in
+                DispatchQueue.global(qos: .utility).async {
+                    defer { try? pipe.fileHandleForReading.close() }
+                    do {
+                        let data = try pipe.fileHandleForReading.readToEnd() ?? Data()
+                        process.waitUntilExit()
+                        let output = String(decoding: data, as: UTF8.self)
+                        let status = process.terminationStatus
+                        Task { @MainActor in completion(.success((status, output))) }
+                    } catch {
+                        Task { @MainActor in completion(.failure(error)) }
+                    }
+                }
+            }
+        guard let result else {
+            if process.isRunning { process.terminate() }
+            return ["WebKit log: no completion within 10 s (or cancelled); termination requested"]
+        }
+        switch result {
+        case let .failure(error):
+            if process.isRunning { process.terminate() }
+            return ["WebKit log: read failed: \(error)"]
+        case let .success((status, output)):
+            var lines = ["WebKit log (last 60 s, at most 150 matching lines):"]
+            if status != 0 {
+                let reason = output.split(whereSeparator: \.isNewline).first ?? "no output"
+                lines.append("log show exited with status \(status): \(reason)")
+            }
+            let pattern = "resize snapshot|WebPageProxy::close|WebPageProxy::destructor|nresponsive|isViewVisible|ProcessThrottler::setThrottleState"
+            let matches = output.split(whereSeparator: \.isNewline).lazy.filter {
+                $0.range(of: pattern, options: .regularExpression) != nil
+            }.prefix(150)
+            lines += matches.isEmpty ? ["no matching lines"] : matches.map(String.init)
+            return lines
+        }
     }
 
     private func assertRasterizedPage(publication: EPUBPublication,
