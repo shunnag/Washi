@@ -199,6 +199,8 @@ extension EPUBReaderView {
     }
 
     /// 連続再生で次の項目へ移動する(先頭から表示)
+    /// 表示不能な章への移動は拒否する。現在項目が変わらないことを既存の
+    /// コントローラが検出し、表示と同期できない再生を終了する(Washi-k0x)。
     func navigateForMediaOverlay(toSpineIndex index: Int) {
         guard let publication,
               publication.readingOrder.indices.contains(index) else { return }

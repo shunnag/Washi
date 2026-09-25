@@ -425,9 +425,10 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         XCTAssertNil(cover.superview)
     }
 
-    /// 解決後の fallback が未対応・欠落なら、WebKit の応答を待たず通知する。
-    /// 正規化された XHTML と実在する画像 fallback は従来どおり受理する。
-    func testUnrenderableSpineFallbackReportsFailureBeforeNavigation() throws {
+    /// 解決後の fallback が未対応・欠落なら、状態変更前の判定 spineLoadFailure が
+    /// 失敗理由を返す。正規化された XHTML と実在する画像 fallback は受理する。
+    /// 通知と拒否は SpineLoadFailureRecoveryTests で確かめる。
+    func testUnrenderableSpineFallbackIsClassifiedAsLoadFailure() throws {
         for (mediaType, exists, renderable) in [
             ("image/psd", true, false),
             ("application/xhtml+xml", false, false),
@@ -449,19 +450,14 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
                 data: ZipBuilder.build(entries),
                 displayURL: URL(fileURLWithPath: "/tmp/unrenderable-fallback.epub"))
             let entry = publication.readingOrder[0]
-            let view = EPUBReaderView(frame: .zero)
-            view.preparePublication(publication)
-            let delegate = ReaderViewDelegateSpy()
-            view.delegate = delegate
-
             XCTAssertEqual(EPUBReaderView.canRenderSpineResource(entry, in: publication), renderable)
-            XCTAssertEqual(view.validateSpineResource(entry, in: publication), renderable)
-            XCTAssertEqual(delegate.failures.count, renderable ? 0 : 1)
+            // 状態を変える前に使う判定なので、通知ではなく失敗理由を直接確かめる。
+            let failure = EPUBReaderView.spineLoadFailure(
+                entry, in: publication, url: URL(string: "washi-epub://test/fallback"))
+            XCTAssertEqual(failure == nil, renderable)
             if !renderable {
-                XCTAssertTrue(String(describing: delegate.failures[0]).contains("no renderable fallback"))
+                XCTAssertTrue(String(describing: try XCTUnwrap(failure)).contains("no renderable fallback"))
             }
-            XCTAssertFalse(view.subviews.contains { $0 is WKWebView })
-            view.unload()
         }
     }
 

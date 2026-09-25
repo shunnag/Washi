@@ -380,65 +380,75 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertTrue(labels.allSatisfy(\.isHidden))
     }
 
-    /// 表示できない項目への移動に失敗したら、現在の状態でノンブルを出し直す
+    /// 表示できない項目への移動を拒否したら、移動前のノンブルをそのまま保つ。
     func testPageNumbersReturnWhenTheNextItemCannotBeDisplayed() async throws {
         let publication = try makePublicationWithUnrenderableSecondItem()
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        view.accessibilityReduceMotionOverride = false
-        let window = makeWindow(containing: view)
+        let (view, window) = makeChainReader()
         defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
         let labels = view.subviews.compactMap { $0 as? NSTextField }
         XCTAssertTrue(labels.contains { !$0.isHidden }, "ノンブルが見えている前提")
+        let previousLabels = labels.filter { !$0.isHidden }.map(\.stringValue)
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
         XCTAssertEqual(delegate.failures.count, 1)
         XCTAssertEqual(try webView(of: view).alphaValue, 1)
-        // 失敗後も失敗した項目を指す既存の状態を前提として確かめる
-        XCTAssertEqual(view.currentSpineIndex, 1)
-        // 現在の状態（失敗した項目の先頭）と一致する
-        XCTAssertEqual(labels.filter { !$0.isHidden }.map(\.stringValue), ["1"])
+        // 拒否では位置もノンブルも移動前のまま保つ。
+        XCTAssertEqual(view.currentSpineIndex, 0)
+        XCTAssertEqual(labels.filter { !$0.isHidden }.map(\.stringValue), previousLabels)
     }
 
-    /// 読み込みの失敗後に、現在の状態でノンブルを出し直す
+    /// 読み込みの失敗後は移動元を読み込み直し、その表示とノンブルを戻す。
     func testPageNumbersReturnWhenLoadingTheNextItemFails() async throws {
         let publication = try makePublication()
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        view.accessibilityReduceMotionOverride = false
-        let window = makeWindow(containing: view)
+        let (view, window) = makeChainReader()
         defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
         let labels = view.subviews.compactMap { $0 as? NSTextField }
         XCTAssertTrue(labels.contains { !$0.isHidden }, "ノンブルが見えている前提")
+        let previousLabels = labels.filter { !$0.isHidden }.map(\.stringValue)
+        let previousMoves = delegate.moves
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
         XCTAssertTrue(labels.allSatisfy(\.isHidden))
         view.handleNavigationFailure(
             NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotDecodeContentData),
             hasNavigation: true)
         XCTAssertEqual(delegate.failures.count, 1)
-        // 現在の状態（失敗した項目の先頭）と一致する
-        XCTAssertEqual(labels.filter { !$0.isHidden }.map(\.stringValue), ["1"])
+        XCTAssertEqual(view.currentSpineIndex, 0)
+        XCTAssertTrue(labels.allSatisfy(\.isHidden), "読み込み直しの間は隠す")
+        let restored = await waitUntil {
+            delegate.moves > previousMoves && (try? self.webView(of: view).alphaValue) == 1
+                && view.pendingSpineTurn == nil
+        }
+        XCTAssertTrue(restored)
+        XCTAssertEqual(labels.filter { !$0.isHidden }.map(\.stringValue), previousLabels)
     }
 
-    /// 境界めくりに失敗したら、持ち越しカバーを畳んでノンブルを出し直す
+    /// 境界めくりは表示不能な項目を飛ばし、次の項目の表示後にノンブルを出す。
     func testPageNumbersReturnWhenABoundaryTurnCannotBeDisplayed() async throws {
         let publication = try makePublicationWithUnrenderableSecondItem()
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        view.accessibilityReduceMotionOverride = false
-        let window = makeWindow(containing: view)
+        let (view, window) = makeChainReader()
         defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
         let labels = view.subviews.compactMap { $0 as? NSTextField }
         XCTAssertTrue(labels.contains { !$0.isHidden }, "ノンブルが見えている前提")
-        view.installTurnCover(NSImageView(image: NSImage(size: view.bounds.size)), pending: true)
+        let cover = NSImageView(image: NSImage(size: view.bounds.size))
+        view.installTurnCover(cover, pending: true)
+        let previousMoves = delegate.moves
         view.handleScriptMessage(["type": "boundary", "forward": true])
-        XCTAssertEqual(delegate.failures.count, 1)
-        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertEqual(delegate.failures.count, 0)
+        XCTAssertEqual(view.currentSpineIndex, 2)
+        XCTAssertTrue(view.pendingSpineTurn?.cover === cover)
+        XCTAssertTrue(labels.allSatisfy(\.isHidden))
+        let restored = await waitUntil {
+            delegate.moves > previousMoves && (try? self.webView(of: view).alphaValue) == 1
+                && view.turnOverlays.isEmpty
+        }
+        XCTAssertTrue(restored)
         XCTAssertTrue(view.turnOverlays.isEmpty)
-        // 現在の状態（失敗した項目の先頭）と一致する
-        XCTAssertEqual(labels.filter { !$0.isHidden }.map(\.stringValue), ["1"])
+        XCTAssertTrue(labels.contains { !$0.isHidden })
     }
 
     // MARK: - 控えのカバー
@@ -1056,7 +1066,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         }
     }
 
-    func testFailureInAChainDropsTheKeptCover() async throws {
+    func testFailureInAChainKeepsTheCoverUntilRecoveryFinishes() async throws {
         let (view, window) = makeChainReader()
         defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
         let delegate = MoveCountingDelegate()
@@ -1064,18 +1074,27 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         let web = try webView(of: view)
         let prepared = cover(for: view, rect: web.frame,
                              spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
-
+        let previousMoves = delegate.moves
         view.setPrefetchedPageCoverForTesting(prepared)
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
         view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
         view.handleNavigationFailure(
             NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotDecodeContentData),
             hasNavigation: true)
-        XCTAssertNil(view.armedSpineCover)
+        // コミット前の復旧は最初の文書の控えを引き継ぎ、復旧のコミットで貼る。
+        XCTAssertTrue(view.armedSpineCover?.image === prepared.image)
         XCTAssertNil(view.pendingSpineTurn)
         XCTAssertTrue(view.turnOverlays.isEmpty)
         XCTAssertEqual(web.alphaValue, 1)
         XCTAssertEqual(delegate.failures.count, 1)
+        XCTAssertEqual(view.currentSpineIndex, 0)
+        view.webView(web, didCommit: try XCTUnwrap(view.currentNavigation))
+        XCTAssertTrue(view.pendingSpineTurn?.oldPage === prepared.image)
+        let restored = await waitUntil {
+            delegate.moves > previousMoves && web.alphaValue == 1 && view.turnOverlays.isEmpty
+        }
+        XCTAssertTrue(restored)
+        XCTAssertNil(view.pendingSpineTurn)
     }
 
     func testChainedMoveThroughAScrolledItemKeepsThePreviousPageCover() async throws {

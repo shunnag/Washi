@@ -181,7 +181,9 @@ extension ReaderScripts {
             }, error => {
                 item.loading = null;
                 item.failed = true;
-                if (epoch === generation) { post({ type:'scrollFailure', reason:String(error) }); }
+                // 表示準備中の失敗は setup の拒否から通知する。
+                // 準備後の遅延読み込みだけここで通知し、同じ失敗の重複を防ぐ。
+                if (epoch === generation && ready) { post({ type:'scrollFailure', reason:String(error) }); }
                 throw error;
             });
             return item.loading;
