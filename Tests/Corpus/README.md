@@ -1,7 +1,8 @@
 # Public EPUB corpus
 
 `manifest.json` records 251 public EPUB files: 45 IDPF samples and 206 W3C
-reading-system tests. Each entry records its download URL, size, and SHA-256.
+reading-system tests. Each entry records its download URL, size, SHA-256, and a
+ZIP content digest (`contentSHA256`).
 The EPUB contents are not redistributed with Washi. Their original notices and
 licenses remain inside the downloaded publications.
 
@@ -10,10 +11,15 @@ python3 Scripts/fetch-epub-corpus.py
 WASHI_CORPUS_DIR="$PWD/.build/epub-corpus" swift test --filter CorpusSmokeTests
 ```
 
-The downloader verifies existing files as well as new downloads. A changed
-upstream file fails its hash check; review the upstream change before updating
-the manifest. No account, third-party Python package, or application dependency
-is needed. The default destination is ignored by git.
+The downloader verifies existing files as well as new downloads. The W3C site
+rebuilds its EPUB files on every deployment, which changes ZIP metadata such as
+timestamps (and therefore the SHA-256) without changing the publications. The
+content digest covers each entry's order, name, compression method, and bytes,
+but not timestamps or other metadata. A file whose SHA-256 differs but whose
+content digest matches is accepted and reported in a note; update its `sha256`
+when convenient. Any other change fails the check; review the upstream change
+before updating the manifest. No account, third-party Python package, or
+application dependency is needed. The default destination is ignored by git.
 
 ## Provenance and licensing
 

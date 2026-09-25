@@ -11,6 +11,46 @@ import hashlib
 import json
 from pathlib import Path
 import urllib.request
+import zipfile
+
+
+def content_digest(path):
+    """ZIP の付帯情報(時刻・属性・余白)に左右されない内容ダイジェスト。
+
+    エントリの順序・名前・圧縮方式・中身を含めるので、中身の変化や、OCF に関わる
+    構造(先頭に無圧縮の mimetype を置くこと)の変化は検出する。読めない ZIP は None。
+    """
+    digest = hashlib.sha256()
+    try:
+        with zipfile.ZipFile(path) as archive:
+            for info in archive.infolist():
+                digest.update(f"{info.filename}\0{info.compress_type}\0".encode("utf-8"))
+                digest.update(hashlib.sha256(archive.read(info)).digest())
+    except (zipfile.BadZipFile, NotImplementedError, RuntimeError, EOFError, OSError):
+        return None
+    return digest.hexdigest()
+
+
+def verify(book, path, actual):
+    """記録と一致すれば照合方法("sha256" か "contents")、しなければ None。
+
+    配布元が同じ中身の ZIP を作り直すと、時刻などの付帯情報だけが変わって SHA-256 が
+    食い違う。記録した内容ダイジェストと一致すれば、同じ本として受け入れる。
+    """
+    expected = book.get("sha256")
+    if not expected or actual == expected:
+        return "sha256"
+    expected_contents = book.get("contentSHA256")
+    if expected_contents and content_digest(path) == expected_contents:
+        return "contents"
+    return None
+
+
+def verified(book, path, actual, matched):
+    result = {**book, "sha256": actual, "bytes": path.stat().st_size}
+    if matched == "contents":
+        result["matchedBy"] = "contents"
+    return result
 
 
 def fetch(book, root):
@@ -20,8 +60,9 @@ def fetch(book, root):
     target = root / relative
     expected = book.get("sha256")
     if target.is_file() and expected:
-        if hashlib.sha256(target.read_bytes()).hexdigest() == expected:
-            return {**book, "sha256": expected, "bytes": target.stat().st_size}
+        actual = hashlib.sha256(target.read_bytes()).hexdigest()
+        if matched := verify(book, target, actual):
+            return verified(book, target, actual, matched)
     target.parent.mkdir(parents=True, exist_ok=True)
     request = urllib.request.Request(book["url"], headers={"User-Agent": "Washi-corpus-audit"})
     temporary = target.with_suffix(".download")
@@ -32,10 +73,13 @@ def fetch(book, root):
                 digest.update(chunk)
                 output.write(chunk)
         actual = digest.hexdigest()
-        if expected and actual != expected:
-            raise ValueError(f"SHA-256 mismatch for {relative}: expected {expected}, got {actual}")
+        matched = verify(book, temporary, actual)
+        if matched is None:
+            detail = " and ZIP contents" if book.get("contentSHA256") else ""
+            raise ValueError(f"SHA-256{detail} mismatch for {relative}: "
+                             f"expected {expected}, got {actual}")
         temporary.replace(target)
-        return {**book, "sha256": actual, "bytes": target.stat().st_size}
+        return verified(book, target, actual, matched)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -61,6 +105,10 @@ def main():
     manifest["books"] = sorted(results, key=lambda book: book["path"])
     (args.destination / "provenance.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+    repacked = sum(1 for book in results if book.get("matchedBy") == "contents")
+    if repacked:
+        print(f"Note: {repacked} EPUBs matched by ZIP contents only; upstream ZIP metadata "
+              f"changed. Update their sha256 values in the manifest when convenient.")
     print(f"Verified {len(results)} EPUBs in {args.destination}")
 
 
