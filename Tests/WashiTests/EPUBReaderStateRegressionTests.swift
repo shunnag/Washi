@@ -400,13 +400,16 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
             if await activeID(in: web) == "p1" { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        let before = await activeID(in: web)
-        XCTAssertEqual(before, "p1")
+        // 無音の par は 0.4 秒で次へ進む。止める前に読むと、負荷の高いランナーでは
+        // 読んでから止めるまでの間に p2 へ進みうるので、止めてから位置を読む
         view.pauseMediaOverlay()
+        let paused = await activeID(in: web)
+        XCTAssertTrue(paused == "p1" || paused == "p2",
+                      "Paused after reaching p1: \(paused ?? "nil")")
         view.playMediaOverlay()
         try await Task.sleep(for: .milliseconds(50))
         let after = await activeID(in: web)
-        XCTAssertEqual(after, "p1", "Resuming a silent par must not restart the chapter")
+        XCTAssertEqual(after, paused, "Resuming a silent par must not restart the chapter")
     }
 
     func testFinishCallbackDoesNotLeakIntoReplacementBook() async throws {
