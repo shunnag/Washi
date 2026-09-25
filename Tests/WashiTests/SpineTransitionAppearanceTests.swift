@@ -205,6 +205,8 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     func testCoverIsNotUsedWithAnimatedPageTurns() async throws {
         let publication = try makePublication()
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        // CI ランナーには視差効果を減らす設定が有効なものがあるので、OS 設定に依存させない
+        view.accessibilityReduceMotionOverride = false
         let window = makeWindow(containing: view)
         defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
         try await openAndSettle(view, publication, delegate: MoveCountingDelegate())
@@ -214,6 +216,22 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem))
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
         XCTAssertNil(view.armedSpineCover)
+    }
+
+    /// 視差効果を減らす設定では演出が省かれるので、slide でも控えを使う
+    func testCoverIsUsedWithAnimatedPageTurnsWhenReducingMotion() async throws {
+        let publication = try makePublication()
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        view.accessibilityReduceMotionOverride = true
+        let window = makeWindow(containing: view)
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        try await openAndSettle(view, publication, delegate: MoveCountingDelegate())
+        XCTAssertEqual(view.settings.pageTurnStyle, .slide)
+        let prepared = cover(for: view, rect: view.bounds,
+                             spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
+        view.setPrefetchedPageCoverForTesting(prepared)
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        XCTAssertTrue(view.armedSpineCover?.image === prepared.image)
     }
 
     /// 前の本の控えを次の本に貼らない

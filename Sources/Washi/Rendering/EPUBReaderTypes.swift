@@ -265,13 +265,16 @@ public struct EPUBReaderSettings: Sendable, Equatable {
     /// 本文の余白。WKWebView 自体を内側へ配置し、段組みの座標系を単純に保つ。
     /// 余白はネイティブの背景色で塗り、各ページのノンブル(ページ番号)を
     /// 下余白に置く。Apple Books の版面設計に倣ったもの。
-    /// 固定レイアウト(FXL)のページには適用せず、余白なしで全面に表示する。
+    /// 固定レイアウト(FXL)のページと、ページ単位の表示でのリフローの
+    /// 画像 1 枚だけの項目(表紙・挿絵)には適用せず、余白なしで全面に表示する。
     ///
     /// Content insets. The WKWebView itself is inset, keeping the multicol
     /// coordinate system simple. The margins are painted as the native
     /// background, and each page's folio (page number) sits in the bottom
     /// margin — mirroring Apple Books' page-layout design. Not applied to
-    /// fixed-layout (FXL) pages (which display full-bleed).
+    /// fixed-layout (FXL) pages or, in paginated display, to reflowable
+    /// single-image items such as covers and illustrations (which display
+    /// full-bleed).
     ///
     /// 単ページ表示の基準値で、見開き表示の既定値にもなる。
     /// 見開き(2 ページ)に別の余白を使う場合は ``spreadInsets`` を設定する。

@@ -2952,19 +2952,7 @@ public final class EPUBReaderView: NSView {
         censusTask = nil
     }
 
-    /// ウインドウから外れたとき(ウインドウを閉じる、ビューを取り除く)に、
-    /// オフスクリーンの実測を停止し、不可視ウインドウと WebContent プロセスを
-    /// 破棄する。ホストが cancelPageCensus を明示的に使わなくても、リソースが
-    /// 漏れないようにする。再表示された場合は、次回の runSetup / layout で
-    /// census が自動的に再開する。メディアオーバーレイは位置を保って
-    /// 一時停止し、ホストから再開できる。
-    ///
-    /// When detached from a window (close, view removal), stops the offscreen
-    /// measurement and tears down the invisible window and WebContent process.
-    /// A safeguard so that even a host unaware of the explicit cancelPageCensus
-    /// does not leak. If shown again, the next runSetup / layout naturally
-    /// resumes the census. Media overlays pause, preserving their position
-    /// so the host can resume playback.
+    // 最小化・遮蔽の通知を購読し、控えのスナップショットを捨てられるようにする
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         let center = NotificationCenter.default
@@ -2985,6 +2973,19 @@ public final class EPUBReaderView: NSView {
         prefetchedPageCover = nil
     }
 
+    /// ウインドウから外れたとき(ウインドウを閉じる、ビューを取り除く)に、
+    /// オフスクリーンの実測を停止し、不可視ウインドウと WebContent プロセスを
+    /// 破棄する。ホストが cancelPageCensus を明示的に使わなくても、リソースが
+    /// 漏れないようにする。再表示された場合は、次回の runSetup / layout で
+    /// census が自動的に再開する。メディアオーバーレイは位置を保って
+    /// 一時停止し、ホストから再開できる。
+    ///
+    /// When detached from a window (close, view removal), stops the offscreen
+    /// measurement and tears down the invisible window and WebContent process.
+    /// A safeguard so that even a host unaware of the explicit cancelPageCensus
+    /// does not leak. If shown again, the next runSetup / layout naturally
+    /// resumes the census. Media overlays pause, preserving their position
+    /// so the host can resume playback.
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateNativeKeyMonitor()
