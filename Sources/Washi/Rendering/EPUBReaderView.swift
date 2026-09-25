@@ -294,7 +294,7 @@ public final class EPUBReaderView: NSView {
     }
     /// 現在有効なナビゲーション(didFinish/didFail の遅延配達を、後続の
     /// loadSpineItem 後に古い文書ぶんとして無視するための同一性チェック)
-    private var currentNavigation: WKNavigation?
+    private(set) var currentNavigation: WKNavigation?
     /// loadSpineItem 自身の .other と文書内遷移の .other を区別する
     private var spineNavigationGate = SpineNavigationGate()
     /// ネイティブキー横取りのローカルモニタ(forwardsKeyEventsNatively)
@@ -1194,8 +1194,9 @@ public final class EPUBReaderView: NSView {
     private(set) var armedSpineCover: PrefetchedPageCover?
     /// 読み込み前に決め、didCommit で当てる WebView の矩形と倍率
     private var pendingWebViewLayout: (frame: NSRect, zoom: CGFloat, generation: Int)?
-    /// spine の読み込みを始めてからコミットまでの間か。前の文書が見えているので
-    /// ノンブルを隠す(新しい項目の番号を前のページの上に出さない)
+    /// spine の読み込みを始めてからコミットまでの間か(置き換えた前の読み込みの
+    /// コミットでも終わる)。前の文書が見えているのでノンブルを隠す
+    /// (新しい項目の番号を前のページの上に出さない)
     private var isAwaitingCommit = false
 
     /// テスト用: 撮影を経ずに控えを置く
@@ -3939,15 +3940,25 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
     /// 当てる。コミットまでは WebKit が前の文書を描き続けるので、前のページが
     /// 見えたままになる。控えのスナップショットがあれば、同時にカバーとして貼る。
     /// 表示は setup の完了後に戻す。
+    /// 新しい読み込みのコミットを待つ間に、置き換えられた前の読み込みの文書が
+    /// コミットされた場合も、同じく透明にする(ページ割り前の文書を見せない)。
     ///
     /// Makes the web view transparent when the new document commits and applies
     /// the frame and zoom decided before loading. Until the commit, WebKit keeps
     /// drawing the previous document, so the previous page stays visible. A
     /// prepared snapshot of that page, if any, is installed as a cover at the
     /// same time. The view becomes visible again after setup completes.
+    /// The same applies when a superseded earlier load commits while a newer
+    /// load is still awaiting its commit, so an unpaginated document is never shown.
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        // 次の読み込みが前のページを見せたままコミットを待つ間に、置き換えた前の
+        // 読み込みの文書がコミットされることがある(その didCommit の配達より先に
+        // loadSpineItem が走った場合)。WebKit はもう前のページではなく、ページ割り前の
+        // 文書を描いているので、次の読み込みのコミットと同じく透明にして、次の項目の
+        // 矩形と倍率を当てる(Washi-7ct)
         guard webView === self.webView,
-              navigation == nil || navigation === currentNavigation else { return }
+              navigation == nil || navigation === currentNavigation
+                  || isAwaitingCommit else { return }
         // 演出のカバーが既にあるときは横取りしない
         if pendingSpineTurn == nil, let armed = armedSpineCover {
             installSpineCover(armed)

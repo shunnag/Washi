@@ -247,6 +247,12 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         XCTAssertEqual(web.pageZoom, zoom, accuracy: 0.001, message, line: line)
     }
 
+    private func fitted(_ w: CGFloat, _ h: CGFloat) -> (NSRect, CGFloat) {
+        let s = min(640 / w, 400 / h)
+        return (NSRect(x: (640 - w * s) / 2, y: (400 - h * s) / 2,
+                       width: w * s, height: h * s), s)
+    }
+
     /// FXL の矩形と倍率は、読み込み前に宣言された viewport から決まる。
     /// フィクスチャは width=1200 height=1920 を宣言しているので、640x400 では
     /// 高さ基準で収まり、幅 250 で左右に余白が付く。
@@ -279,11 +285,6 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
         view.load(publication: book)
         let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
-        func fitted(_ w: CGFloat, _ h: CGFloat) -> (NSRect, CGFloat) {
-            let s = min(640 / w, 400 / h)
-            return (NSRect(x: (640 - w * s) / 2, y: (400 - h * s) / 2,
-                           width: w * s, height: h * s), s)
-        }
         // 表示が戻るまで待つ(透明なうちは即時に当てる扱いになるため)
         try await waitUntilShown(web, delegate, after: 0)
         let a = fitted(1_200, 1_920)
@@ -295,6 +296,43 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         assertLayout(web, a.0, a.1, "Before the commit the previous rect stays")
         try await waitUntilShown(web, delegate, after: moves)
         assertLayout(web, b.0, b.1, "Page B after the load")
+    }
+
+    /// 置き換えた読み込みのコミットで隠し、最新の FXL の矩形と倍率を当てる(Washi-7ct)
+    func testSupersededFixedLayoutCommitAppliesTheNewestFrameWhileHidden() async throws {
+        var entries = EPUBFixtures.fxlComicEntries()
+        let p3 = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/p003.xhtml" })
+        entries[p3].data = Data(EPUBFixtures.fxlPageXHTML(image: "p003.png")
+            .replacingOccurrences(of: "width=1200, height=1920",
+                                  with: "width=1920, height=1080").utf8)
+        let book = try publication(entries)
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+        view.accessibilityReduceMotionOverride = false
+        let delegate = MoveCountingStateDelegate()
+        view.delegate = delegate
+        let window = window(for: view)
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let a = fitted(1_200, 1_920)
+        let c = fitted(1_920, 1_080)
+        view.load(publication: book)
+        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        try await waitUntilShown(web, delegate, after: 0)
+        assertLayout(web, a.0, a.1, "最初のページの矩形と倍率")
+
+        let moves = delegate.moves
+        // await を挟まず、先行のコミットが次の読み込みの開始後に届く順序を再現する
+        view.go(to: book.locator(forSpineIndex: 1, progression: 0))
+        let superseded = try XCTUnwrap(view.currentNavigation)
+        view.go(to: book.locator(forSpineIndex: 2, progression: 0))
+        assertLayout(web, a.0, a.1, "コミット前は前の矩形のまま")
+        XCTAssertEqual(web.alphaValue, 1)
+        view.webView(web, didCommit: superseded)
+        XCTAssertEqual(web.alphaValue, 0, "ページ割り前の文書を見せない")
+        assertLayout(web, c.0, c.1, "隠した時点で最新の読み込みの矩形と倍率を当てる")
+
+        try await waitUntilShown(web, delegate, after: moves)
+        assertLayout(web, c.0, c.1, "表示が戻っても最新の読み込みの矩形と倍率を保つ")
+        XCTAssertEqual(view.currentSpineIndex, 2)
     }
 
     /// FXL とリフローの間でも、新しい矩形と倍率はコミット時に当てる。
