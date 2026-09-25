@@ -1054,8 +1054,45 @@ public protocol EPUBReaderViewDelegate: AnyObject {
                     animatePageTurnFrom oldPage: NSImage, to newPage: NSImage,
                     forward: Bool, in pageRect: CGRect) -> Bool
     /// 読み込みの失敗などのエラー。
+    /// 表示できない項目への移動は拒否し、移動前のページに留まり、`currentLocator` も
+    /// その位置を返す。別の読み込み中に拒否した場合、その読み込みは続き、
+    /// `currentLocator` は進行中の行き先を返し、後で `didMoveTo` が届く。
+    /// WebKit が項目の読み込みに失敗した場合(読み込みを開始できなかった場合を含む)は、
+    /// 最後に表示準備を終えた位置を読み込み直す。
+    /// 通知時の `currentLocator` はその復旧先を返し、復旧後に `didMoveTo` が届く。
+    /// 復旧先が無い場合(本を開いた直後など)は失敗した項目の位置を返す。
+    /// 失敗ごとに一度通知し、読み込み直しも失敗した場合はもう一度通知して止める。
+    /// 読み込んだ文書の表示準備に失敗した場合は読み込み直さず、その項目に留まる
+    /// (`currentLocator` はその項目の位置を返す)。この場合は `didMoveTo` は届かない。
+    /// ページめくりでは表示できない項目を通知せず飛ばし、残りがすべて表示不能なら
+    /// `didReachBookEdge` が届く。スクロール連続表示のグループ内の表示できない項目は
+    /// 飛ばさず、グループの表示準備や項目の読み込みの失敗としてこの通知が届く
+    /// (この場合は読み込み直さない)。
+    /// 読み上げで表示できない章へ進もうとすると、失敗通知の後に再生を終了し、
+    /// `isPlayingMediaOverlayDidChange(false)`、`readerViewMediaOverlayDidFinish` の順に届く。
+    /// 読み上げ中に読み込みの失敗から読み込み直した場合は、再生中の区間の終わりで
+    /// 再生を終える。
     ///
     /// A load failure or similar error.
+    /// Navigation to an unloadable item is rejected, keeping the previous page
+    /// and its `currentLocator`. If another load is in progress, it continues,
+    /// `currentLocator` returns its destination, and `didMoveTo` follows later.
+    /// If WebKit fails to load an item (including when the load could not start),
+    /// the last location whose document finished setup is reloaded. During this callback,
+    /// `currentLocator` returns that recovery destination; `didMoveTo` follows
+    /// when it is restored. Without a recovery location (for example, just after
+    /// opening a book), it returns the failed item's location. Each failure is
+    /// reported once; if recovery also fails, another error is reported and
+    /// recovery stops. If setup of the loaded document fails, the reader stays
+    /// on that item without reloading (`currentLocator` returns its location),
+    /// and no `didMoveTo` follows. Page turns skip unloadable items without this
+    /// callback, reporting `didReachBookEdge` if no renderable items remain.
+    /// Within a continuous-scroll group, unloadable items are not skipped:
+    /// this callback reports a group setup or item load failure without reloading.
+    /// When narration tries to enter an unloadable chapter, this callback is followed by
+    /// `isPlayingMediaOverlayDidChange(false)` and `readerViewMediaOverlayDidFinish`.
+    /// If a load failure triggers a reload during narration, playback ends at
+    /// the end of the segment currently playing.
     func readerView(_ view: EPUBReaderView, didFailWith error: any Error)
     /// 本全体のページ数の実測(census)が更新された(完了または無効化)。
     /// view.pageCensus / censusTotalPages / currentGlobalPageRange を参照。
@@ -1073,8 +1110,12 @@ public protocol EPUBReaderViewDelegate: AnyObject {
                     isPlayingMediaOverlayDidChange isPlaying: Bool)
     /// メディアオーバーレイの再生が本の末尾に達した
     /// (これ以上再生するものがない)。
+    /// 再生を続けられなくなった場合(表示位置が読み上げ中の章を離れた、次の章を
+    /// 表示できないなど)にも届く。
     ///
     /// Media-overlay playback reached the end of the book (nothing more to play).
+    /// Also sent when playback cannot continue, for example because the displayed
+    /// position left the narrated chapter or the next chapter cannot be displayed.
     func readerViewMediaOverlayDidFinish(_ view: EPUBReaderView)
     /// 移動履歴が利用可能かどうかが変わった。
     /// ``EPUBReaderView/canGoBack`` を参照し、「戻る」コマンドやコントロールを

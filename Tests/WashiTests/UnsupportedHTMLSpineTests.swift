@@ -13,7 +13,7 @@ private final class UnsupportedHTMLDelegate: EPUBReaderViewDelegate {
 
 @MainActor
 final class UnsupportedHTMLSpineTests: XCTestCase {
-    func testRejectedHTMLSpineCannotUsePreviousXHTMLDocumentForExactPositions() async throws {
+    func testRejectedHTMLSpineKeepsPreviousXHTMLLocationsAndRejectsHTMLRanges() async throws {
         var entries = EPUBFixtures.singleSpineEntries(bodyHTML: "<p>和紙の本文</p>")
         let package = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
         entries[package].data = Data(String(decoding: entries[package].data, as: UTF8.self)
@@ -25,6 +25,9 @@ final class UnsupportedHTMLSpineTests: XCTestCase {
                                        displayURL: URL(fileURLWithPath: "/tmp/nonconforming-html.epub"))
         let hit = try XCTUnwrap(book.search("和紙").first { $0.spineIndex == 1 })
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        view.accessibilityReduceMotionOverride = false
+        view.isWindowOnScreenOverride = false
+        view.settings.pageTurnStyle = .none
         let delegate = UnsupportedHTMLDelegate()
         view.delegate = delegate
         let window = NSWindow(contentRect: view.frame.offsetBy(dx: -20_000, dy: -20_000),
@@ -46,6 +49,9 @@ final class UnsupportedHTMLSpineTests: XCTestCase {
         let rects = await view.rects(forTextRange: hit.utf16Range, inSpineIndex: 1)
         XCTAssertTrue(rects.isEmpty)
         let locator = await view.currentLocatorWithTextAnchor()
-        XCTAssertNil(locator.textOffset)
+        // 拒否では前章の文書と位置を保ち、その章のテキストアンカーを引き続き取得できる。
+        XCTAssertEqual(delegate.failures.count, 1)
+        XCTAssertEqual(locator.spineIndex, 0)
+        XCTAssertNotNil(locator.textOffset)
     }
 }
