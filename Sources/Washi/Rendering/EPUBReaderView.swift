@@ -1204,7 +1204,14 @@ public final class EPUBReaderView: NSView {
         func matches(spineIndex: Int, pageInItem: Int, size: NSSize,
                      fontScale: Double, backingScale: CGFloat) -> Bool {
             self.spineIndex == spineIndex && self.pageInItem == pageInItem
-                && self.size == size && self.fontScale == fontScale
+                && matchesDisplay(size: size, fontScale: fontScale,
+                                  backingScale: backingScale)
+        }
+
+        /// 大きさ・文字の倍率・画面の倍率が撮ったときと一致するか(項目とページは問わない)
+        func matchesDisplay(size: NSSize, fontScale: Double,
+                            backingScale: CGFloat) -> Bool {
+            self.size == size && self.fontScale == fontScale
                 && self.backingScale == backingScale
         }
     }
@@ -1220,6 +1227,7 @@ public final class EPUBReaderView: NSView {
     /// spine の読み込みを始めてからコミットまでの間か(置き換えた前の読み込みの
     /// コミットでも終わる)。前の文書が見えているのでノンブルを隠す
     /// (新しい項目の番号を前のページの上に出さない)
+    /// この間に次の読み込みが始まったら、取り置いた控えを引き継ぐ(Washi-3b1)
     private var isAwaitingCommit = false
 
     /// テスト用: 撮影を経ずに控えを置く
@@ -1314,11 +1322,15 @@ public final class EPUBReaderView: NSView {
     /// カバーの掲示中に撮り直す回数の上限
     private static let pageCoverPrefetchRetryLimit = 8
 
+    /// 演出なしで送る設定か(ページめくり none、または視差効果を減らす設定)
+    private var turnsPagesWithoutAnimation: Bool {
+        settings.pageTurnStyle == .none || accessibilityShouldReduceMotion
+    }
+
     /// 控えを使う条件: 演出なしの送り(または視差効果を減らす設定)で、
     /// ページ単位の表示であること。演出ありの送りは既存の演出カバーが隠す
     private var usesPrefetchedPageCover: Bool {
-        (settings.pageTurnStyle == .none || accessibilityShouldReduceMotion)
-            && !EPUBScreenMetrics.isScrolled(effectiveFlow)
+        turnsPagesWithoutAnimation && !EPUBScreenMetrics.isScrolled(effectiveFlow)
     }
 
     /// 項目の最初か最後の画面にいるか(送りで spine 境界を越えうる)
@@ -1427,11 +1439,25 @@ public final class EPUBReaderView: NSView {
     }
 
     /// loadSpineItem が currentSpineIndex を書き換える前に呼ぶ。控えが離れるページの
-    /// ものなら取り置き、そうでなければカバー無しで読み込む
+    /// ものなら取り置き、そうでなければカバー無しで読み込む。
+    /// コミット待ちで前のページが見えている間は、取り置いた控えを引き継ぐ(Washi-3b1)
     private func armSpineCoverForTransition() {
         let held = prefetchedPageCover
         prefetchedPageCover = nil
         pageCoverPrefetchTask?.cancel()
+        if isAwaitingCommit, let webView, webView.url != nil, webView.alphaValue > 0 {
+            // currentSpineIndex・pageInItem は前の読み込みが書き換えたので照合しない。
+            // effectiveFlow も読み込み中の項目を指し、見えているページがページ単位でも
+            // スクロール表示になりうるので、ここでは usesPrefetchedPageCover を使わない。
+            // 見えているページの flow は取り置き時に確認済みで、表示条件だけ照合し直す
+            guard let armed = armedSpineCover, turnsPagesWithoutAnimation,
+                  armed.matchesDisplay(size: bounds.size, fontScale: settings.fontScale,
+                                       backingScale: window?.backingScaleFactor ?? 2) else {
+                armedSpineCover = nil
+                return
+            }
+            return
+        }
         guard let held, usesPrefetchedPageCover,
               held.matches(spineIndex: currentSpineIndex, pageInItem: pageInItem,
                            size: bounds.size, fontScale: settings.fontScale,
@@ -1514,9 +1540,13 @@ public final class EPUBReaderView: NSView {
         pendingWebViewLayout = nil
         repaginateWork?.cancel()  // 旧文書あての再ページ割りを新文書へ流さない
         // 進行中のめくり演出は新しい章の表示を隠すので畳む。
-        // spine 遷移演出の持ち越しカバー(旧ページ)だけは読み込み中も残す。
+        // spine 遷移演出の持ち越しカバー(旧ページ)は読み込み中も残す。
+        // 控えのカバーは演出なしで畳むだけなので、目次・リンクなどのジャンプでも
+        // 最新の項目の表示まで残す(Washi-3b1)。url は load で仮の URL になる前に調べ、
+        // 作り直したばかりの WebView(url が nil)では前の控えを畳む。
         // foldTurnCover 経由で各カバーの時間切れ回収タスクも確実に止める
-        if !preservingTurnCover { clearPendingSpineTurn() }
+        let keepsPageCover = pendingSpineTurn?.animated == false && webView.url != nil
+        if !preservingTurnCover && !keepsPageCover { clearPendingSpineTurn() }
         let survivor = pendingSpineTurn?.cover
         for overlay in turnOverlays where overlay !== survivor {
             foldTurnCover(overlay)
@@ -2254,8 +2284,9 @@ public final class EPUBReaderView: NSView {
         }
         guard publication.readingOrder.indices.contains(next) else {
             // 巻頭/巻末超え: ホストの反応(ループ・隣の本・何もしない)は
-            // めくり演出ではないので、持ち越しカバーを先に畳む
-            clearPendingSpineTurn()
+            // めくり演出ではないので、演出の持ち越しカバーは先に畳む。
+            // 控えのカバーは、読み込み中の最後の項目の表示が戻るまで残す(Washi-3b1)
+            if pendingSpineTurn?.animated != false { clearPendingSpineTurn() }
             delegate?.readerView(self, didReachBookEdge: forward)
             return
         }
@@ -4017,6 +4048,7 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
     /// 表示は setup の完了後に戻す。
     /// 新しい読み込みのコミットを待つ間に、置き換えられた前の読み込みの文書が
     /// コミットされた場合も、同じく透明にする(ページ割り前の文書を見せない)。
+    /// このときも、前のページの控えがあればカバーとして貼る。
     ///
     /// Makes the web view transparent when the new document commits and applies
     /// the frame and zoom decided before loading. Until the commit, WebKit keeps
@@ -4025,6 +4057,8 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
     /// same time. The view becomes visible again after setup completes.
     /// The same applies when a superseded earlier load commits while a newer
     /// load is still awaiting its commit, so an unpaginated document is never shown.
+    /// The prepared snapshot of the previous page, if any, is installed as a cover
+    /// in that case too.
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         // 次の読み込みが前のページを見せたままコミットを待つ間に、置き換えた前の
         // 読み込みの文書がコミットされることがある(その didCommit の配達より先に
