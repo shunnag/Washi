@@ -1064,11 +1064,37 @@ public final class EPUBPublication: Sendable {
     /// その spine 項目が「画像 1 枚だけの項目」か（表紙・挿絵・漫画のページ）。
     /// 表示・census・画面サムネイルが同じ答えを共有するよう、項目ごとに一度だけ
     /// 判定してキャッシュする。パッケージ内部の API（公開面は増やさない）。
+    /// 初回は章の展開と XML 解析を伴うので、UI からは可能ならメインスレッドの外で呼ぶ。
     package func isSingleImageItem(atSpineIndex index: Int) -> Bool {
         guard readingOrder.indices.contains(index) else { return false }
         return singleImageItemCache.item(index) {
-            (try? fixedLayoutInfo(forSpineIndex: index))?.simpleImagePath != nil
+            let entry = readingOrder[index]
+            // 画像・SVG の spine 項目は、ヘッダーだけを見る fixedLayoutInfo に任せる
+            if Self.normalizedMediaType(entry.resolvedItem.mediaType).hasPrefix("image/") {
+                return (try? fixedLayoutInfo(forSpineIndex: index))?.simpleImagePath != nil
+            }
+            // 文書は fixedLayoutInfo と同じ判定を、画像要素の名前が現れない章では
+            // 解析せずに済ませる(文字だけの大きな章を丸ごと解析しない)
+            guard let data = try? resource(at: entry.resolvedContainerPath).data,
+                  Self.mayContainImageElement(data),
+                  let root = (try? WashiXML.document(from: data))?.rootElement(),
+                  let href = Self.simpleImageHref(in: root) else { return false }
+            return ContainerPath.resolve(base: entry.resolvedContainerPath, href: href) != nil
         }
+    }
+
+    /// 画像だけの項目の判定に使う要素(img と SVG の image)の名前が、バイト列に
+    /// 現れうるか。ASCII と互換な符号化では要素名がそのままのバイトで現れるので、
+    /// どちらも無ければ解析しなくても画像だけの項目ではない。UTF-16・UTF-32 は
+    /// この方法では判定できないので、解析に回す(true を返す)。
+    static func mayContainImageElement(_ data: Data) -> Bool {
+        let head = data.prefix(4)
+        if head.contains(0) || head.starts(with: [0xFE, 0xFF])
+            || head.starts(with: [0xFF, 0xFE]) {
+            return true
+        }
+        return data.range(of: Data("img".utf8)) != nil
+            || data.range(of: Data("image".utf8)) != nil
     }
 
     /// 固定レイアウトのページの構造情報(ビューポート・画像だけのページの検出・

@@ -142,12 +142,18 @@ final class EPUBScreenThumbnailRenderer {
               publication.readingOrder.indices.contains(spineIndex) else { return nil }
         let entry = publication.readingOrder[spineIndex]
         let flow = publication.renderingFlow(at: spineIndex)
+        // ライブ側の contentFrame と同じ項目単位の判断にそろえる。そろえないと
+        // サムネイルだけ余白ぶん内側の箱になり、画像の収まりが実表示と食い違う。
+        // 画像だけの項目かの判定は章の展開と解析を伴うので、メインスレッドの外で行う
+        let book = publication
+        let fillsViewport = await Task.detached(priority: Task.currentPriority) {
+            EPUBScreenMetrics.fillsViewport(book, spineIndex: spineIndex)
+        }.value
+        guard !isInvalidated, !Task.isCancelled else { return nil }
         let plan = EPUBScreenMetrics.setupPlan(
             optionsJSON: optionsJSON,
             applying: publication.package.effectiveSpread(for: entry.itemRef), flow: flow,
-            // ライブ側の contentFrame と同じ項目単位の判断にそろえる。そろえないと
-            // サムネイルだけ余白ぶん内側の箱になり、画像の収まりが実表示と食い違う
-            fullViewport: EPUBScreenMetrics.fillsViewport(publication, spineIndex: spineIndex))
+            fullViewport: fillsViewport)
         let optionsJSON = plan.optionsJSON
         let contentSize = plan.contentSize.width >= 1 && plan.contentSize.height >= 1
             ? plan.contentSize : contentSize
