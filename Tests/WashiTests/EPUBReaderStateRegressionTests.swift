@@ -3,6 +3,17 @@ import WebKit
 import XCTest
 @testable import Washi
 
+/// ページ割りが終わるたびに数える。読み込みの完了待ちに使う
+/// (alpha は読み込みの開始では落ちないので、読み込み中かどうかの印にならない)
+@MainActor
+private final class MoveCountingStateDelegate: EPUBReaderViewDelegate {
+    var moves = 0
+    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
+                    pageInItem: Int, pageCountInItem: Int) {
+        moves += 1
+    }
+}
+
 @MainActor
 private final class OverlayAuditDelegate: EPUBReaderViewDelegate {
     var onPlayingChanged: ((EPUBReaderView, Bool) -> Void)?
@@ -205,6 +216,131 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         }
     }
 
+    /// 条件が満たされるまで待つ(期限つき)
+    private func waitUntil(timeout: Duration = .seconds(8),
+                           _ condition: @MainActor () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+
+    /// 次のページ割りの通知と表示の復帰を待つ。WebKit が使えなければ skip する
+    private func waitUntilShown(_ web: WKWebView, _ delegate: MoveCountingStateDelegate,
+                                after moves: Int) async throws {
+        guard await waitUntil({ delegate.moves > moves }) else {
+            return try failOrSkipWebKitTest(
+                "WKWebView navigation is unavailable in this sandbox")
+        }
+        let shown = await waitUntil { web.alphaValue == 1 }
+        XCTAssertTrue(shown)
+    }
+
+    private func assertLayout(_ web: WKWebView, _ frame: NSRect, _ zoom: CGFloat,
+                              _ message: String, line: UInt = #line) {
+        XCTAssertEqual(web.frame.minX, frame.minX, accuracy: 0.5, message, line: line)
+        XCTAssertEqual(web.frame.minY, frame.minY, accuracy: 0.5, message, line: line)
+        XCTAssertEqual(web.frame.width, frame.width, accuracy: 0.5, message, line: line)
+        XCTAssertEqual(web.frame.height, frame.height, accuracy: 0.5, message, line: line)
+        XCTAssertEqual(web.pageZoom, zoom, accuracy: 0.001, message, line: line)
+    }
+
+    /// FXL の矩形と倍率は、読み込み前に宣言された viewport から決まる。
+    /// フィクスチャは width=1200 height=1920 を宣言しているので、640x400 では
+    /// 高さ基準で収まり、幅 250 で左右に余白が付く。
+    func testFixedLayoutFrameIsDecidedBeforeTheDocumentLoads() throws {
+        let book = try publication(EPUBFixtures.fxlComicEntries())
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+        let window = window(for: view)
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        view.load(publication: book)
+        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let scale = min(640.0 / 1_200.0, 400.0 / 1_920.0)
+        let expected = NSRect(x: (640 - 1_200 * scale) / 2, y: (400 - 1_920 * scale) / 2,
+                              width: 1_200 * scale, height: 1_920 * scale)
+        assertLayout(web, expected, scale, "Fitted before the document loads")
+    }
+
+    /// 宣言 viewport の違う FXL ページ間では、新しい矩形をコミット時に当てる
+    /// (前のページを新しい矩形で描かない)。
+    func testFixedLayoutFrameMovesAtCommitNotAtLoadStart() async throws {
+        var entries = EPUBFixtures.fxlComicEntries()
+        let p2 = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/p002.xhtml" })
+        entries[p2].data = Data(EPUBFixtures.fxlPageXHTML(image: "p002.png")
+            .replacingOccurrences(of: "width=1200, height=1920",
+                                  with: "width=1600, height=1200").utf8)
+        let book = try publication(entries)
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+        let delegate = MoveCountingStateDelegate()
+        view.delegate = delegate
+        let window = window(for: view)
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        view.load(publication: book)
+        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        func fitted(_ w: CGFloat, _ h: CGFloat) -> (NSRect, CGFloat) {
+            let s = min(640 / w, 400 / h)
+            return (NSRect(x: (640 - w * s) / 2, y: (400 - h * s) / 2,
+                           width: w * s, height: h * s), s)
+        }
+        // 表示が戻るまで待つ(透明なうちは即時に当てる扱いになるため)
+        try await waitUntilShown(web, delegate, after: 0)
+        let a = fitted(1_200, 1_920)
+        let b = fitted(1_600, 1_200)
+        assertLayout(web, a.0, a.1, "Page A")
+
+        let moves = delegate.moves
+        view.go(to: book.locator(forSpineIndex: 1, progression: 0))
+        assertLayout(web, a.0, a.1, "Before the commit the previous rect stays")
+        try await waitUntilShown(web, delegate, after: moves)
+        assertLayout(web, b.0, b.1, "Page B after the load")
+    }
+
+    /// FXL とリフローの間でも、新しい矩形と倍率はコミット時に当てる。
+    func testMixedLayoutFrameMovesAtCommitInBothDirections() async throws {
+        var entries = EPUBFixtures.fxlComicEntries()
+        let opf = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
+        entries[opf].data = Data(String(decoding: entries[opf].data, as: UTF8.self)
+            .replacingOccurrences(of: "idref=\"p2\" properties=\"", with:
+                "idref=\"p2\" properties=\"rendition:layout-reflowable ").utf8)
+        let p2 = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/p002.xhtml" })
+        entries[p2].data = Data("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml"><head><title>text</title></head>
+            <body><p>\(String(repeating: "本文の段落。", count: 80))</p></body></html>
+            """.utf8)
+        let book = try publication(entries)
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+        var settings = view.settings
+        settings.insets = EPUBReaderInsets(top: 30, left: 40, bottom: 30, right: 40)
+        view.settings = settings
+        let delegate = MoveCountingStateDelegate()
+        view.delegate = delegate
+        let window = window(for: view)
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        view.load(publication: book)
+        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        try await waitUntilShown(web, delegate, after: 0)
+        let fxlFrame = web.frame
+        let fxlZoom = web.pageZoom
+        XCTAssertLessThan(fxlZoom, 1)
+
+        var moves = delegate.moves
+        view.go(to: book.locator(forSpineIndex: 1, progression: 0))
+        assertLayout(web, fxlFrame, fxlZoom, "FXL to reflow: before the commit")
+        try await waitUntilShown(web, delegate, after: moves)
+        let reflowFrame = view.contentFrame
+        XCTAssertNotEqual(reflowFrame, fxlFrame)
+        assertLayout(web, reflowFrame, 1, "FXL to reflow: after the load")
+
+        moves = delegate.moves
+        view.go(to: book.locator(forSpineIndex: 0, progression: 0))
+        assertLayout(web, reflowFrame, 1, "Reflow to FXL: before the commit")
+        try await waitUntilShown(web, delegate, after: moves)
+        assertLayout(web, fxlFrame, fxlZoom, "Reflow to FXL: after the load")
+    }
+
     func testFixedToReflowTransitionRestoresUnitZoom() async throws {
         var entries = EPUBFixtures.fxlComicEntries()
         let index = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
@@ -213,28 +349,22 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
                 "idref=\"p2\" properties=\"rendition:layout-reflowable ").utf8)
         let book = try publication(entries)
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+        let delegate = MoveCountingStateDelegate()
+        view.delegate = delegate
         let window = window(for: view)
         defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
         view.load(publication: book)
         view.layoutSubtreeIfNeeded()
         let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
-        for _ in 0..<250 where web.alphaValue == 0 {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        XCTAssertGreaterThan(web.alphaValue, 0, "The fixed page must finish loading")
+        try await waitUntilShown(web, delegate, after: 0)
         XCTAssertLessThan(web.pageZoom, 1)
+        var moves = delegate.moves
         view.go(to: book.locator(forSpineIndex: 1, progression: 0))
-        XCTAssertEqual(web.pageZoom, 1, "Reset before the new document is paginated")
-        for _ in 0..<250 where web.alphaValue == 0 {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        XCTAssertGreaterThan(web.alphaValue, 0)
-        XCTAssertEqual(web.pageZoom, 1)
+        try await waitUntilShown(web, delegate, after: moves)
+        XCTAssertEqual(web.pageZoom, 1, "The reflowable item is shown at unit zoom")
+        moves = delegate.moves
         view.go(to: book.locator(forSpineIndex: 0, progression: 0))
-        for _ in 0..<250 where web.alphaValue == 0 {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        XCTAssertGreaterThan(web.alphaValue, 0)
+        try await waitUntilShown(web, delegate, after: moves)
         XCTAssertLessThan(web.pageZoom, 1, "Returning to FXL still aspect-fits the page")
     }
 
