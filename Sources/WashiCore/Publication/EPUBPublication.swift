@@ -81,6 +81,26 @@ private final class EffectiveReadingDirectionCache: @unchecked Sendable {
     }
 }
 
+/// 「画像 1 枚だけの項目」の判定を項目ごとに一度だけ行うためのキャッシュ。
+/// EPUBPublication の Sendable 契約を保つため、可変状態は NSLock の内側だけで扱う
+/// （EffectiveReadingDirectionCache と同じ作法）。
+private final class SingleImageItemCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var perItem: [Int: Bool] = [:]
+
+    func item(_ index: Int, computing loader: () -> Bool) -> Bool {
+        lock.lock()
+        if let cached = perItem[index] { lock.unlock(); return cached }
+        lock.unlock()
+        // loader は zip 展開と XML 解析を伴うのでロックの外で回す
+        let value = loader()
+        lock.lock()
+        perItem[index] = value
+        lock.unlock()
+        return value
+    }
+}
+
 // cooViewer-oxr.8: 目次は文書順を保ったまま一度だけ spine 位置へ写像する。
 private struct IndexedTOCEntry: Sendable {
     let spineIndex: Int
@@ -179,6 +199,7 @@ public final class EPUBPublication: Sendable {
     /// 本文の UTF-8 データを最大 32 MiB、件数は spine 全体を収める枠で FIFO 保持する。
     private let extractedTextCache: ExtractedTextCache
     private let effectiveReadingDirectionCache = EffectiveReadingDirectionCache()
+    private let singleImageItemCache = SingleImageItemCache()
 
     /// 呼び出し元のスレッド外で EPUB を開き、解析済みの出版物を返す。
     ///
@@ -1039,6 +1060,16 @@ public final class EPUBPublication: Sendable {
     }
 
     // MARK: - 固定レイアウト
+
+    /// その spine 項目が「画像 1 枚だけの項目」か（表紙・挿絵・漫画のページ）。
+    /// 表示・census・画面サムネイルが同じ答えを共有するよう、項目ごとに一度だけ
+    /// 判定してキャッシュする。パッケージ内部の API（公開面は増やさない）。
+    package func isSingleImageItem(atSpineIndex index: Int) -> Bool {
+        guard readingOrder.indices.contains(index) else { return false }
+        return singleImageItemCache.item(index) {
+            (try? fixedLayoutInfo(forSpineIndex: index))?.simpleImagePath != nil
+        }
+    }
 
     /// 固定レイアウトのページの構造情報(ビューポート・画像だけのページの検出・
     /// 見開き内の配置)。リフローの本の spine 項目についても、ビューポートなしの
