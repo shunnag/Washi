@@ -92,15 +92,21 @@ final class EPUBPaginationCensus {
                 counts.append(1)  // FXL は本番(setup の fxl 分岐)と同じ 1 ページ
                 continue
             }
+            // ライブ側の contentFrame と同じ項目単位の判断にそろえる
+            // (版面が違うと page 数がずれる)。画像だけの項目かの判定は章の展開と
+            // 解析を伴うので、メインスレッドの外で行う(結果は publication が保持し、
+            // 後の章移動でも使われる)
+            let fillsViewport = await Task.detached(priority: Task.currentPriority) {
+                EPUBScreenMetrics.fillsViewport(publication, spineIndex: index)
+            }.value
+            if Task.isCancelled { return nil }
             // cooViewer-oxr.51: 同じ基底メトリクスから itemref ごとの
             // rendition:spread と実効余白を導出し、この項目だけへ渡す。
             let plan = EPUBScreenMetrics.setupPlan(
                 optionsJSON: optionsJSON,
                 applying: publication.package.effectiveSpread(for: entry.itemRef),
                 flow: publication.renderingFlow(at: index),
-                // ライブ側の contentFrame と同じ項目単位の判断にそろえる
-                // (版面が違うと page 数がずれる)
-                fullViewport: EPUBScreenMetrics.fillsViewport(publication, spineIndex: index))
+                fullViewport: fillsViewport)
             let itemSize = plan.contentSize.width >= 1 && plan.contentSize.height >= 1
                 ? plan.contentSize : contentSize
             // cooViewer-oxr.22: 欠損項目は本番表示と同じ 1 ページとして扱い、
