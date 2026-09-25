@@ -24,6 +24,39 @@ private final class MoveCountingDelegate: EPUBReaderViewDelegate {
     }
 }
 
+/// 次の章のナビゲーション許可を保留し、コミット前の旧文書を確実に観測する。
+@MainActor
+private final class HeldChapterNavigation: NSObject, WKNavigationDelegate {
+    private let reader: EPUBReaderView
+    private var continuation: CheckedContinuation<WKNavigationActionPolicy, Never>?
+    var isWaiting: Bool { continuation != nil }
+
+    init(reader: EPUBReaderView) {
+        self.reader = reader
+    }
+
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationAction: WKNavigationAction,
+                 preferences: WKWebpagePreferences) async
+        -> (WKNavigationActionPolicy, WKWebpagePreferences) {
+        let (policy, preferences) = await reader.webView(
+            webView, decidePolicyFor: navigationAction, preferences: preferences)
+        guard policy == .allow, navigationAction.targetFrame?.isMainFrame == true else {
+            return (policy, preferences)
+        }
+        let releasedPolicy = await withCheckedContinuation { continuation = $0 }
+        return (releasedPolicy, preferences)
+    }
+
+    func finish(in webView: WKWebView, policy: WKNavigationActionPolicy) {
+        // 許可を返す前に戻し、didCommit・didFinish は実際のリーダーに任せる。
+        webView.navigationDelegate = reader
+        let pending = continuation
+        continuation = nil
+        pending?.resume(returning: policy)
+    }
+}
+
 @MainActor
 final class SpineTransitionAppearanceTests: XCTestCase {
     private func makePublication(_ name: String = "washi-spine-transition") throws
@@ -148,6 +181,29 @@ final class SpineTransitionAppearanceTests: XCTestCase {
                 ? "初回の控え A を撮影できない。画面外のウインドウで撮影できる前提を確認する"
                 : "控えの撮り直しが時間切れになった"),
             file: file, line: line)
+    }
+
+    /// スクロール補正の遅配を待ち、移動回数と控えの同一性が 300 ms 続けて安定したら返す。
+    private func settledCover(_ view: EPUBReaderView, delegate: MoveCountingDelegate) async throws
+        -> EPUBReaderView.PrefetchedPageCover
+    {
+        var current = try await waitForCover(view)
+        var moves = delegate.moves
+        var stableSince = ContinuousClock.now
+        let settled = await waitUntil {
+            guard let cover = view.prefetchedPageCover else {
+                stableSince = .now
+                return false
+            }
+            if delegate.moves != moves || cover.image !== current.image {
+                moves = delegate.moves
+                current = cover
+                stableSince = .now
+            }
+            return ContinuousClock.now - stableSince >= .milliseconds(300)
+        }
+        return try XCTUnwrap(settled ? view.prefetchedPageCover : nil,
+                             "移動回数と控えが安定するまでの待ちが時間切れになった")
     }
 
     /// sRGB の 16×16 画素に縮小し、本文より広い地色の明るさを調べる
@@ -447,6 +503,121 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
         XCTAssertTrue(view.armedSpineCover?.image === a.image,
                       "検索の例のように別の章のハイライトを設定してすぐ移動しても控えを使う")
+    }
+
+    func testNarrationHighlightRetakesTheCoverWithoutDroppingIt() async throws {
+        let (view, window) = makeCoverReader()
+        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let delegate = MoveCountingDelegate()
+        try await openAndSettle(view, try makePublication(), delegate: delegate)
+        var current = try await settledCover(view, delegate: delegate)
+        let moves = delegate.moves
+        let stages: [(name: String, fragmentID: String?)] = [
+            ("区間の読み上げハイライト", "sec1"), ("読み上げハイライトの解除", nil),
+        ]
+
+        for (stage, fragmentID) in stages {
+            let old = current
+            view.mediaOverlayHighlight(fragmentID: fragmentID,
+                                       cssClass: EPUBReaderView.defaultActiveClass)
+            XCTAssertTrue(view.prefetchedPageCover?.image === old.image,
+                          "\(stage): 撮り直すまで前の控えを残す")
+            current = try await waitForCover(
+                view, replacing: old.image,
+                message: "\(stage): 読み上げハイライトを控えに写していない")
+        }
+
+        XCTAssertEqual(delegate.moves, moves, "ページを送らずに控えだけを撮り直す")
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        XCTAssertTrue(view.armedSpineCover?.image === current.image, "最後に撮り直した控えを取り置く")
+    }
+
+    func testChapterAdvanceBeforeTheRetakeKeepsThePreviousCover() async throws {
+        let (view, window) = makeCoverReader()
+        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
+        let a = try await waitForCover(view)
+
+        view.mediaOverlayHighlight(fragmentID: "sec1", cssClass: EPUBReaderView.defaultActiveClass)
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        XCTAssertTrue(view.armedSpineCover?.image === a.image,
+                      "撮り直しが章送りに間に合わなくても、前の控えを取り置く")
+    }
+
+    func testChapterLoadKeepsTheOldNarrationHighlightAndAppliesTheNewOne() async throws {
+        var entries = EPUBFixtures.verticalNovelEntries()
+        let chapter = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/text/ch2.xhtml" })
+        let original = String(decoding: entries[chapter].data, as: UTF8.self)
+        let patched = original.replacingOccurrences(of: "<h1>", with: "<h1 id=\"sec2\">")
+        XCTAssertNotEqual(patched, original, "次の章の最初の区間に断片 ID を付ける")
+        entries[chapter].data = Data(patched.utf8)
+        let publication = try EPUBPublication(
+            data: ZipBuilder.build(entries, method: 8),
+            displayURL: URL(fileURLWithPath: "/tmp/washi-narration-chapter-load.epub"))
+        let (view, window) = makeCoverReader()
+        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let delegate = MoveCountingDelegate()
+        try await openAndSettle(view, publication, delegate: delegate)
+        let web = try webView(of: view)
+        let cssClass = "test-narration-active"
+        // 旧文書の準備は JS の完了まで待ち、Swift 側の送信タイミングに依存させない。
+        let highlighted = try await view.evaluateForTest("""
+            __washi.mediaOverlayHighlight('sec1', '\(cssClass)');
+            return document.getElementById('sec1').classList.contains('\(cssClass)');
+            """) as? Bool
+        XCTAssertEqual(highlighted, true)
+
+        let gate = HeldChapterNavigation(reader: view)
+        web.navigationDelegate = gate
+        defer { gate.finish(in: web, policy: .cancel) }
+        // コントローラと同じく、章送り直後に次の章の最初の区間を強調する。
+        view.navigateForMediaOverlay(toSpineIndex: 1)
+        view.mediaOverlayHighlight(fragmentID: "sec2", cssClass: cssClass)
+        let held = await waitUntil { gate.isWaiting }
+        XCTAssertTrue(held, "新文書のコミット前に読み込みを保留する")
+        let oldHighlightRemains = try await view.evaluateForTest("""
+            return document.getElementById('sec2') === null
+                && document.getElementById('sec1').classList.contains('\(cssClass)');
+            """) as? Bool
+        XCTAssertEqual(oldHighlightRemains, true, "読み込み中は旧文書の読み上げハイライトを消さない")
+
+        gate.finish(in: web, policy: .allow)
+        let newCover = try await waitForCover(view)
+        XCTAssertEqual(newCover.spineIndex, 1)
+        let newHighlightApplied = try await view.evaluateForTest("""
+            return document.getElementById('sec2').classList.contains('\(cssClass)');
+            """) as? Bool
+        XCTAssertEqual(newHighlightApplied, true, "setup 後に新しい章の最初の区間を強調する")
+        XCTAssertTrue(delegate.failures.isEmpty)
+    }
+
+    func testBackingScaleChangeRetakesTheCover() async throws {
+        let (view, window) = makeCoverReader()
+        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
+        let a = try await waitForCover(view)
+        view.setPrefetchedPageCoverForTesting(EPUBReaderView.PrefetchedPageCover(
+            image: a.image, rect: a.rect,
+            backingScale: window.backingScaleFactor == 1 ? 2 : 1,
+            spineIndex: a.spineIndex, pageInItem: a.pageInItem,
+            size: a.size, fontScale: a.fontScale))
+
+        view.viewDidChangeBackingProperties()
+        XCTAssertNil(view.prefetchedPageCover, "倍率の違う控えはその場で捨てる")
+        let b = try await waitForCover(view, replacing: a.image)
+        XCTAssertEqual(b.backingScale, window.backingScaleFactor)
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        XCTAssertTrue(view.armedSpineCover?.image === b.image, "新しい倍率の控えを取り置く")
+    }
+
+    func testSameBackingScaleKeepsTheCover() async throws {
+        let (view, window) = makeCoverReader()
+        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
+        let a = try await waitForCover(view)
+
+        view.viewDidChangeBackingProperties()
+        XCTAssertTrue(view.prefetchedPageCover?.image === a.image, "倍率が同じなら控えを残す")
     }
 
     func testNonAppearanceSettingKeepsTheCover() async throws {

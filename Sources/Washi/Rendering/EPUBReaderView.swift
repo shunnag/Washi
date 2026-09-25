@@ -318,6 +318,9 @@ public final class EPUBReaderView: NSView {
         keyOptions: [.weakMemory, .objectPointerPersonality], valueOptions: .strongMemory)
     /// メディアオーバーレイ(SMIL)再生エンジン(再生時に生成)
     var mediaOverlayController: MediaOverlayController?
+    /// 読み込み中の読み上げハイライトは旧文書へ送らず、新文書の setup 後に適用する。
+    /// 解除(fragmentID が nil)も保持し、読み込み中は最後の要求だけを使う。
+    private var pendingMediaOverlayHighlight: (fragmentID: String?, cssClass: String)?
     /// `playMediaOverlayFromCurrentPage()` の JS 応答より後に届いた操作が、
     /// 古い応答から再生を開始しないためのコマンド世代。
     var mediaOverlayCommandGeneration: UInt = 0
@@ -615,6 +618,16 @@ public final class EPUBReaderView: NSView {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
         applyThemeCSSOnly()
+    }
+
+    /// 画面の倍率が変わったら、章の切り替わりに重ねる控えを撮り直す。
+    ///
+    /// Retakes the snapshot laid over chapter transitions when the backing scale changes.
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        guard let cover = prefetchedPageCover,
+              cover.backingScale != currentBackingScale else { return }
+        retakePageCoverAfterRestyle()
     }
 
     /// ネイティブ側(余白の背景・柱・ノンブルの色)へテーマを反映する
@@ -921,6 +934,7 @@ public final class EPUBReaderView: NSView {
         mediaOverlayController?.stop()
         guard request == navigationRequestGeneration else { return nil }
         mediaOverlayController = nil
+        pendingMediaOverlayHighlight = nil
         self.publication = publication
         // 前の本の控えを次の本に貼らない
         discardPageCovers()
@@ -1349,6 +1363,8 @@ public final class EPUBReaderView: NSView {
         return !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 
+    private var currentBackingScale: CGFloat { window?.backingScaleFactor ?? 2 }
+
     func schedulePageCoverPrefetch(after delay: Duration? = nil) {
         pageCoverPrefetchTask?.cancel()
         if delay == nil { pageCoverPrefetchRetries = 0 }
@@ -1363,7 +1379,7 @@ public final class EPUBReaderView: NSView {
 
     /// 描画フレームを待ってから撮影を予約する。待ちも pageCoverPrefetchTask に載せるので、
     /// 後の予約・破棄・armSpineCoverForTransition が取り消す。撮らない場面では待たない。
-    private func schedulePageCoverPrefetchAfterFrames() {
+    func schedulePageCoverPrefetchAfterFrames() {
         pageCoverPrefetchTask?.cancel()
         pageCoverPrefetchTask = nil
         guard let webView, usesPrefetchedPageCover, isAtItemBoundaryScreen,
@@ -1422,7 +1438,7 @@ public final class EPUBReaderView: NSView {
         let page = pageInItem
         let size = bounds.size
         let rect = webView.frame
-        let backingScale = window?.backingScaleFactor ?? 2
+        let backingScale = currentBackingScale
         let config = WKSnapshotConfiguration()
         config.afterScreenUpdates = false
         guard let image = try? await webView.takeSnapshot(configuration: config)
@@ -1452,7 +1468,7 @@ public final class EPUBReaderView: NSView {
             // 見えているページの flow は取り置き時に確認済みで、表示条件だけ照合し直す
             guard let armed = armedSpineCover, turnsPagesWithoutAnimation,
                   armed.matchesDisplay(size: bounds.size, fontScale: settings.fontScale,
-                                       backingScale: window?.backingScaleFactor ?? 2) else {
+                                       backingScale: currentBackingScale) else {
                 armedSpineCover = nil
                 return
             }
@@ -1461,7 +1477,7 @@ public final class EPUBReaderView: NSView {
         guard let held, usesPrefetchedPageCover,
               held.matches(spineIndex: currentSpineIndex, pageInItem: pageInItem,
                            size: bounds.size, fontScale: settings.fontScale,
-                           backingScale: window?.backingScaleFactor ?? 2) else {
+                           backingScale: currentBackingScale) else {
             armedSpineCover = nil
             return
         }
@@ -1535,6 +1551,7 @@ public final class EPUBReaderView: NSView {
         // setup 応答までは OPF を暫定値にし、旧 item の CSS 方向を持ち越さない。
         firstPageOnRight = isRTL
         isLoadingSpineItem = true
+        pendingMediaOverlayHighlight = nil
         spineLoadGeneration += 1
         // コミット前に置き換わった読み込みの矩形を、新しい項目へ当てない
         pendingWebViewLayout = nil
@@ -2400,6 +2417,20 @@ public final class EPUBReaderView: NSView {
         }
     }
 
+    /// washi ワールドへ JS を引数付きで即時に送り、応答は待たない。
+    /// Task を挟まず、後から送る控えの撮り直しの描画待ちより先に実行する。
+    func sendWashiNow(_ body: String, arguments: [String: Any]) {
+        webView?.callAsyncJavaScript(body, arguments: arguments, in: nil,
+                                     in: Self.washiWorld, completionHandler: nil)
+    }
+
+    /// 読み込み中は旧文書の読み上げハイライトを消さず、最後の要求を保留する。
+    func deferMediaOverlayHighlightIfLoading(fragmentID: String?, cssClass: String) -> Bool {
+        guard isLoadingSpineItem else { return false }
+        pendingMediaOverlayHighlight = (fragmentID, cssClass)
+        return true
+    }
+
     private func callWashiAsync(
         _ body: String, arguments: [String: Any], in webView: WKWebView
     ) async -> Any? {
@@ -2725,6 +2756,13 @@ public final class EPUBReaderView: NSView {
             }
             isLoadingSpineItem = false
             pendingTarget = .start
+            if let highlight = pendingMediaOverlayHighlight {
+                pendingMediaOverlayHighlight = nil
+                // 新しい章の最初の区間を、表示を戻す前に強調する。
+                // setup 中の撮影予約は何もしないので、下の撮影にまとめる。
+                mediaOverlayHighlight(fragmentID: highlight.fragmentID,
+                                      cssClass: highlight.cssClass)
+            }
             updateFurniture()
             scheduleCensusIfNeeded()  // メトリクス変化(フォント・寸法)に追従
             guard generation == spineLoadGeneration,
@@ -2778,6 +2816,7 @@ public final class EPUBReaderView: NSView {
             guard generation == spineLoadGeneration else { return }
             cancelPendingTextRangeRequest()
             isLoadingSpineItem = false
+            pendingMediaOverlayHighlight = nil
             clearPendingSpineTurn()
             webView.alphaValue = 1
             delegate?.readerView(self, didFailWith: error)
@@ -4121,6 +4160,7 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
     private func reportNavigationFailure(_ error: any Error) {
         cancelPendingTextRangeRequest()
         isLoadingSpineItem = false
+        pendingMediaOverlayHighlight = nil
         currentNavigation = nil
         spineNavigationGate = SpineNavigationGate()
         webView?.stopLoading()
