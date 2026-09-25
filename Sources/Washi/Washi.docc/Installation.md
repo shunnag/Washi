@@ -1,10 +1,10 @@
 # 導入と最初の表示 / Installation and First Display
 
-macOS 14 以降、Swift 6 を使う。ガイドとサンプルは Washi 1.20.0 の公開 API に対応する。
+macOS 14 以降、Swift 6 を使う。ガイドとサンプルは Washi 1.21.0 の公開 API に対応する。
 Washi は AppKit/WebKit を使う表示層、WashiCore は UI を使わない解析層。
 両方とも第三者パッケージへの依存はない。
 
-Use macOS 14+ and Swift 6. These guides and samples use the public API in Washi 1.20.0.
+Use macOS 14+ and Swift 6. These guides and samples use the public API in Washi 1.21.0.
 Washi provides AppKit/WebKit rendering; WashiCore provides parsing without UI.
 Neither has third-party package dependencies.
 
@@ -12,7 +12,7 @@ Neither has third-party package dependencies.
 
 1. **File → Add Package Dependencies…** を選び、
    `https://github.com/shunnag/Washi.git` を入力する。
-2. **Up to Next Major Version: 1.20.0** を選ぶ。
+2. **Up to Next Major Version: 1.21.0** を選ぶ。
 3. 表示するアプリのターゲットに **Washi** を追加する。表紙・メタデータ・検索だけなら
    **WashiCore** を追加する。
 4. アプリの Deployment Target を **macOS 14.0** 以降にする。
@@ -20,7 +20,7 @@ Neither has third-party package dependencies.
    表示層に必要な **Outgoing Connections (Client)** を設定する。
 
 Choose **File → Add Package Dependencies…**, enter the repository URL, and select
-**Up to Next Major Version: 1.20.0**. Add **Washi** to the app target for rendering,
+**Up to Next Major Version: 1.21.0**. Add **Washi** to the app target for rendering,
 or **WashiCore** for covers, metadata, and search. Set the deployment target to macOS 14+.
 For App Sandbox, configure the file access and WKWebView outgoing-connection entitlement
 described in <doc:FileAccess>.
@@ -45,7 +45,7 @@ let package = Package(
     name: "MyReader",
     platforms: [.macOS(.v14)],
     dependencies: [
-        .package(url: "https://github.com/shunnag/Washi.git", from: "1.20.0")
+        .package(url: "https://github.com/shunnag/Washi.git", from: "1.21.0")
     ],
     targets: [
         .executableTarget(
