@@ -103,6 +103,9 @@ public final class EPUBPageRasterizer {
         pendingNavigationWaiter = nil
         webView?.stopLoading()
         webView?.navigationDelegate = nil
+        // NSWindow の解放は AppKit の都合で遅れうるので、WebView をウインドウから
+        // 外してから手放す(WebView と WebContent プロセスの寿命をウインドウに預けない)
+        window?.contentView = nil
         webView = nil
         window?.orderOut(nil)
         window = nil

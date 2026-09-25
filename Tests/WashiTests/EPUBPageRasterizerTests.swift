@@ -128,9 +128,17 @@ final class EPUBPageRasterizerTests: XCTestCase {
         }
 
         try await exerciseTimeout()
-        for _ in 0..<100 {
+        // 保持の不具合なら Promise を解決するまで解放されない。負荷の高い CI では
+        // 解放そのものが 2 秒を超えることがある(Washi-cfm: 10 秒かかった回で失敗)ので、
+        // 10 秒まで待ち、2 秒を超えたら遅い解放として経過時間を記録する
+        let start = ContinuousClock.now
+        for _ in 0..<500 {
             if autoreleasepool(invoking: { views.allObjects.isEmpty }) { break }
             try await Task.sleep(for: .milliseconds(20))
+        }
+        let elapsed = ContinuousClock.now - start
+        if views.allObjects.isEmpty, elapsed > .seconds(2) {
+            print("[Washi-cfm] WebView released after \(elapsed)")
         }
         XCTAssertTrue(views.allObjects.isEmpty, "期限切れの JS 待機が WebView を保持している")
     }
