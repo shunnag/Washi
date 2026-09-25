@@ -107,6 +107,33 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertLessThan(ContinuousClock.now - start, .seconds(2))
     }
 
+    /// 描画フレームが進まないまま打ち切られた待ちが、閉じたリーダーの WebView を
+    /// 保持し続けない(最小化・遮蔽中に本を閉じても WebContent プロセスが残らない)
+    func testTimedOutFrameWaitDoesNotRetainWebView() async throws {
+        let views = NSHashTable<WKWebView>.weakObjects()
+        do {
+            let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+            let window = makeWindow(containing: view)
+            defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+            try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
+            let web = try webView(of: view)
+            views.add(web)
+            // 既定の待ちと同じ washi world の rAF を止め、描画フレームが来ない状態にする
+            _ = try await view.evaluateForTest(
+                "globalThis.requestAnimationFrame = () => 0; return true;")
+            let wait = view.animationFrameWait
+            let completed = await EPUBReaderView.race(
+                { await wait(web) }, timeout: .milliseconds(100))
+            XCTAssertFalse(completed)
+            view.unload()
+        }
+        for _ in 0..<500 {
+            if autoreleasepool(invoking: { views.allObjects.isEmpty }) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(views.allObjects.isEmpty, "打ち切った描画フレーム待ちが WebView を保持している")
+    }
+
     /// 描画フレームが進まなくても、表示は打ち切り時間の後に必ず戻る
     func testAlphaIsRestoredWhenAnimationFramesNeverArrive() async throws {
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))

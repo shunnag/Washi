@@ -1203,11 +1203,20 @@ public final class EPUBReaderView: NSView {
         prefetchedPageCover = cover
     }
 
-    /// 描画フレームを 2 回待つ処理。テストで差し替えられる
+    /// 描画フレームを 2 回待つ処理。テストで差し替えられる。
+    ///
+    /// async 版の callAsyncJavaScript は取り消しに応じず、rAF が進まない間
+    /// (最小化・遮蔽・ビューの取り外し)は ``race`` が打ち切った後も WKWebView を
+    /// 保持し続ける。応答側が弱参照だけを持つ waitForOffscreenResult で待ち、
+    /// 取り消されたらすぐに手放す。60 秒は取り消されなかった場合の保険
     var animationFrameWait: @MainActor (WKWebView) async -> Void = { webView in
-        _ = try? await webView.callAsyncJavaScript(
-            "await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); return true;",
-            arguments: [:], in: nil, contentWorld: EPUBReaderView.washiWorld)
+        let _: Bool? = await waitForOffscreenResult(timeout: .seconds(60)) { completion in
+            webView.callAsyncJavaScript(
+                "await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); return true;",
+                arguments: [:], in: nil, in: EPUBReaderView.washiWorld) { _ in
+                    completion(true)
+                }
+        }
     }
     /// 描画フレームの待ちを打ち切るまでの時間。テストで差し替えられる
     var animationFrameWaitTimeout = Duration.milliseconds(600)
