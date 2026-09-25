@@ -1511,6 +1511,8 @@ public final class EPUBReaderView: NSView {
             // コミットの通知を追えないので今当てる
             applyPendingWebViewLayout()
             isAwaitingCommit = false
+            // コミットを待てないので、隠したノンブルを今の状態で出し直す
+            updateFurniture()
         }
         currentNavigation = navigation
     }
@@ -4008,6 +4010,8 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
         pendingWebViewLayout = nil
         isAwaitingCommit = false
         webView?.alphaValue = 1
+        // コミット待ちで隠したノンブルを、通知の前に現在の状態で出し直す
+        updateFurniture()
         delegate?.readerView(self, didFailWith: error)
     }
 

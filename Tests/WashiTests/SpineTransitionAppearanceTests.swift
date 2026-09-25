@@ -12,9 +12,13 @@ import XCTest
 @MainActor
 private final class MoveCountingDelegate: EPUBReaderViewDelegate {
     var moves = 0
+    var failures: [any Error] = []
     func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
                     pageInItem: Int, pageCountInItem: Int) {
         moves += 1
+    }
+    func readerView(_ view: EPUBReaderView, didFailWith error: any Error) {
+        failures.append(error)
     }
 }
 
@@ -26,6 +30,23 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         try EPUBPublication(
             data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
             displayURL: URL(fileURLWithPath: "/tmp/\(name).epub"))
+    }
+
+    /// 2 番目の項目(ch2)を text/html と宣言し、描画可能な fallback の無い項目にする
+    private func makePublicationWithUnrenderableSecondItem() throws -> EPUBPublication {
+        var entries = EPUBFixtures.verticalNovelEntries()
+        let opf = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
+        let original = String(decoding: entries[opf].data, as: UTF8.self)
+        let patched = original.replacingOccurrences(
+            of: #"<item id="ch2" href="text/ch2.xhtml" media-type="application/xhtml+xml"/>"#,
+            with: #"<item id="ch2" href="text/ch2.xhtml" media-type="text/html"/>"#)
+        XCTAssertNotEqual(patched, original, "フィクスチャの OPF が変わった")
+        entries[opf].data = Data(patched.utf8)
+        let publication = try EPUBPublication(
+            data: ZipBuilder.build(entries, method: 8),
+            displayURL: URL(fileURLWithPath: "/tmp/washi-unrenderable-second.epub"))
+        XCTAssertFalse(EPUBReaderView.canRenderSpineResource(publication.readingOrder[1], in: publication))
+        return publication
     }
 
     private func makeWindow(containing view: NSView) -> NSWindow {
@@ -169,6 +190,67 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertTrue(labels.contains { !$0.isHidden }, "ノンブルが見えている前提")
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
         XCTAssertTrue(labels.allSatisfy(\.isHidden))
+    }
+
+    /// 表示できない項目への移動に失敗したら、現在の状態でノンブルを出し直す
+    func testPageNumbersReturnWhenTheNextItemCannotBeDisplayed() async throws {
+        let publication = try makePublicationWithUnrenderableSecondItem()
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        view.accessibilityReduceMotionOverride = false
+        let window = makeWindow(containing: view)
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let delegate = MoveCountingDelegate()
+        try await openAndSettle(view, publication, delegate: delegate)
+        let labels = view.subviews.compactMap { $0 as? NSTextField }
+        XCTAssertTrue(labels.contains { !$0.isHidden }, "ノンブルが見えている前提")
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        XCTAssertEqual(delegate.failures.count, 1)
+        XCTAssertEqual(try webView(of: view).alphaValue, 1)
+        // 失敗後も失敗した項目を指す既存の状態を前提として確かめる
+        XCTAssertEqual(view.currentSpineIndex, 1)
+        // 現在の状態（失敗した項目の先頭）と一致する
+        XCTAssertEqual(labels.filter { !$0.isHidden }.map(\.stringValue), ["1"])
+    }
+
+    /// 読み込みの失敗後に、現在の状態でノンブルを出し直す
+    func testPageNumbersReturnWhenLoadingTheNextItemFails() async throws {
+        let publication = try makePublication()
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        view.accessibilityReduceMotionOverride = false
+        let window = makeWindow(containing: view)
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let delegate = MoveCountingDelegate()
+        try await openAndSettle(view, publication, delegate: delegate)
+        let labels = view.subviews.compactMap { $0 as? NSTextField }
+        XCTAssertTrue(labels.contains { !$0.isHidden }, "ノンブルが見えている前提")
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        XCTAssertTrue(labels.allSatisfy(\.isHidden))
+        view.handleNavigationFailure(
+            NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotDecodeContentData),
+            hasNavigation: true)
+        XCTAssertEqual(delegate.failures.count, 1)
+        // 現在の状態（失敗した項目の先頭）と一致する
+        XCTAssertEqual(labels.filter { !$0.isHidden }.map(\.stringValue), ["1"])
+    }
+
+    /// 境界めくりに失敗したら、持ち越しカバーを畳んでノンブルを出し直す
+    func testPageNumbersReturnWhenABoundaryTurnCannotBeDisplayed() async throws {
+        let publication = try makePublicationWithUnrenderableSecondItem()
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        view.accessibilityReduceMotionOverride = false
+        let window = makeWindow(containing: view)
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let delegate = MoveCountingDelegate()
+        try await openAndSettle(view, publication, delegate: delegate)
+        let labels = view.subviews.compactMap { $0 as? NSTextField }
+        XCTAssertTrue(labels.contains { !$0.isHidden }, "ノンブルが見えている前提")
+        view.installTurnCover(NSImageView(image: NSImage(size: view.bounds.size)), pending: true)
+        view.handleScriptMessage(["type": "boundary", "forward": true])
+        XCTAssertEqual(delegate.failures.count, 1)
+        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertTrue(view.turnOverlays.isEmpty)
+        // 現在の状態（失敗した項目の先頭）と一致する
+        XCTAssertEqual(labels.filter { !$0.isHidden }.map(\.stringValue), ["1"])
     }
 
     // MARK: - 控えのカバー
