@@ -108,7 +108,9 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     }
 
     /// 描画フレームが進まないまま打ち切られた待ちが、閉じたリーダーの WebView を
-    /// 保持し続けない(最小化・遮蔽中に本を閉じても WebContent プロセスが残らない)
+    /// 保持し続けない(最小化・遮蔽中に本を閉じても WebContent プロセスが残らない)。
+    /// rAF を止める方法は WebKit の版で効き方が違うので、決して解決しない script で
+    /// 同じ待ちの経路を通す
     func testTimedOutFrameWaitDoesNotRetainWebView() async throws {
         let views = NSHashTable<WKWebView>.weakObjects()
         do {
@@ -118,12 +120,10 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
             let web = try webView(of: view)
             views.add(web)
-            // 既定の待ちと同じ washi world の rAF を止め、描画フレームが来ない状態にする
-            _ = try await view.evaluateForTest(
-                "globalThis.requestAnimationFrame = () => 0; return true;")
-            let wait = view.animationFrameWait
-            let completed = await EPUBReaderView.race(
-                { await wait(web) }, timeout: .milliseconds(100))
+            let completed = await EPUBReaderView.race({
+                await EPUBReaderView.waitForWashiScript(
+                    "await new Promise(() => {}); return true;", in: web)
+            }, timeout: .milliseconds(100))
             XCTAssertFalse(completed)
             view.unload()
         }
