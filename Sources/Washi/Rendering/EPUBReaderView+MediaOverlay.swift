@@ -183,10 +183,19 @@ extension EPUBReaderView {
     /// callAsyncJavaScript の引数として渡し WebKit に完全にエスケープさせる
     /// (手動 \\・' エスケープでは \n・\r・U+2028・U+2029 を取りこぼす)
     func mediaOverlayHighlight(fragmentID: String?, cssClass: String) {
+        guard !deferMediaOverlayHighlightIfLoading(fragmentID: fragmentID, cssClass: cssClass)
+        else { return }
         let idArg: Any
         if let fragmentID { idArg = fragmentID } else { idArg = NSNull() }
-        callWashiAsync("return __washi.mediaOverlayHighlight(id, cls);",
-                       arguments: ["id": idArg, "cls": cssClass])
+        // 同じ文書の断片への go(to:) と再生開始が同じターンに重なると、
+        // 強調の showPage より後に Task 経由の showFragment が走って最終ページを決める。
+        // この端の場合の順序の変化は許容する(Washi-lgt)。
+        sendWashiNow("return __washi.mediaOverlayHighlight(id, cls);",
+                     arguments: ["id": idArg, "cls": cssClass])
+        // 撮り直しが章送りに間に合わなくても控えなしにせず、前の控えで送るため捨てない。
+        // 境界の画面でだけ撮るかは既存のガードが決める。区間が続くと前の予約を取り消し、
+        // 最後の撮影にまとめる。読み込み中は撮らず、runSetup の撮影に任せる。
+        schedulePageCoverPrefetchAfterFrames()
     }
 
     /// 連続再生で次の項目へ移動する(先頭から表示)
