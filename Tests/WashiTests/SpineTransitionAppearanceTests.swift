@@ -392,25 +392,56 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
         try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
         var current = try await waitForCover(view)
-        let stages: [(String, @MainActor () -> Void)] = [
-            ("コントラストの強調", { view.accessibilityIncreaseContrastOverride = true }),
-            ("外観の変更", { view.viewDidChangeEffectiveAppearance() }),
-            ("ハイライトの追加", {
+        let stages: [(name: String, dropsCover: Bool, change: @MainActor () -> Void)] = [
+            ("コントラストの強調", true, { view.accessibilityIncreaseContrastOverride = true }),
+            ("外観の変更", true, { view.viewDidChangeEffectiveAppearance() }),
+            ("ハイライトの追加", false, {
                 view.highlights = [EPUBHighlight(
                     id: "h", spineIndex: 0, utf16Offset: 0, utf16Length: 2)]
             }),
-            ("ハイライトの削除", { view.highlights = [] }),
+            ("ハイライトの削除", false, { view.highlights = [] }),
         ]
-        for (stage, change) in stages {
+        for (stage, dropsCover, change) in stages {
             let old = current
             change()
-            XCTAssertNil(view.prefetchedPageCover, "\(stage): 古い見た目の控えはその場で捨てる")
+            if dropsCover {
+                XCTAssertNil(view.prefetchedPageCover, "\(stage): 古い見た目の控えはその場で捨てる")
+            } else {
+                XCTAssertTrue(view.prefetchedPageCover?.image === old.image,
+                              "\(stage): 撮り直すまで前の控えを残す")
+            }
             current = try await waitForCover(
                 view, replacing: old.image, message: "\(stage): 控えの撮り直しが時間切れになった")
         }
 
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
         XCTAssertTrue(view.armedSpineCover?.image === current.image, "最後に撮り直した控えを取り置く")
+    }
+
+    func testHighlightOnAnotherItemKeepsTheCoverForTheNextMove() async throws {
+        let (view, window) = makeCoverReader()
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
+        let a = try await waitForCover(view)
+
+        view.highlights = [EPUBHighlight(
+            id: "h", spineIndex: 1, utf16Offset: 0, utf16Length: 2)]
+        XCTAssertTrue(view.prefetchedPageCover?.image === a.image,
+                      "別の章のハイライトを設定しても現在の控えを残す")
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        XCTAssertTrue(view.armedSpineCover?.image === a.image,
+                      "検索の例のように別の章のハイライトを設定してすぐ移動しても控えを使う")
+    }
+
+    func testNonAppearanceSettingKeepsTheCover() async throws {
+        let (view, window) = makeCoverReader()
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
+        let a = try await waitForCover(view)
+
+        view.settings.handlesKeyboardNavigation.toggle()
+        XCTAssertTrue(view.prefetchedPageCover?.image === a.image,
+                      "キー操作の設定を変えても現在の控えを残す")
     }
 
     func testLayoutAndThemeChangeDoesNotUseTheOldCover() async throws {
