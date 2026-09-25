@@ -179,6 +179,61 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertEqual(try webView(of: view).alphaValue, 1)
     }
 
+    /// 置き換えた読み込みのコミットでも、ページ割り前の文書を隠す(Washi-7ct)
+    func testSupersededLoadCommitHidesTheUnpaginatedDocument() async throws {
+        let publication = try makePublication()
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        view.accessibilityReduceMotionOverride = false
+        let window = makeWindow(containing: view)
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let delegate = MoveCountingDelegate()
+        try await openAndSettle(view, publication, delegate: delegate)
+        XCTAssertGreaterThan(publication.readingOrder.count, 2)
+        let web = try webView(of: view)
+        view.setPrefetchedPageCoverForTesting(nil)
+        let moves = delegate.moves
+
+        // await を挟まず、先行のコミットが次の読み込みの開始後に届く順序を再現する
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        let superseded = try XCTUnwrap(view.currentNavigation)
+        view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
+        XCTAssertTrue(view.currentNavigation !== superseded)
+        XCTAssertEqual(web.alphaValue, 1, "どちらもコミット前なので前のページが見えている")
+        view.webView(web, didCommit: superseded)
+        XCTAssertEqual(web.alphaValue, 0, "ページ割り前の文書を見せない")
+
+        let restored = await waitUntil {
+            delegate.moves > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
+        }
+        XCTAssertTrue(restored, "次の読み込みのコミットと setup の後に表示が戻る")
+        XCTAssertEqual(view.currentSpineIndex, 2)
+        XCTAssertNil(view.pendingSpineTurn)
+    }
+
+    /// 修正の前後とも成功する、ガードの広げすぎを防ぐテスト。
+    /// 表示が落ち着いた後の古いコミットは、今のページを隠さない。
+    func testLateCommitOfAnEarlierLoadDoesNotHideASettledPage() async throws {
+        let publication = try makePublication()
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        view.accessibilityReduceMotionOverride = false
+        let window = makeWindow(containing: view)
+        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let delegate = MoveCountingDelegate()
+        try await openAndSettle(view, publication, delegate: delegate)
+        let web = try webView(of: view)
+        let initial = try XCTUnwrap(view.currentNavigation)
+
+        let m = delegate.moves
+        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+        let settled = await waitUntil { delegate.moves > m && web.alphaValue == 1 }
+        XCTAssertTrue(settled)
+        let frame = web.frame
+
+        view.webView(web, didCommit: initial)
+        XCTAssertEqual(web.alphaValue, 1, "表示済みのページは古いコミットで隠さない")
+        XCTAssertEqual(web.frame, frame, "表示済みのページの矩形を変えない")
+    }
+
     /// コミットまでは前のページが見えているので、新しい項目のノンブルを出さない
     func testPageNumbersAreHiddenUntilTheNextItemCommits() async throws {
         let publication = try makePublication()
