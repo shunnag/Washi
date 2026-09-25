@@ -10,38 +10,87 @@ import concurrent.futures
 import hashlib
 import json
 from pathlib import Path
+import struct
 import urllib.request
 import zipfile
 
 
-def content_digest(path):
-    """ZIP の付帯情報(時刻・属性・余白)に左右されない内容ダイジェスト。
+OCF_MIMETYPE = b"application/epub+zip"
+# ZIP のローカルファイルヘッダ(固定長 30 バイト)
+LOCAL_FILE_HEADER = struct.Struct("<4sHHHHHIIIHH")
 
-    エントリの順序・名前・圧縮方式・中身を含めるので、中身の変化や、OCF に関わる
-    構造(先頭に無圧縮の mimetype を置くこと)の変化は検出する。読めない ZIP は None。
+
+def content_digest(path):
+    """ZIP の付帯情報(時刻・属性・余白)とエントリの並び順に左右されない内容ダイジェスト。
+
+    エントリを名前順に並べ、名前・圧縮方式・中身を含めるので、中身・名前・圧縮方式の
+    変化は検出する。mimetype の位置などの OCF の構造は has_ocf_mimetype で別に確かめる。
+    同じ名前のエントリが複数ある ZIP と、読めない ZIP は None。
     """
     digest = hashlib.sha256()
     try:
         with zipfile.ZipFile(path) as archive:
-            for info in archive.infolist():
+            entries = archive.infolist()
+            if len({info.filename for info in entries}) != len(entries):
+                return None
+            for info in sorted(entries, key=lambda info: info.filename):
                 digest.update(f"{info.filename}\0{info.compress_type}\0".encode("utf-8"))
                 digest.update(hashlib.sha256(archive.read(info)).digest())
-    except (zipfile.BadZipFile, NotImplementedError, RuntimeError, EOFError, OSError):
+    # 壊れた ZIP の読み出しでは BadZipFile・OSError のほか、伸長の zlib.error・
+    # lzma.LZMAError、不正な UTF-8 名の UnicodeDecodeError なども起きる。Python の版で
+    # 伸長器の例外も増えるため(3.14 の zstd など)、どれも読めない ZIP として扱う
+    # (照合は失敗側に倒れ、拒否か再取得になる)。
+    except Exception:
         return None
     return digest.hexdigest()
+
+
+def has_ocf_mimetype(path) -> bool:
+    """OCF の求めるとおり、無圧縮の mimetype が先頭にあるか。
+
+    central directory の最初のエントリであり、ファイルの先頭(オフセット 0)の
+    ローカルヘッダでもあること、無圧縮・暗号化なし・ローカルヘッダに拡張フィールドが
+    ないこと、中身が application/epub+zip そのものであることを確かめる。
+    読めない ZIP は False。
+    """
+    magic = b"mimetype" + OCF_MIMETYPE
+    try:
+        with zipfile.ZipFile(path) as archive:
+            entries = archive.infolist()
+            if not entries:
+                return False
+            first = entries[0]
+            # フラグは UTF-8 名(0x800)などを許し、暗号化(ビット 0)だけを拒否する
+            if (first.filename != "mimetype" or first.header_offset != 0
+                    or first.compress_type != zipfile.ZIP_STORED or first.flag_bits & 0x1
+                    or archive.read(first) != OCF_MIMETYPE):
+                return False
+        with open(path, "rb") as file:
+            head = file.read(LOCAL_FILE_HEADER.size + len(magic))
+        if len(head) != LOCAL_FILE_HEADER.size + len(magic):
+            return False
+        (signature, _, flags, method, _, _, _, _, _,
+         name_length, extra_length) = LOCAL_FILE_HEADER.unpack_from(head)
+        return (signature == b"PK\x03\x04" and method == zipfile.ZIP_STORED
+                and not flags & 0x1 and name_length == len(b"mimetype") and extra_length == 0
+                and head[LOCAL_FILE_HEADER.size:] == magic)
+    except Exception:
+        return False
 
 
 def verify(book, path, actual):
     """記録と一致すれば照合方法("sha256" か "contents")、しなければ None。
 
-    配布元が同じ中身の ZIP を作り直すと、時刻などの付帯情報だけが変わって SHA-256 が
-    食い違う。記録した内容ダイジェストと一致すれば、同じ本として受け入れる。
+    配布元が同じ中身の ZIP を作り直すと、時刻などの付帯情報やエントリの並び順だけが
+    変わって SHA-256 が食い違う。記録した内容ダイジェストと一致し、mimetype の配置も
+    OCF のとおりなら、同じ本として受け入れる。
     """
     expected = book.get("sha256")
     if not expected or actual == expected:
         return "sha256"
     expected_contents = book.get("contentSHA256")
-    if expected_contents and content_digest(path) == expected_contents:
+    if (expected_contents and content_digest(path) == expected_contents
+            and has_ocf_mimetype(path)):
         return "contents"
     return None
 
