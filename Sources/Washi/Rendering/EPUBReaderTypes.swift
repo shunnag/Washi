@@ -1058,7 +1058,8 @@ public protocol EPUBReaderViewDelegate: AnyObject {
     /// その位置を返す。別の読み込み中に拒否した場合、その読み込みは続き、
     /// `currentLocator` は進行中の行き先を返し、後で `didMoveTo` が届く。
     /// WebKit が項目の読み込みに失敗した場合(読み込みを開始できなかった場合を含む)は、
-    /// 最後に表示準備を終えた位置を読み込み直す。
+    /// 表示準備を終えた文書で最後に表示していた位置(続けて移動した場合は
+    /// 最初の移動の前の位置)を読み込み直す。
     /// 通知時の `currentLocator` はその復旧先を返し、復旧後に `didMoveTo` が届く。
     /// 復旧先が無い場合(本を開いた直後など)は失敗した項目の位置を返す。
     /// 失敗ごとに一度通知し、読み込み直しも失敗した場合はもう一度通知して止める。
@@ -1070,15 +1071,16 @@ public protocol EPUBReaderViewDelegate: AnyObject {
     /// (この場合は読み込み直さない)。
     /// 読み上げで表示できない章へ進もうとすると、失敗通知の後に再生を終了し、
     /// `isPlayingMediaOverlayDidChange(false)`、`readerViewMediaOverlayDidFinish` の順に届く。
-    /// 読み上げ中に読み込みの失敗から読み込み直した場合は、再生中の区間の終わりで
-    /// 再生を終える。
+    /// 読み上げが次の章へ進む読み込みに失敗して前の位置を読み込み直した場合は、
+    /// 再生中の区間の終わりまでに再生を終える。
     ///
     /// A load failure or similar error.
     /// Navigation to an unloadable item is rejected, keeping the previous page
     /// and its `currentLocator`. If another load is in progress, it continues,
     /// `currentLocator` returns its destination, and `didMoveTo` follows later.
     /// If WebKit fails to load an item (including when the load could not start),
-    /// the last location whose document finished setup is reloaded. During this callback,
+    /// the location last displayed in the last document that finished setup
+    /// (for chained moves, the location before the first move) is reloaded. During this callback,
     /// `currentLocator` returns that recovery destination; `didMoveTo` follows
     /// when it is restored. Without a recovery location (for example, just after
     /// opening a book), it returns the failed item's location. Each failure is
@@ -1091,8 +1093,8 @@ public protocol EPUBReaderViewDelegate: AnyObject {
     /// this callback reports a group setup or item load failure without reloading.
     /// When narration tries to enter an unloadable chapter, this callback is followed by
     /// `isPlayingMediaOverlayDidChange(false)` and `readerViewMediaOverlayDidFinish`.
-    /// If a load failure triggers a reload during narration, playback ends at
-    /// the end of the segment currently playing.
+    /// If narration fails to move to the next chapter and the previous location
+    /// is reloaded, playback ends by the end of the current clip.
     func readerView(_ view: EPUBReaderView, didFailWith error: any Error)
     /// 本全体のページ数の実測(census)が更新された(完了または無効化)。
     /// view.pageCensus / censusTotalPages / currentGlobalPageRange を参照。
