@@ -66,8 +66,8 @@ final class ZipIntegrityTests: XCTestCase {
     func testAcceptsTrailingBytesAfterCompleteDeflateStream() throws {
         let payload = Data("text".utf8)
         let zip = try archive(stream: storedDeflate(payload) + Data([0xff]), declared: payload)
-        // Like zlib-based readers, accept padding after a completed stream.
-        // Compression may read ahead, so src_size cannot locate its exact end.
+        // zlib 系のリーダーと同じく、完結したストリームの後ろの詰め物は受け入れる。
+        // 圧縮側は先読みすることがあり、src_size ではストリームの正確な終端を特定できない。
         XCTAssertEqual(try zip.data(forEntry: "payload.bin"), payload)
     }
 
