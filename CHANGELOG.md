@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+### 変更
+- 解析・表示・WebKit 内容・ページ割り・オフスクリーン処理を責務別に配置し、
+  読み込み先・スクリプト契約・待機の状態を型で表した。公開 API とプロダクト構成を維持した。
+  README・DocC・テストの補助・開発スクリプトを整理し、consumer と corpus を含む
+  [統合検証](Documentation/verification/2026-09-30-code-quality.md)を記録した。
+
+### 修正
+- SMIL の text 参照が `a#` のように空の fragment を含む場合、fragment を nil として統一した。
+
 ## [1.22.0] - 2026-09-26
 
 ### 修正

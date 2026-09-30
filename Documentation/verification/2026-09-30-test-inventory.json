@@ -1,0 +1,1154 @@
+{
+  "baseline": 623,
+  "current": 634,
+  "added": [
+    "testInvalidateDuringMeasurementStopsCensusWithoutRebuilding",
+    "testBaseCSSInjectorEmbedsBaseCSSAsStringLiteral",
+    "testPageScriptKeepsWashiExportAnchor",
+    "testPostedMessageTypesMatchEnum",
+    "testSetupOptionReadsAreDeclared",
+    "testSetupResultKeysMatchEnum",
+    "testSetupResultOverridesUseDeclaredKeys",
+    "testTextMapSkippedElementsMatchWashiCore",
+    "testArrowKeydownPostsKeyOnlyWhenKeysDisabled",
+    "testContinuousScrollLazyLoadFailurePostsScrollFailureOnce",
+    "testWheelGesturePostsWheelTurnWithDirectionAndAxis"
+  ],
+  "removed": [],
+  "moves": [
+    {
+      "method": "testAbandonedSpineLoadPoliciesAreCancelledOnce",
+      "before": [
+        "WashiTests.SpineLoadFailureRecoveryTests/testAbandonedSpineLoadPoliciesAreCancelledOnce"
+      ],
+      "after": [
+        "WashiTests.SpineLoadPolicyBookkeepingTests/testAbandonedSpineLoadPoliciesAreCancelledOnce"
+      ]
+    },
+    {
+      "method": "testAbandonedSpineLoadPolicyPrecedesExpectedLoadForSamePath",
+      "before": [
+        "WashiTests.SpineLoadFailureRecoveryTests/testAbandonedSpineLoadPolicyPrecedesExpectedLoadForSamePath"
+      ],
+      "after": [
+        "WashiTests.SpineLoadPolicyBookkeepingTests/testAbandonedSpineLoadPolicyPrecedesExpectedLoadForSamePath"
+      ]
+    },
+    {
+      "method": "testAlphaIsRestoredWhenAnimationFramesNeverArrive",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testAlphaIsRestoredWhenAnimationFramesNeverArrive"
+      ],
+      "after": [
+        "WashiTests.SpineTransitionVisibilityTests/testAlphaIsRestoredWhenAnimationFramesNeverArrive"
+      ]
+    },
+    {
+      "method": "testAppearanceOnlyChangesRetakeTheCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testAppearanceOnlyChangesRetakeTheCover"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testAppearanceOnlyChangesRetakeTheCover"
+      ]
+    },
+    {
+      "method": "testAsyncTextRangeNavigationStillCompletesWithLanding",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testAsyncTextRangeNavigationStillCompletesWithLanding"
+      ],
+      "after": [
+        "WashiTests.ReaderViewTextAnchorLandingTests/testAsyncTextRangeNavigationStillCompletesWithLanding"
+      ]
+    },
+    {
+      "method": "testBackingScaleChangeRetakesTheCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testBackingScaleChangeRetakesTheCover"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testBackingScaleChangeRetakesTheCover"
+      ]
+    },
+    {
+      "method": "testCancellationDuringChapterReadStopsSearch",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testCancellationDuringChapterReadStopsSearch"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testCancellationDuringChapterReadStopsSearch"
+      ]
+    },
+    {
+      "method": "testCancellingExpectedSpineLoadKeepsAbandonedEntries",
+      "before": [
+        "WashiTests.SpineLoadFailureRecoveryTests/testCancellingExpectedSpineLoadKeepsAbandonedEntries"
+      ],
+      "after": [
+        "WashiTests.SpineLoadPolicyBookkeepingTests/testCancellingExpectedSpineLoadKeepsAbandonedEntries"
+      ]
+    },
+    {
+      "method": "testCensusGlobalPageClampsHostileLocatorProgression",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testCensusGlobalPageClampsHostileLocatorProgression"
+      ],
+      "after": [
+        "WashiTests.ReaderViewCensusTests/testCensusGlobalPageClampsHostileLocatorProgression"
+      ]
+    },
+    {
+      "method": "testCensusGlobalPageRoundTripsEveryPage",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testCensusGlobalPageRoundTripsEveryPage"
+      ],
+      "after": [
+        "WashiTests.ReaderViewCensusTests/testCensusGlobalPageRoundTripsEveryPage"
+      ]
+    },
+    {
+      "method": "testChainedMoveBeforeTheCommitKeepsThePreviousPageCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testChainedMoveBeforeTheCommitKeepsThePreviousPageCover"
+      ],
+      "after": [
+        "WashiTests.ChainedMovePageCoverTests/testChainedMoveBeforeTheCommitKeepsThePreviousPageCover"
+      ]
+    },
+    {
+      "method": "testChainedMoveDoesNotKeepTheCoverAfterTheDisplayConditionsChange",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testChainedMoveDoesNotKeepTheCoverAfterTheDisplayConditionsChange"
+      ],
+      "after": [
+        "WashiTests.ChainedMovePageCoverTests/testChainedMoveDoesNotKeepTheCoverAfterTheDisplayConditionsChange"
+      ]
+    },
+    {
+      "method": "testChainedMoveThroughAScrolledItemKeepsThePreviousPageCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testChainedMoveThroughAScrolledItemKeepsThePreviousPageCover"
+      ],
+      "after": [
+        "WashiTests.ChainedMovePageCoverTests/testChainedMoveThroughAScrolledItemKeepsThePreviousPageCover"
+      ]
+    },
+    {
+      "method": "testChainedRecoveriesKeepPolicyIssueOrder",
+      "before": [
+        "WashiTests.SpineLoadFailureRecoveryTests/testChainedRecoveriesKeepPolicyIssueOrder"
+      ],
+      "after": [
+        "WashiTests.SpineLoadPolicyBookkeepingTests/testChainedRecoveriesKeepPolicyIssueOrder"
+      ]
+    },
+    {
+      "method": "testChapterAdvanceBeforeTheRetakeKeepsThePreviousCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testChapterAdvanceBeforeTheRetakeKeepsThePreviousCover"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testChapterAdvanceBeforeTheRetakeKeepsThePreviousCover"
+      ]
+    },
+    {
+      "method": "testChapterLoadKeepsTheOldNarrationHighlightAndAppliesTheNewOne",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testChapterLoadKeepsTheOldNarrationHighlightAndAppliesTheNewOne"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testChapterLoadKeepsTheOldNarrationHighlightAndAppliesTheNewOne"
+      ]
+    },
+    {
+      "method": "testChapterTitlePrefersFirstTOCEntryAtSameSpine",
+      "before": [
+        "WashiTests.PublicationTestsNavigationCache/testChapterTitlePrefersFirstTOCEntryAtSameSpine"
+      ],
+      "after": [
+        "WashiTests.PublicationNavigationCacheTests/testChapterTitlePrefersFirstTOCEntryAtSameSpine"
+      ]
+    },
+    {
+      "method": "testChapterTitleReturnsNilForEmptyTOC",
+      "before": [
+        "WashiTests.PublicationTestsNavigationCache/testChapterTitleReturnsNilForEmptyTOC"
+      ],
+      "after": [
+        "WashiTests.PublicationNavigationCacheTests/testChapterTitleReturnsNilForEmptyTOC"
+      ]
+    },
+    {
+      "method": "testChapterTitleReturnsNilWhenOnlyTOCEntriesAreLater",
+      "before": [
+        "WashiTests.PublicationTestsNavigationCache/testChapterTitleReturnsNilWhenOnlyTOCEntriesAreLater"
+      ],
+      "after": [
+        "WashiTests.PublicationNavigationCacheTests/testChapterTitleReturnsNilWhenOnlyTOCEntriesAreLater"
+      ]
+    },
+    {
+      "method": "testClickThatClearsExistingSelectionDoesNotPostTap",
+      "before": [
+        "WashiTests.ReaderScriptsRenderingLifecycleTests/testClickThatClearsExistingSelectionDoesNotPostTap"
+      ],
+      "after": [
+        "WashiTests.ReaderScriptClickDispatchTests/testClickThatClearsExistingSelectionDoesNotPostTap"
+      ]
+    },
+    {
+      "method": "testCoverDoesNotSurviveOpeningAnotherBook",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testCoverDoesNotSurviveOpeningAnotherBook"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testCoverDoesNotSurviveOpeningAnotherBook"
+      ]
+    },
+    {
+      "method": "testCoverIsNotUsedWithAnimatedPageTurns",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testCoverIsNotUsedWithAnimatedPageTurns"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testCoverIsNotUsedWithAnimatedPageTurns"
+      ]
+    },
+    {
+      "method": "testCoverIsRetakenWhenTheWindowIsVisibleAgain",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testCoverIsRetakenWhenTheWindowIsVisibleAgain"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testCoverIsRetakenWhenTheWindowIsVisibleAgain"
+      ]
+    },
+    {
+      "method": "testCoverIsUsedWithAnimatedPageTurnsWhenReducingMotion",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testCoverIsUsedWithAnimatedPageTurnsWhenReducingMotion"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testCoverIsUsedWithAnimatedPageTurnsWhenReducingMotion"
+      ]
+    },
+    {
+      "method": "testDRMDetection",
+      "before": [
+        "WashiTests.PublicationTests/testDRMDetection"
+      ],
+      "after": [
+        "WashiTests.EncryptionDetectionTests/testDRMDetection"
+      ]
+    },
+    {
+      "method": "testDefaultDelegateStillConsumesForwardedKeys",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testDefaultDelegateStillConsumesForwardedKeys"
+      ],
+      "after": [
+        "WashiTests.ReaderViewKeyForwardingTests/testDefaultDelegateStillConsumesForwardedKeys"
+      ]
+    },
+    {
+      "method": "testDeferredWebContentReloadRunsOnceAfterAttach",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testDeferredWebContentReloadRunsOnceAfterAttach"
+      ],
+      "after": [
+        "WashiTests.WebContentReloadTests/testDeferredWebContentReloadRunsOnceAfterAttach"
+      ]
+    },
+    {
+      "method": "testDeviceSizedViewportVariantsArePreserved",
+      "before": [
+        "WashiTests.PublicationTests/testDeviceSizedViewportVariantsArePreserved"
+      ],
+      "after": [
+        "WashiTests.FixedLayoutInfoTests/testDeviceSizedViewportVariantsArePreserved"
+      ]
+    },
+    {
+      "method": "testDoubleClickedAnchorPreventsDefaultWithoutDuplicateLink",
+      "before": [
+        "WashiTests.ReaderScriptsRenderingLifecycleTests/testDoubleClickedAnchorPreventsDefaultWithoutDuplicateLink"
+      ],
+      "after": [
+        "WashiTests.ReaderScriptClickDispatchTests/testDoubleClickedAnchorPreventsDefaultWithoutDuplicateLink"
+      ]
+    },
+    {
+      "method": "testEPUB2WithoutSpineTOCFindsFirstNCXManifestItem",
+      "before": [
+        "WashiTests.PublicationTestsNavigationCache/testEPUB2WithoutSpineTOCFindsFirstNCXManifestItem"
+      ],
+      "after": [
+        "WashiTests.PublicationNavigationCacheTests/testEPUB2WithoutSpineTOCFindsFirstNCXManifestItem"
+      ]
+    },
+    {
+      "method": "testEmptyNavTOCFallsBackToNCXAndPreservesNavAuxiliaryLists",
+      "before": [
+        "WashiTests.PublicationTestsNavigationCache/testEmptyNavTOCFallsBackToNCXAndPreservesNavAuxiliaryLists"
+      ],
+      "after": [
+        "WashiTests.PublicationNavigationCacheTests/testEmptyNavTOCFallsBackToNCXAndPreservesNavAuxiliaryLists"
+      ]
+    },
+    {
+      "method": "testExtractTextSeparatesCaptionAndTableCells",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testExtractTextSeparatesCaptionAndTableCells"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testExtractTextSeparatesCaptionAndTableCells"
+      ]
+    },
+    {
+      "method": "testExtractTextSkipsSVGMetadataAndMathMLAnnotations",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testExtractTextSkipsSVGMetadataAndMathMLAnnotations"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testExtractTextSkipsSVGMetadataAndMathMLAnnotations"
+      ]
+    },
+    {
+      "method": "testExtractTextSkipsXMLShapedUnsupportedSpineMedia",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testExtractTextSkipsXMLShapedUnsupportedSpineMedia"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testExtractTextSkipsXMLShapedUnsupportedSpineMedia"
+      ]
+    },
+    {
+      "method": "testExtractedTextCacheIsSharedByExtractionSearchAndPageEstimation",
+      "before": [
+        "WashiTests.PublicationTestsNavigationCache/testExtractedTextCacheIsSharedByExtractionSearchAndPageEstimation"
+      ],
+      "after": [
+        "WashiTests.PublicationNavigationCacheTests/testExtractedTextCacheIsSharedByExtractionSearchAndPageEstimation"
+      ]
+    },
+    {
+      "method": "testFailureInAChainKeepsTheCoverUntilRecoveryFinishes",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testFailureInAChainKeepsTheCoverUntilRecoveryFinishes"
+      ],
+      "after": [
+        "WashiTests.ChainedMovePageCoverTests/testFailureInAChainKeepsTheCoverUntilRecoveryFinishes"
+      ]
+    },
+    {
+      "method": "testFallbackSpineIndexHandlesCyclesSharedTargetsAndMissingIDs",
+      "before": [
+        "WashiTests.PublicationTests/testFallbackSpineIndexHandlesCyclesSharedTargetsAndMissingIDs"
+      ],
+      "after": [
+        "WashiTests.FixedLayoutInfoTests/testFallbackSpineIndexHandlesCyclesSharedTargetsAndMissingIDs"
+      ]
+    },
+    {
+      "method": "testFixedLayoutCoverIsRetakenWhenTheViewIsShownAgain",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testFixedLayoutCoverIsRetakenWhenTheViewIsShownAgain"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testFixedLayoutCoverIsRetakenWhenTheViewIsShownAgain"
+      ]
+    },
+    {
+      "method": "testFixedLayoutInfo",
+      "before": [
+        "WashiTests.PublicationTests/testFixedLayoutInfo"
+      ],
+      "after": [
+        "WashiTests.FixedLayoutInfoTests/testFixedLayoutInfo"
+      ]
+    },
+    {
+      "method": "testFixedLayoutKeyRepeatKeepsThePreviousPageCoverWhenReducingMotion",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testFixedLayoutKeyRepeatKeepsThePreviousPageCoverWhenReducingMotion"
+      ],
+      "after": [
+        "WashiTests.ChainedMovePageCoverTests/testFixedLayoutKeyRepeatKeepsThePreviousPageCoverWhenReducingMotion"
+      ]
+    },
+    {
+      "method": "testFrameWaitGivesUpAtTheTimeout",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testFrameWaitGivesUpAtTheTimeout"
+      ],
+      "after": [
+        "WashiTests.SpineTransitionVisibilityTests/testFrameWaitGivesUpAtTheTimeout"
+      ]
+    },
+    {
+      "method": "testFrameWaitReportsCompletion",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testFrameWaitReportsCompletion"
+      ],
+      "after": [
+        "WashiTests.SpineTransitionVisibilityTests/testFrameWaitReportsCompletion"
+      ]
+    },
+    {
+      "method": "testFrameWaitReturnsPromptlyWhenCancelled",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testFrameWaitReturnsPromptlyWhenCancelled"
+      ],
+      "after": [
+        "WashiTests.SpineTransitionVisibilityTests/testFrameWaitReturnsPromptlyWhenCancelled"
+      ]
+    },
+    {
+      "method": "testGeneratedBaseCSSInjectorPreservesAuthorIDCollisions",
+      "before": [
+        "WashiTests.ReaderScriptsRenderingLifecycleTests/testGeneratedBaseCSSInjectorPreservesAuthorIDCollisions"
+      ],
+      "after": [
+        "WashiTests.ReaderScriptStyleOwnershipTests/testGeneratedBaseCSSInjectorPreservesAuthorIDCollisions"
+      ]
+    },
+    {
+      "method": "testGeneratedStyleScriptPreservesAuthorIDCollisions",
+      "before": [
+        "WashiTests.ReaderScriptsRenderingLifecycleTests/testGeneratedStyleScriptPreservesAuthorIDCollisions"
+      ],
+      "after": [
+        "WashiTests.ReaderScriptStyleOwnershipTests/testGeneratedStyleScriptPreservesAuthorIDCollisions"
+      ]
+    },
+    {
+      "method": "testGoAndCensusGlobalPageResolveLocatorIDRef",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testGoAndCensusGlobalPageResolveLocatorIDRef"
+      ],
+      "after": [
+        "WashiTests.ReaderViewCensusTests/testGoAndCensusGlobalPageResolveLocatorIDRef"
+      ]
+    },
+    {
+      "method": "testHighlightOnAnotherItemKeepsTheCoverForTheNextMove",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testHighlightOnAnotherItemKeepsTheCoverForTheNextMove"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testHighlightOnAnotherItemKeepsTheCoverForTheNextMove"
+      ]
+    },
+    {
+      "method": "testImportedCensusUsesRenditionSpreadMetricsKey",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testImportedCensusUsesRenditionSpreadMetricsKey"
+      ],
+      "after": [
+        "WashiTests.ReaderViewCensusTests/testImportedCensusUsesRenditionSpreadMetricsKey"
+      ]
+    },
+    {
+      "method": "testInteractiveControlClicksDoNotPostPageTaps",
+      "before": [
+        "WashiTests.ReaderScriptsRenderingLifecycleTests/testInteractiveControlClicksDoNotPostPageTaps"
+      ],
+      "after": [
+        "WashiTests.ReaderScriptClickDispatchTests/testInteractiveControlClicksDoNotPostPageTaps"
+      ]
+    },
+    {
+      "method": "testJPEGSpineUsesOwnPathAndPixelDimensions",
+      "before": [
+        "WashiTests.PublicationTests/testJPEGSpineUsesOwnPathAndPixelDimensions"
+      ],
+      "after": [
+        "WashiTests.FixedLayoutInfoTests/testJPEGSpineUsesOwnPathAndPixelDimensions"
+      ]
+    },
+    {
+      "method": "testJumpAfterTheCommitKeepsThePreviousPageCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testJumpAfterTheCommitKeepsThePreviousPageCover"
+      ],
+      "after": [
+        "WashiTests.ChainedMovePageCoverTests/testJumpAfterTheCommitKeepsThePreviousPageCover"
+      ]
+    },
+    {
+      "method": "testJumpStillFoldsAnAnimatedTurnCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testJumpStillFoldsAnAnimatedTurnCover"
+      ],
+      "after": [
+        "WashiTests.ChainedMovePageCoverTests/testJumpStillFoldsAnAnimatedTurnCover"
+      ]
+    },
+    {
+      "method": "testKeyDownBeforeLoadingPublicationReachesNextResponder",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testKeyDownBeforeLoadingPublicationReachesNextResponder"
+      ],
+      "after": [
+        "WashiTests.ReaderViewKeyForwardingTests/testKeyDownBeforeLoadingPublicationReachesNextResponder"
+      ]
+    },
+    {
+      "method": "testKeyReentryDoesNotRedispatchAfterKeyboardSettingChanges",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testKeyReentryDoesNotRedispatchAfterKeyboardSettingChanges"
+      ],
+      "after": [
+        "WashiTests.ReaderViewKeyForwardingTests/testKeyReentryDoesNotRedispatchAfterKeyboardSettingChanges"
+      ]
+    },
+    {
+      "method": "testKeyRepeatAtTheBookEndKeepsTheSnapshotCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testKeyRepeatAtTheBookEndKeepsTheSnapshotCover"
+      ],
+      "after": [
+        "WashiTests.ChainedMovePageCoverTests/testKeyRepeatAtTheBookEndKeepsTheSnapshotCover"
+      ]
+    },
+    {
+      "method": "testLateCommitOfAnEarlierLoadDoesNotHideASettledPage",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testLateCommitOfAnEarlierLoadDoesNotHideASettledPage"
+      ],
+      "after": [
+        "WashiTests.SpineTransitionVisibilityTests/testLateCommitOfAnEarlierLoadDoesNotHideASettledPage"
+      ]
+    },
+    {
+      "method": "testLayoutAndThemeChangeDoesNotUseTheOldCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testLayoutAndThemeChangeDoesNotUseTheOldCover"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testLayoutAndThemeChangeDoesNotUseTheOldCover"
+      ]
+    },
+    {
+      "method": "testLoadingTheNextItemDoesNotHideThePreviousPage",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testLoadingTheNextItemDoesNotHideThePreviousPage"
+      ],
+      "after": [
+        "WashiTests.SpineTransitionVisibilityTests/testLoadingTheNextItemDoesNotHideThePreviousPage"
+      ]
+    },
+    {
+      "method": "testLongSpineKeepsExtractedTextAcrossSequentialScans",
+      "before": [
+        "WashiTests.PublicationTestsNavigationCache/testLongSpineKeepsExtractedTextAcrossSequentialScans"
+      ],
+      "after": [
+        "WashiTests.PublicationNavigationCacheTests/testLongSpineKeepsExtractedTextAcrossSequentialScans"
+      ]
+    },
+    {
+      "method": "testMediaOverlayParsing",
+      "before": [
+        "WashiTests.PublicationTests/testMediaOverlayParsing"
+      ],
+      "after": [
+        "WashiTests.SMILParserTests/testMediaOverlayParsing"
+      ]
+    },
+    {
+      "method": "testMissingTextAnchorFallsBackAfterAttemptingExactLanding",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testMissingTextAnchorFallsBackAfterAttemptingExactLanding"
+      ],
+      "after": [
+        "WashiTests.ReaderViewTextAnchorLandingTests/testMissingTextAnchorFallsBackAfterAttemptingExactLanding"
+      ]
+    },
+    {
+      "method": "testNCXPageListFillsEmptyNavPageList",
+      "before": [
+        "WashiTests.PublicationTestsNavigationCache/testNCXPageListFillsEmptyNavPageList"
+      ],
+      "after": [
+        "WashiTests.PublicationNavigationCacheTests/testNCXPageListFillsEmptyNavPageList"
+      ]
+    },
+    {
+      "method": "testNarrationHighlightRetakesTheCoverWithoutDroppingIt",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testNarrationHighlightRetakesTheCoverWithoutDroppingIt"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testNarrationHighlightRetakesTheCoverWithoutDroppingIt"
+      ]
+    },
+    {
+      "method": "testNonAppearanceSettingKeepsTheCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testNonAppearanceSettingKeepsTheCover"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testNonAppearanceSettingKeepsTheCover"
+      ]
+    },
+    {
+      "method": "testNoterefClickPostsMetadataBacklinkAndAnchorRect",
+      "before": [
+        "WashiTests.ReaderScriptsRenderingLifecycleTests/testNoterefClickPostsMetadataBacklinkAndAnchorRect"
+      ],
+      "after": [
+        "WashiTests.ReaderScriptClickDispatchTests/testNoterefClickPostsMetadataBacklinkAndAnchorRect"
+      ]
+    },
+    {
+      "method": "testObfuscatedFontRoundTrip",
+      "before": [
+        "WashiTests.PublicationTests/testObfuscatedFontRoundTrip"
+      ],
+      "after": [
+        "WashiTests.FontDeobfuscationTests/testObfuscatedFontRoundTrip"
+      ]
+    },
+    {
+      "method": "testOptInDoubleClickEventDoesNotPostTap",
+      "before": [
+        "WashiTests.ReaderScriptsRenderingLifecycleTests/testOptInDoubleClickEventDoesNotPostTap"
+      ],
+      "after": [
+        "WashiTests.ReaderScriptClickDispatchTests/testOptInDoubleClickEventDoesNotPostTap"
+      ]
+    },
+    {
+      "method": "testOptInPlainSingleClickPostsTapAfterDoubleClickWindow",
+      "before": [
+        "WashiTests.ReaderScriptsRenderingLifecycleTests/testOptInPlainSingleClickPostsTapAfterDoubleClickWindow"
+      ],
+      "after": [
+        "WashiTests.ReaderScriptClickDispatchTests/testOptInPlainSingleClickPostsTapAfterDoubleClickWindow"
+      ]
+    },
+    {
+      "method": "testOptInRapidIndependentSingleClicksBothPostTaps",
+      "before": [
+        "WashiTests.ReaderScriptsRenderingLifecycleTests/testOptInRapidIndependentSingleClicksBothPostTaps"
+      ],
+      "after": [
+        "WashiTests.ReaderScriptClickDispatchTests/testOptInRapidIndependentSingleClicksBothPostTaps"
+      ]
+    },
+    {
+      "method": "testPPDlessVerticalBookTurnsLeftForward",
+      "before": [
+        "WashiTests.EffectiveDirectionReaderTests/testPPDlessVerticalBookTurnsLeftForward"
+      ],
+      "after": [
+        "WashiTests.ReaderViewEffectiveDirectionTests/testPPDlessVerticalBookTurnsLeftForward"
+      ]
+    },
+    {
+      "method": "testPageNumbersAreHiddenUntilTheNextItemCommits",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testPageNumbersAreHiddenUntilTheNextItemCommits"
+      ],
+      "after": [
+        "WashiTests.SpineTransitionVisibilityTests/testPageNumbersAreHiddenUntilTheNextItemCommits"
+      ]
+    },
+    {
+      "method": "testPageNumbersReturnWhenABoundaryTurnCannotBeDisplayed",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testPageNumbersReturnWhenABoundaryTurnCannotBeDisplayed"
+      ],
+      "after": [
+        "WashiTests.SpineTransitionVisibilityTests/testPageNumbersReturnWhenABoundaryTurnCannotBeDisplayed"
+      ]
+    },
+    {
+      "method": "testPageNumbersReturnWhenLoadingTheNextItemFails",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testPageNumbersReturnWhenLoadingTheNextItemFails"
+      ],
+      "after": [
+        "WashiTests.SpineTransitionVisibilityTests/testPageNumbersReturnWhenLoadingTheNextItemFails"
+      ]
+    },
+    {
+      "method": "testPageNumbersReturnWhenTheNextItemCannotBeDisplayed",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testPageNumbersReturnWhenTheNextItemCannotBeDisplayed"
+      ],
+      "after": [
+        "WashiTests.SpineTransitionVisibilityTests/testPageNumbersReturnWhenTheNextItemCannotBeDisplayed"
+      ]
+    },
+    {
+      "method": "testPrefetchedCoverMatchesOnlyTheSameDisplayConditions",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testPrefetchedCoverMatchesOnlyTheSameDisplayConditions"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testPrefetchedCoverMatchesOnlyTheSameDisplayConditions"
+      ]
+    },
+    {
+      "method": "testPrefetchedCoverMatchesTheDisplayRegardlessOfTheItem",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testPrefetchedCoverMatchesTheDisplayRegardlessOfTheItem"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testPrefetchedCoverMatchesTheDisplayRegardlessOfTheItem"
+      ]
+    },
+    {
+      "method": "testPreparedCoverIsInstalledAtCommitAndFoldedAfterDisplay",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testPreparedCoverIsInstalledAtCommitAndFoldedAfterDisplay"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testPreparedCoverIsInstalledAtCommitAndFoldedAfterDisplay"
+      ]
+    },
+    {
+      "method": "testRapidClicksPostOneTapEachImmediately",
+      "before": [
+        "WashiTests.ReaderScriptsRenderingLifecycleTests/testRapidClicksPostOneTapEachImmediately"
+      ],
+      "after": [
+        "WashiTests.ReaderScriptClickDispatchTests/testRapidClicksPostOneTapEachImmediately"
+      ]
+    },
+    {
+      "method": "testReaderViewKeyDownForwardsWhenKeyboardNavigationDisabled",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testReaderViewKeyDownForwardsWhenKeyboardNavigationDisabled"
+      ],
+      "after": [
+        "WashiTests.ReaderViewKeyForwardingTests/testReaderViewKeyDownForwardsWhenKeyboardNavigationDisabled"
+      ]
+    },
+    {
+      "method": "testReadingOrderResolvesRenderableExistingFallbacks",
+      "before": [
+        "WashiTests.PublicationTests/testReadingOrderResolvesRenderableExistingFallbacks"
+      ],
+      "after": [
+        "WashiTests.FixedLayoutInfoTests/testReadingOrderResolvesRenderableExistingFallbacks"
+      ]
+    },
+    {
+      "method": "testRebuildingTheWebViewFoldsThePreviousPageCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testRebuildingTheWebViewFoldsThePreviousPageCover"
+      ],
+      "after": [
+        "WashiTests.ChainedMovePageCoverTests/testRebuildingTheWebViewFoldsThePreviousPageCover"
+      ]
+    },
+    {
+      "method": "testSVGSpineSingleImageUsesResolvedImage",
+      "before": [
+        "WashiTests.PublicationTests/testSVGSpineSingleImageUsesResolvedImage"
+      ],
+      "after": [
+        "WashiTests.FixedLayoutInfoTests/testSVGSpineSingleImageUsesResolvedImage"
+      ]
+    },
+    {
+      "method": "testSVGSpineWithTextDoesNotUseSimpleImage",
+      "before": [
+        "WashiTests.PublicationTests/testSVGSpineWithTextDoesNotUseSimpleImage"
+      ],
+      "after": [
+        "WashiTests.FixedLayoutInfoTests/testSVGSpineWithTextDoesNotUseSimpleImage"
+      ]
+    },
+    {
+      "method": "testSVGSpineWithTwoImagesDoesNotUseSimpleImage",
+      "before": [
+        "WashiTests.PublicationTests/testSVGSpineWithTwoImagesDoesNotUseSimpleImage"
+      ],
+      "after": [
+        "WashiTests.FixedLayoutInfoTests/testSVGSpineWithTwoImagesDoesNotUseSimpleImage"
+      ]
+    },
+    {
+      "method": "testSVGWrappedImagePage",
+      "before": [
+        "WashiTests.PublicationTests/testSVGWrappedImagePage"
+      ],
+      "after": [
+        "WashiTests.FixedLayoutInfoTests/testSVGWrappedImagePage"
+      ]
+    },
+    {
+      "method": "testSameBackingScaleKeepsTheCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testSameBackingScaleKeepsTheCover"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testSameBackingScaleKeepsTheCover"
+      ]
+    },
+    {
+      "method": "testSavedTextAnchorAndHistoryUseExactLandingWithoutContinuation",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testSavedTextAnchorAndHistoryUseExactLandingWithoutContinuation"
+      ],
+      "after": [
+        "WashiTests.ReaderViewTextAnchorLandingTests/testSavedTextAnchorAndHistoryUseExactLandingWithoutContinuation"
+      ]
+    },
+    {
+      "method": "testSearchFirstMatchPreservesAllSensitivityCombinations",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testSearchFirstMatchPreservesAllSensitivityCombinations"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testSearchFirstMatchPreservesAllSensitivityCombinations"
+      ]
+    },
+    {
+      "method": "testSearchHitCarriesUTF16RangeAfterSurrogateAndCombiningMark",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testSearchHitCarriesUTF16RangeAfterSurrogateAndCombiningMark"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testSearchHitCarriesUTF16RangeAfterSurrogateAndCombiningMark"
+      ]
+    },
+    {
+      "method": "testSearchMixedWidthJapaneseRangesRoundTrip",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testSearchMixedWidthJapaneseRangesRoundTrip"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testSearchMixedWidthJapaneseRangesRoundTrip"
+      ]
+    },
+    {
+      "method": "testSearchNormalizesIdeographicAndNonbreakingWhitespace",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testSearchNormalizesIdeographicAndNonbreakingWhitespace"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testSearchNormalizesIdeographicAndNonbreakingWhitespace"
+      ]
+    },
+    {
+      "method": "testSearchOffsetsAfterWidthFoldingMergesGraphemes",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testSearchOffsetsAfterWidthFoldingMergesGraphemes"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testSearchOffsetsAfterWidthFoldingMergesGraphemes"
+      ]
+    },
+    {
+      "method": "testSearchOptionsControlCaseDiacriticAndWidthSensitivity",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testSearchOptionsControlCaseDiacriticAndWidthSensitivity"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testSearchOptionsControlCaseDiacriticAndWidthSensitivity"
+      ]
+    },
+    {
+      "method": "testSearchRangeIncludesAllCharactersMergedByWidthFolding",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testSearchRangeIncludesAllCharactersMergedByWidthFolding"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testSearchRangeIncludesAllCharactersMergedByWidthFolding"
+      ]
+    },
+    {
+      "method": "testSearchSnippetRadiusAtIntegerLimits",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testSearchSnippetRadiusAtIntegerLimits"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testSearchSnippetRadiusAtIntegerLimits"
+      ]
+    },
+    {
+      "method": "testSearchWidthFoldedHitSurvivesHighlightPersistence",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testSearchWidthFoldedHitSurvivesHighlightPersistence"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testSearchWidthFoldedHitSurvivesHighlightPersistence"
+      ]
+    },
+    {
+      "method": "testSearchWithoutMatchesAcrossWidthFoldingPaths",
+      "before": [
+        "WashiTests.PublicationTestsTextExtractionSearch/testSearchWithoutMatchesAcrossWidthFoldingPaths"
+      ],
+      "after": [
+        "WashiTests.TextExtractionSearchTests/testSearchWithoutMatchesAcrossWidthFoldingPaths"
+      ]
+    },
+    {
+      "method": "testSetupCompletionDropsOldExpectationsAndKeepsLaterLoads",
+      "before": [
+        "WashiTests.SpineLoadFailureRecoveryTests/testSetupCompletionDropsOldExpectationsAndKeepsLaterLoads"
+      ],
+      "after": [
+        "WashiTests.SpineLoadPolicyBookkeepingTests/testSetupCompletionDropsOldExpectationsAndKeepsLaterLoads"
+      ]
+    },
+    {
+      "method": "testSetupCompletionKeepsLaterAbandonedExpectations",
+      "before": [
+        "WashiTests.SpineLoadFailureRecoveryTests/testSetupCompletionKeepsLaterAbandonedExpectations"
+      ],
+      "after": [
+        "WashiTests.SpineLoadPolicyBookkeepingTests/testSetupCompletionKeepsLaterAbandonedExpectations"
+      ]
+    },
+    {
+      "method": "testSetupOptionsPassesTapDeferralPreference",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testSetupOptionsPassesTapDeferralPreference"
+      ],
+      "after": [
+        "WashiTests.ReaderViewSpreadSetupTests/testSetupOptionsPassesTapDeferralPreference"
+      ]
+    },
+    {
+      "method": "testSetupSpreadHonorsCurrentItemOverride",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testSetupSpreadHonorsCurrentItemOverride"
+      ],
+      "after": [
+        "WashiTests.ReaderViewSpreadSetupTests/testSetupSpreadHonorsCurrentItemOverride"
+      ]
+    },
+    {
+      "method": "testSetupSpreadHonorsPublicationRenditionSpread",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testSetupSpreadHonorsPublicationRenditionSpread"
+      ],
+      "after": [
+        "WashiTests.ReaderViewSpreadSetupTests/testSetupSpreadHonorsPublicationRenditionSpread"
+      ]
+    },
+    {
+      "method": "testSetupSpreadMatchesScreenMetricsAcrossMismatchWindow",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testSetupSpreadMatchesScreenMetricsAcrossMismatchWindow"
+      ],
+      "after": [
+        "WashiTests.ReaderViewSpreadSetupTests/testSetupSpreadMatchesScreenMetricsAcrossMismatchWindow"
+      ]
+    },
+    {
+      "method": "testSimpleImagePathUsesVisibleTextAndUniqueSources",
+      "before": [
+        "WashiTests.ImagePagePublicationTests/testSimpleImagePathUsesVisibleTextAndUniqueSources"
+      ],
+      "after": [
+        "WashiTests.SingleImageItemDetectionTests/testSimpleImagePathUsesVisibleTextAndUniqueSources"
+      ]
+    },
+    {
+      "method": "testSkippedCensusKeyInvalidatesCachedDisplayCounts",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testSkippedCensusKeyInvalidatesCachedDisplayCounts"
+      ],
+      "after": [
+        "WashiTests.ReaderViewCensusTests/testSkippedCensusKeyInvalidatesCachedDisplayCounts"
+      ]
+    },
+    {
+      "method": "testSpineIndexResolvesEveryFallbackChainMember",
+      "before": [
+        "WashiTests.PublicationTests/testSpineIndexResolvesEveryFallbackChainMember"
+      ],
+      "after": [
+        "WashiTests.FixedLayoutInfoTests/testSpineIndexResolvesEveryFallbackChainMember"
+      ]
+    },
+    {
+      "method": "testSpineNavigationCancelsDelayedWebContentReload",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testSpineNavigationCancelsDelayedWebContentReload"
+      ],
+      "after": [
+        "WashiTests.WebContentReloadTests/testSpineNavigationCancelsDelayedWebContentReload"
+      ]
+    },
+    {
+      "method": "testSpineTransitionUpdatesFrameForItemSpreadInsets",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testSpineTransitionUpdatesFrameForItemSpreadInsets"
+      ],
+      "after": [
+        "WashiTests.ReaderViewSpreadSetupTests/testSpineTransitionUpdatesFrameForItemSpreadInsets"
+      ]
+    },
+    {
+      "method": "testStaleWebContentTerminationDoesNotConsumeReloadBudget",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testStaleWebContentTerminationDoesNotConsumeReloadBudget"
+      ],
+      "after": [
+        "WashiTests.WebContentReloadTests/testStaleWebContentTerminationDoesNotConsumeReloadBudget"
+      ]
+    },
+    {
+      "method": "testSupersededLoadCommitHidesTheUnpaginatedDocument",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testSupersededLoadCommitHidesTheUnpaginatedDocument"
+      ],
+      "after": [
+        "WashiTests.SpineTransitionVisibilityTests/testSupersededLoadCommitHidesTheUnpaginatedDocument"
+      ]
+    },
+    {
+      "method": "testSwitchingOffPageTurnAnimationTakesTheCover",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testSwitchingOffPageTurnAnimationTakesTheCover"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testSwitchingOffPageTurnAnimationTakesTheCover"
+      ]
+    },
+    {
+      "method": "testSynthesizedAnchorClickPostsLinkButNeverTap",
+      "before": [
+        "WashiTests.ReaderScriptsRenderingLifecycleTests/testSynthesizedAnchorClickPostsLinkButNeverTap"
+      ],
+      "after": [
+        "WashiTests.ReaderScriptClickDispatchTests/testSynthesizedAnchorClickPostsLinkButNeverTap"
+      ]
+    },
+    {
+      "method": "testTerminatedProcessKeepsQueuedPoliciesCancellableUntilNextLoad",
+      "before": [
+        "WashiTests.SpineLoadFailureRecoveryTests/testTerminatedProcessKeepsQueuedPoliciesCancellableUntilNextLoad"
+      ],
+      "after": [
+        "WashiTests.SpineLoadPolicyBookkeepingTests/testTerminatedProcessKeepsQueuedPoliciesCancellableUntilNextLoad"
+      ]
+    },
+    {
+      "method": "testTerminatedProcessPurgeKeepsNewerLoadsAfterPoliciesAreConsumed",
+      "before": [
+        "WashiTests.SpineLoadFailureRecoveryTests/testTerminatedProcessPurgeKeepsNewerLoadsAfterPoliciesAreConsumed"
+      ],
+      "after": [
+        "WashiTests.SpineLoadPolicyBookkeepingTests/testTerminatedProcessPurgeKeepsNewerLoadsAfterPoliciesAreConsumed"
+      ]
+    },
+    {
+      "method": "testThemeChangeRetakesTheCoverInTheNewColors",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testThemeChangeRetakesTheCoverInTheNewColors"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testThemeChangeRetakesTheCoverInTheNewColors"
+      ]
+    },
+    {
+      "method": "testThreeChainedMovesUseTheFirstCoverUntilTheLastItemIsShown",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testThreeChainedMovesUseTheFirstCoverUntilTheLastItemIsShown"
+      ],
+      "after": [
+        "WashiTests.ChainedMovePageCoverTests/testThreeChainedMovesUseTheFirstCoverUntilTheLastItemIsShown"
+      ]
+    },
+    {
+      "method": "testTimedOutFrameWaitDoesNotRetainWebView",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testTimedOutFrameWaitDoesNotRetainWebView"
+      ],
+      "after": [
+        "WashiTests.SpineTransitionVisibilityTests/testTimedOutFrameWaitDoesNotRetainWebView"
+      ]
+    },
+    {
+      "method": "testTransitionWithoutAPrefetchedCoverFallsBack",
+      "before": [
+        "WashiTests.SpineTransitionAppearanceTests/testTransitionWithoutAPrefetchedCoverFallsBack"
+      ],
+      "after": [
+        "WashiTests.PageCoverRetakeTests/testTransitionWithoutAPrefetchedCoverFallsBack"
+      ]
+    },
+    {
+      "method": "testUnconsumedForwardedKeyReachesNextResponder",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testUnconsumedForwardedKeyReachesNextResponder"
+      ],
+      "after": [
+        "WashiTests.ReaderViewKeyForwardingTests/testUnconsumedForwardedKeyReachesNextResponder"
+      ]
+    },
+    {
+      "method": "testUnhandledKeyReentryForwardsOnceAndResetsForNextEvent",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testUnhandledKeyReentryForwardsOnceAndResetsForNextEvent"
+      ],
+      "after": [
+        "WashiTests.ReaderViewKeyForwardingTests/testUnhandledKeyReentryForwardsOnceAndResetsForNextEvent"
+      ]
+    },
+    {
+      "method": "testUnknownDRMNameIsEnglish",
+      "before": [
+        "WashiTests.PublicationTests/testUnknownDRMNameIsEnglish"
+      ],
+      "after": [
+        "WashiTests.EncryptionDetectionTests/testUnknownDRMNameIsEnglish"
+      ]
+    },
+    {
+      "method": "testUnknownSpineLoadPolicyStillRoutesAfterAbandonment",
+      "before": [
+        "WashiTests.SpineLoadFailureRecoveryTests/testUnknownSpineLoadPolicyStillRoutesAfterAbandonment"
+      ],
+      "after": [
+        "WashiTests.SpineLoadPolicyBookkeepingTests/testUnknownSpineLoadPolicyStillRoutesAfterAbandonment"
+      ]
+    },
+    {
+      "method": "testUnloadCancelsInFlightTextAnchorBeforeFallback",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testUnloadCancelsInFlightTextAnchorBeforeFallback"
+      ],
+      "after": [
+        "WashiTests.ReaderViewTextAnchorLandingTests/testUnloadCancelsInFlightTextAnchorBeforeFallback"
+      ]
+    },
+    {
+      "method": "testViewportSalvage",
+      "before": [
+        "WashiTests.PublicationTests/testViewportSalvage"
+      ],
+      "after": [
+        "WashiTests.FixedLayoutInfoTests/testViewportSalvage"
+      ]
+    },
+    {
+      "method": "testWebContentReloadLimiterCapsAndBacksOff",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testWebContentReloadLimiterCapsAndBacksOff"
+      ],
+      "after": [
+        "WashiTests.WebContentReloadTests/testWebContentReloadLimiterCapsAndBacksOff"
+      ]
+    },
+    {
+      "method": "testWebContentTerminationDefersWhenWindowlessAndCapsReloads",
+      "before": [
+        "WashiTests.EPUBReaderViewRegressionTests/testWebContentTerminationDefersWhenWindowlessAndCapsReloads"
+      ],
+      "after": [
+        "WashiTests.WebContentReloadTests/testWebContentTerminationDefersWhenWindowlessAndCapsReloads"
+      ]
+    }
+  ]
+}
