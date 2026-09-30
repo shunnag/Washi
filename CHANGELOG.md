@@ -6,13 +6,17 @@
 
 ## [Unreleased]
 
+## [1.22.1] - 2026-09-30
+
 ### 変更
 - 解析・表示・WebKit 内容・ページ割り・オフスクリーン処理を責務別に配置し、
   読み込み先・スクリプト契約・待機の状態を型で表した。公開 API とプロダクト構成を維持した。
   README・DocC・テストの補助・開発スクリプトを整理し、consumer と corpus を含む
-  [統合検証](Documentation/verification/2026-09-30-code-quality.md)を記録した。
+  [統合検証](https://github.com/shunnag/Washi/blob/1.22.1/Documentation/verification/2026-09-30-code-quality.md)を記録した。
 
 ### 修正
+- ページ数計測の invalidate 後に古い計測が続き、画面外 WebView を作り直すことがある問題を修正した。
+  無効化された計測を止め、後から始めた新しい計測は通常どおり実行できる。
 - SMIL の text 参照が `a#` のように空の fragment を含む場合、fragment を nil として統一した。
 
 ## [1.22.0] - 2026-09-26

@@ -6,5 +6,5 @@ public enum EPUBReadingSystem {
     /// パッケージの版に合わせて更新する
     ///
     /// Keep this in sync with the package version.
-    public static let version = "1.22.0"
+    public static let version = "1.22.1"
 }
