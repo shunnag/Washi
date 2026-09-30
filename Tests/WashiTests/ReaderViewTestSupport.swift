@@ -8,7 +8,8 @@ import XCTest
 // 1 か所に置き、各テストは自分の待ち時間や後始末の種類を明示して呼ぶ。
 
 /// 画面外(-20_000, -20_000)に置く枠なしウインドウを作り、`view` を contentView にする。
-/// 大きさは `view.frame.size` に合わせる。
+/// 大きさは `view.frame.size` に合わせる。`ignoresMouseEvents: false` が要るのは、
+/// テストが NSEvent(クリック・ホイール・キー)をこのウインドウへ送るときだけ
 @MainActor
 func makeOffscreenWindow(containing view: NSView,
                          ignoresMouseEvents: Bool = true) -> NSWindow {
@@ -33,6 +34,18 @@ func waitUntil(timeout: Duration, poll: Duration = .milliseconds(20),
         try? await Task.sleep(for: poll)
     }
     return condition()
+}
+
+/// 次のページ割りの通知(`delegate.moveCount > moves`)と表示の復帰(`web.alphaValue == 1`)
+/// を待つ。通知が来なければ WebKit が使えないものとして CI では失敗、ローカルでは skip する
+@MainActor
+func waitUntilShown(_ web: WKWebView, _ delegate: ReaderObservationSpy, after moves: Int,
+                    file: StaticString = #filePath, line: UInt = #line) async throws {
+    guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(10), { delegate.moveCount > moves }) else {
+        return try skipOrFailIfWebKitUnavailable(file: file, line: line)
+    }
+    let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(10)) { web.alphaValue == 1 }
+    XCTAssertTrue(shown, "表示が戻らない", file: file, line: line)
 }
 
 extension EPUBReaderView {
