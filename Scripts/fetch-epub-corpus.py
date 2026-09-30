@@ -17,6 +17,7 @@ import urllib.request
 import zipfile
 
 
+ROOT = Path(__file__).resolve().parents[1]
 OCF_MIMETYPE = b"application/epub+zip"
 # ZIP のローカルファイルヘッダ(固定長 30 バイト)
 LOCAL_FILE_HEADER = struct.Struct("<4sHHHHHIIIHH")
@@ -137,9 +138,10 @@ def fetch(book, root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("destination", nargs="?", type=Path, default=Path(".build/epub-corpus"))
-    parser.add_argument("--manifest", type=Path,
-                        default=Path(__file__).resolve().parents[1] / "Tests/Corpus/manifest.json")
+    # 既定の出力先も manifest と同じくリポジトリ基準にし、どのカレントディレクトリからでも
+    # 同じ場所へ取得する(README の約束)。CI は出力先を明示して渡す。
+    parser.add_argument("destination", nargs="?", type=Path, default=ROOT / ".build/epub-corpus")
+    parser.add_argument("--manifest", type=Path, default=ROOT / "Tests/Corpus/manifest.json")
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text())
     books = manifest["books"]
