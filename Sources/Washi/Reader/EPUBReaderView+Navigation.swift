@@ -307,20 +307,26 @@ extension EPUBReaderView {
     /// cooViewer-oxr.19: spine 読み込み中の同一項目ナビゲーションは旧 DOM へ
     /// 適用せず、進行中の setup が最後の target を一度だけ消費する。
     func applyOrQueueTarget(_ target: PendingTarget) {
+        let isTextRange: Bool
         if case .textRange = target {
-            // 着地前の保存・戻る履歴にもアンカーを残し、進行率だけへ劣化させない。
-            spineLoad.pendingRestoreLocator = locator(for: target, at: currentSpineIndex)
+            isTextRange = true
+        } else {
+            isTextRange = false
         }
         guard spineLoad.isLoadingSpineItem else {
+            if isTextRange {
+                // 着地前の保存・戻る履歴にもアンカーを残し、進行率だけへ劣化させない。
+                spineLoad.pendingRestoreLocator = locator(for: target, at: currentSpineIndex)
+            }
             applyTarget(target)
             return
         }
-        if case .textRange = target {
-            // 継続は setup 後の exact landing が完了させる。
-        } else {
+        // textRange の継続は setup 後の exact landing が完了させるので取り消さない。
+        if !isTextRange {
             cancelPendingTextRangeRequest()
         }
         spineLoad.pendingTarget = target
+        // 読み込み中は復元先も差し替える(textRange のアンカーもここで残る)。
         spineLoad.pendingRestoreLocator = locator(for: target, at: currentSpineIndex)
     }
 

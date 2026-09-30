@@ -77,7 +77,7 @@ extension EPUBReaderView {
               let type = dict["type"] as? String,
               isFromCurrentDocument(dict) else { return }
         if let index = dict["spineIndex"] as? Int {
-            guard !spineLoad.isLoadingSpineItem, isFromCurrentDocument(dict),
+            guard !spineLoad.isLoadingSpineItem,
                   loadedScrollGroup?.contains(index) == true else { return }
         }
         switch EPUBScriptMessage(rawValue: type) {
@@ -103,8 +103,9 @@ extension EPUBReaderView {
         // cooViewer-oxr.19/23: 旧文書から遅配された位置通知で、新しい
         // pending target / 復元位置とホストの保存位置を上書きしない。
         // cooViewer-oxr.46 C35: 読み込みが済んだ後に届く旧文書の通知も、
-        // setup で渡した印が違うので同じく捨てる。
-        guard !spineLoad.isLoadingSpineItem, isFromCurrentDocument(dict) else { return }
+        // setup で渡した印が違うので同じく捨てる(印は handleScriptMessage の
+        // 入口で確認済み)。
+        guard !spineLoad.isLoadingSpineItem else { return }
         let request = navigationRequestGeneration
         let generation = spineLoadGeneration
         if let index = dict["spineIndex"] as? Int, index != currentSpineIndex {
