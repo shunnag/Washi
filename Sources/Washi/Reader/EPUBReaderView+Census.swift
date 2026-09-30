@@ -136,8 +136,8 @@ extension EPUBReaderView {
         // cooViewer-oxr.73: Double → Int の範囲外変換は SIGTRAP になるため、
         // locator 自身の不変条件だけに依存せず変換直前にも防御する。
         let safeProgression = Self.clampedProgression(locator.progression)
-        // Double(Int.max - 1) rounds up beyond Int.max. A clamped progression
-        // alone does not make conversion safe for a very large imported count.
+        // Double(Int.max - 1) は丸めで Int.max を超える。取り込んだ非常に大きい
+        // count では、進行率をクランプするだけでは変換が安全にならない。
         let divisions = censusProgressionDivisions(at: locator.spineIndex, count: count)
         let raw = safeProgression * Double(divisions)
         let value = divisions == count ? (raw + 0.000001).rounded(.down) : raw.rounded()

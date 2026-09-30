@@ -139,8 +139,8 @@ extension EPUBReaderView {
         furnitureSuppressed = !turn.turnOverlays.isEmpty
     }
 
-    /// カバー 1 枚を確実に回収する単一経路(旧: removeCover/timeout/clear に散っていた
-    /// 除去を統合)。所有権(このカバーが現 pendingSpineTurn か)を判定して
+    /// カバー 1 枚を回収する唯一の経路(時間切れ・clearPendingSpineTurn・演出の完了も
+    /// ここを通る)。所有権(このカバーが現 pendingSpineTurn か)を判定して
     /// pending を壊さない。所有権を失って上書きされた孤児カバーもこれで畳める
     func foldTurnCover(_ cover: NSView) {
         cancelSpineTurnTimeout(for: cover)

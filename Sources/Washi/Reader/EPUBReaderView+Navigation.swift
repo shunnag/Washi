@@ -40,21 +40,21 @@ extension EPUBReaderView {
         publication?.package.isScrollLike ?? false
     }
 
-    /// テキストの錨を付けた現在位置(cooViewer-oxr.46 C52)。
+    /// テキストの錨を付けた現在位置。
     /// `progression` だけでは復元時に再量子化されるため、文字サイズや
     /// ビューポートを変えると保存位置が数ページずれる。錨にはページ先頭の
     /// 文字を記録し、同じ文へ戻れるようにする。しおりや最終読書位置の
     /// 保存時に取得すること。Web ビューとのやり取りが 1 往復発生する。
     /// 画像や空ページなど、位置を解決できない場合は通常の locator を返す。
     ///
-    /// The current position with a text anchor attached (cooViewer-oxr.46 C52).
+    /// The current position with a text anchor attached.
     /// `progression` alone is re-quantized on restore, so a saved position
     /// drifts by a few pages after a font-size or viewport change; the anchor
     /// records which character is at the top of the page so the reader can land
     /// on the same sentence. Ask for it when persisting a position (bookmarks,
     /// last-read); it costs one round trip to the web view. Falls back to the
     /// plain locator when the position cannot be resolved (images, empty pages).
-    public func currentLocatorWithTextAnchor() async -> EPUBLocator {
+    public func currentLocatorWithTextAnchor() async -> EPUBLocator {  // cooViewer-oxr.46 C52
         var locator = currentLocator
         guard !spineLoad.isLoadingSpineItem, canRenderSpine(at: currentSpineIndex),
               let webView else { return locator }

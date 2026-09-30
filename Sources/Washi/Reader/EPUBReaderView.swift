@@ -57,15 +57,15 @@ public final class EPUBReaderView: NSView {
     /// やり取りなしで表示できる。描画には CSS Custom Highlight API を使い、
     /// 本の DOM を変更せず、範囲が重なっても要素を入れ子にしない。
     /// 錨は抽出本文の UTF-16 範囲なので、文字サイズ・ビューポート・
-    /// テーマを変えてもずれない(cooViewer-oxr.46 C40)。
+    /// テーマを変えてもずれない。
     ///
     /// Only the ones whose `spineIndex` (or `idref`) matches the item on screen
     /// are drawn; the rest are kept so a page turn shows them without another
     /// round trip. Drawing uses the CSS Custom Highlight API, so the book's DOM
     /// is never modified and overlapping ranges do not nest elements.
     /// Anchors are extracted-text UTF-16 ranges, so they survive font-size,
-    /// viewport and theme changes (cooViewer-oxr.46 C40).
-    public var highlights: [EPUBHighlight] = [] {
+    /// viewport and theme changes.
+    public var highlights: [EPUBHighlight] = [] {  // cooViewer-oxr.46 C40
         didSet {
             guard highlights != oldValue else { return }
             applyHighlights()
@@ -355,8 +355,8 @@ public final class EPUBReaderView: NSView {
 
     /// めくりカバー掲示中はライブのノンブルを隠す。番号はカバー(全面合成)に
     /// 焼き込み済みで、カバーはラベルより背面に入るため、隠さないと演出中に
-    /// ライブ側の新番号と焼き込みの旧番号が二重に見える。章読み込み中に
-    /// ラベルが一瞬「1」へ戻って見えていた従来のチラつきも同時に消える
+    /// ライブ側の新番号と焼き込みの旧番号が二重に見える。章の読み込み中も
+    /// カバーが隠すので、ラベルが新しい項目の「1」へ戻る瞬間は見えない
     var furnitureSuppressed = false {
         didSet { if furnitureSuppressed != oldValue { updateFurniture() } }
     }

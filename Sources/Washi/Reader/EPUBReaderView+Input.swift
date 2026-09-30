@@ -52,9 +52,9 @@ extension EPUBReaderView {
             control: modifiers.contains(.control),
             command: modifiers.contains(.command))
         delegate?.readerView(self, didReceiveKey: forwarded)
-        // Washi #3(コメント): ホストが扱わなかったキーをここで消さず
-        // responder チェーンへ返す。既定は true(1.16.x までと同じ握り潰し)で、
-        // delegate 未設定も同じ扱い。WebKit を経由しないため #3 の往復は起きない。
+        // Washi #3: ホストが扱わなかったキーはここで消さず responder チェーンへ返す。
+        // shouldConsumeKey の既定は true(delegate 未設定も同じ)で、false のときだけ
+        // super.keyDown へ渡す。WebKit を経由しないため #3 の往復は起きない。
         if delegate?.readerView(self, shouldConsumeKey: forwarded) == false {
             super.keyDown(with: event)
         }
@@ -282,7 +282,7 @@ extension EPUBReaderView {
         guard bounds.contains(location),
               !(webView.map { $0.frame.contains(location) } ?? false)
         else { return false }
-        // JS の click 抑制と同じ閾値(§5.9): 30pt 超のドラッグ・1 秒超の
+        // JS の click 抑制(ReaderScripts の suppressAsGesture)と同じ閾値: 30pt 超のドラッグ・1 秒超の
         // 長押しの解放はクリックにしない(イベントは消費する)
         guard event.timestamp - marginPress.time <= 1.0,
               max(abs(location.x - marginPress.location.x),
