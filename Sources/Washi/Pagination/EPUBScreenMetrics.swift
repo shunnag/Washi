@@ -283,7 +283,7 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
               let options = try? JSONSerialization.jsonObject(with: data)
                 as? [String: Any]
         else { return false }
-        return options["allowsScriptedContent"] as? Bool ?? false
+        return options[.allowsScriptedContent] as? Bool ?? false
     }
 
     /// cooViewer-oxr.51: atlas/reader が共有する基底 JSON から、特定
@@ -303,9 +303,9 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
             (value as? NSNumber)?.doubleValue
         }
         let fallbackSize = CGSize(
-            width: number(options["width"]) ?? 0,
-            height: number(options["height"]) ?? 0)
-        guard let context = options["_washiMetrics"] as? [String: Any],
+            width: number(options[.width]) ?? 0,
+            height: number(options[.height]) ?? 0)
+        guard let context = options[.washiMetrics] as? [String: Any],
               let viewportWidth = number(context["viewportWidth"]),
               let viewportHeight = number(context["viewportHeight"]),
               let singleTop = number(context["singleTop"]),
@@ -319,8 +319,8 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
               let rawColumnMode = number(context["columnMode"]),
               let columnMode = EPUBColumnMode(rawValue: Int(rawColumnMode))
         else {
-            options["flow"] = flow.rawValue
-            if isScrolled(flow) { options["spread"] = false }
+            options[.flow] = flow.rawValue
+            if isScrolled(flow) { options[.spread] = false }
             let data = try? JSONSerialization.data(withJSONObject: options, options: [.sortedKeys])
             return (data.flatMap { String(data: $0, encoding: .utf8) } ?? optionsJSON, fallbackSize)
         }
@@ -337,11 +337,11 @@ public struct EPUBScreenMetrics: Sendable, Equatable {
             ? spreadTop + spreadBottom : singleTop + singleBottom
         let size = CGSize(width: max(1, viewportWidth - (fullViewport ? 0 : horizontalInsets)),
                           height: max(1, viewportHeight - (fullViewport ? 0 : verticalInsets)))
-        options["width"] = Double(size.width.rounded(.down))
-        options["height"] = Double(size.height.rounded(.down))
-        options["spread"] = usesSpread
-        options["flow"] = flow.rawValue
-        options["gutter"] = Double(spreadGutter(forContentWidth: size.width))
+        options[.width] = Double(size.width.rounded(.down))
+        options[.height] = Double(size.height.rounded(.down))
+        options[.spread] = usesSpread
+        options[.flow] = flow.rawValue
+        options[.gutter] = Double(spreadGutter(forContentWidth: size.width))
         guard let derived = try? JSONSerialization.data(
             withJSONObject: options, options: [.sortedKeys])
         else { return (optionsJSON, fallbackSize) }

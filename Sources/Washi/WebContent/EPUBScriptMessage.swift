@@ -71,6 +71,13 @@ enum EPUBScriptSetupResultKey: String, CaseIterable {
 
 /// setup / repaginate に渡す辞書の鍵。native(EPUBReaderView、
 /// EPUBScreenMetrics、EPUBScrollDocument)が組み立てる。
+///
+/// JS が読む鍵のほかに、native だけが使い JS は無視する鍵も同じ辞書に載る
+/// (`engine`・`allowsScriptedContent`・`_washiMetrics`)。census の
+/// cacheKey はこの辞書の JSON そのものなので、鍵の文字列は変えない。
+/// `continuousItems` の各要素は `index`・`url`・`roll`・`renderable` と、
+/// roll 項目だけ `width`・`height` を持つ(EPUBScrollDocument が組み立て、
+/// 連続スクロール文書の JS が読む入れ子の鍵で、この列挙には含めない)。
 enum EPUBScriptSetupOptionKey: String, CaseIterable {
     case width
     case height
@@ -90,4 +97,35 @@ enum EPUBScriptSetupOptionKey: String, CaseIterable {
     case spineIndex
     /// 連続スクロール文書だけ: 章の一覧 [{ index, url, roll, renderable, width?, height? }]。
     case continuousItems
+    /// native だけ(census / サムネイル): ページ割り規則の版
+    /// (EPUBScreenMetrics.paginationVersion)。cacheKey を版で無効化する。
+    case engine
+    /// native だけ(census / サムネイル): 著者スクリプトの許可。オフスクリーンの
+    /// WebView 構成と cacheKey に効く。
+    case allowsScriptedContent
+    /// native だけ(census / サムネイル): 項目ごとの spread と余白を再計算する
+    /// ための不透明な文脈(EPUBScreenMetrics.setupPlan が読む)。
+    case washiMetrics = "_washiMetrics"
+}
+
+/// setup の引数・戻り値の辞書を、生の文字列ではなく上の列挙で引く。
+/// 文字列は rawValue そのものなので、JSON の形は変わらない。
+extension Dictionary where Key == String, Value == Any {
+    /// EPUBScriptSetupOptionKey を鍵にした並びから setup の引数辞書を作る
+    /// (鍵の順序は JSON の直列化に影響しない)。
+    init(setupOptions: KeyValuePairs<EPUBScriptSetupOptionKey, Any>) {
+        self.init(minimumCapacity: setupOptions.count)
+        for (key, value) in setupOptions {
+            self[key.rawValue] = value
+        }
+    }
+
+    subscript(key: EPUBScriptSetupResultKey) -> Any? {
+        self[key.rawValue]
+    }
+
+    subscript(key: EPUBScriptSetupOptionKey) -> Any? {
+        get { self[key.rawValue] }
+        set { self[key.rawValue] = newValue }
+    }
 }

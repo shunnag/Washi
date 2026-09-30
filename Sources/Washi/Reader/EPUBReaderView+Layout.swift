@@ -100,13 +100,13 @@ extension EPUBReaderView {
     // 見開き判定・ノド幅は EPUBScreenMetrics が単一の正(リーダー外の
     // 一覧展開と式を共有し、ページ割りの一致を保証する)
 
-    /// 現在の表示寸法と flow で、与えた設定と項目の画面計画を立てる
+    /// 現在の表示寸法で、与えた設定と項目(その spread と flow)の画面計画を立てる
     func screenMetrics(for settings: EPUBReaderSettings,
                        spineIndex: Int) -> EPUBScreenMetrics {
         EPUBScreenMetrics(
             viewportSize: bounds.size, settings: settings,
             renditionSpread: effectiveSpread(forSpineIndex: spineIndex))
-            .applyingRenditionFlow(effectiveFlow)
+            .applyingRenditionFlow(publication?.renderingFlow(at: spineIndex) ?? .auto)
     }
 
     /// 現在の表示条件の画面計画(census・サムネイルのオプションもここから)
@@ -264,31 +264,31 @@ extension EPUBReaderView {
 
     func setupOptionsJSON() -> String {
         let frame = contentFrame
-        var options: [String: Any] = [
-            "width": Double(frame.width.rounded(.down)),
-            "height": Double(frame.height.rounded(.down)),
-            "gap": settings.pageGap,
-            "spread": isSpread,
-            "gutter": Double(EPUBScreenMetrics.spreadGutter(forContentWidth: frame.width)),
-            "fixedLayout": isFixedLayoutItem,
-            "flow": effectiveFlow.rawValue,
-            "keysEnabled": settings.handlesKeyboardNavigation,
+        var options = [String: Any](setupOptions: [
+            .width: Double(frame.width.rounded(.down)),
+            .height: Double(frame.height.rounded(.down)),
+            .gap: settings.pageGap,
+            .spread: isSpread,
+            .gutter: Double(EPUBScreenMetrics.spreadGutter(forContentWidth: frame.width)),
+            .fixedLayout: isFixedLayoutItem,
+            .flow: effectiveFlow.rawValue,
+            .keysEnabled: settings.handlesKeyboardNavigation,
             // cooViewer-oxr.46 C35: 通知が今の文書のものかを判別する印。
-            "documentToken": currentDocumentToken,
+            .documentToken: currentDocumentToken,
             // cooViewer-oxr.27: 既定は即時。明示 opt-in 時だけ click を保留する。
-            "deferTaps": settings.defersTapsForDoubleClick,
-            "fontScale": settings.fontScale,
-            "defaultFontCSS": settings.defaultFontCSS(),
-            "userCSS": settings.composedUserCSS(
+            .deferTaps: settings.defersTapsForDoubleClick,
+            .fontScale: settings.fontScale,
+            .defaultFontCSS: settings.defaultFontCSS(),
+            .userCSS: settings.composedUserCSS(
                 isDark: isDarkEffective,
                 increaseContrast: shouldIncreaseContrast,
                 differentiateWithoutColor: shouldDifferentiateWithoutColor),
-        ]
+        ])
         if settings.defersTapsForDoubleClick {
             let interval = NSEvent.doubleClickInterval
-            options["doubleClickDelayMS"] = 1_000 * (interval > 0 ? interval : 0.5)
+            options[.doubleClickDelayMS] = 1_000 * (interval > 0 ? interval : 0.5)
         }
-        if isFixedLayoutItem { options["width"] = 0; options["height"] = 0 }
+        if isFixedLayoutItem { options[.width] = 0; options[.height] = 0 }
         let data = (try? JSONSerialization.data(withJSONObject: options)) ?? Data("{}".utf8)
         let json = String(data: data, encoding: .utf8) ?? "{}"
         guard let publication, let schemeHandler else { return json }
@@ -409,15 +409,15 @@ extension EPUBReaderView {
     /// cooViewer-oxr.48: JS の機能検出結果を公開状態へ写し、縦見開きの
     /// 単ページ縮退を診断可能にする。
     func applySetupResult(_ result: [String: Any]) {
-        if let count = result["pageCount"] as? Int {
+        if let count = result[.pageCount] as? Int {
             pageCountInItem = max(1, count)
         }
-        isImagePage = result["imagePage"] as? Bool ?? false
-        pagesPerScreen = max(1, result["pagesPerScreen"] as? Int ?? 1)
-        if let measured = result["firstPageOnRight"] as? Bool {
+        isImagePage = result[.imagePage] as? Bool ?? false
+        pagesPerScreen = max(1, result[.pagesPerScreen] as? Int ?? 1)
+        if let measured = result[.firstPageOnRight] as? Bool {
             firstPageOnRight = measured
         }
-        if let markers = result["printPageMarkers"] as? [[String: Any]] {
+        if let markers = result[.printPageMarkers] as? [[String: Any]] {
             // cooViewer-oxr.38: JS の文書順を保ち、壊れた値だけを捨てる。
             printPageMarkers = markers.compactMap { marker in
                 guard let label = marker["label"] as? String, !label.isEmpty,
@@ -427,9 +427,9 @@ extension EPUBReaderView {
                 return PrintPageMarker(label: label, page: page)
             }
         }
-        guard let supported = result["supportsColumnAxis"] as? Bool else { return }
+        guard let supported = result[.supportsColumnAxis] as? Bool else { return }
         let shouldLog = columnAxisSupported && !supported && isSpread
-            && ["vrl", "vlr"].contains(result["mode"] as? String ?? "")
+            && ["vrl", "vlr"].contains(result[.mode] as? String ?? "")
         columnAxisSupported = supported
         if shouldLog {
             Self.logger.warning(

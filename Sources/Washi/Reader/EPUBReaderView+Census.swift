@@ -199,10 +199,7 @@ extension EPUBReaderView {
         let renderer = thumbnailRenderer
             ?? EPUBScreenThumbnailRenderer(publication: publication)
         thumbnailRenderer = renderer
-        let itemMetrics = EPUBScreenMetrics(
-            viewportSize: bounds.size, settings: settings,
-            renditionSpread: effectiveSpread(forSpineIndex: spineIndex))
-            .applyingRenditionFlow(publication.renderingFlow(at: spineIndex))
+        let itemMetrics = screenMetrics(for: settings, spineIndex: spineIndex)
         return await renderer.thumbnail(
             spineIndex: spineIndex, pageInItem: pageInItem,
             optionsJSON: itemMetrics.themedOptionsJSON(isDark: isDarkEffective),

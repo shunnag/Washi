@@ -37,7 +37,7 @@ final class MediaOverlayUXTests: XCTestCase {
         // fixture の par は epub:type を持たないので、飛ばし指定は効かない
         controller.skippedTypes = ["pagebreak"]
         controller.play(fromSpineIndex: 0)
-        XCTAssertEqual(controller.currentParIndex, 0)
+        XCTAssertEqual(controller.parIndex, 0)
         controller.stop()
     }
 

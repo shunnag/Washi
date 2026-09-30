@@ -1,6 +1,6 @@
 import Foundation
 
-// 表示・実測・サムネイルで同じ項目のフローを使う。
+/// 表示・実測・サムネイルで同じ項目のフローを使う。
 extension EPUBPublication {
     func renderingFlow(at index: Int) -> RenditionFlow {
         guard readingOrder.indices.contains(index) else { return .auto }

@@ -31,7 +31,7 @@ final class EPUBOffscreenJobQueue {
     ) async throws -> T {
         let previous = lastJob
         let job = Task(priority: priority) { () throws -> T in
-            guard await waitForOffscreenPredecessor(previous) else {
+            guard await EPUBOffscreenWaiting.waitForPredecessor(previous) else {
                 throw CancellationError()
             }
             return try await body()
@@ -62,7 +62,7 @@ final class EPUBOffscreenJobQueue {
     ) async -> T? {
         let previous = lastJob
         let job = Task(priority: priority) { () -> T? in
-            guard await waitForOffscreenPredecessor(previous) else { return nil }
+            guard await EPUBOffscreenWaiting.waitForPredecessor(previous) else { return nil }
             return await body()
         }
         let jobID = UUID()

@@ -67,6 +67,7 @@ extension EPUBReaderView {
         return controller
     }
 
+    // cooViewer-oxr.46 C26
     /// 章の先頭ではなく、現在のページに本文が見えているクリップから
     /// 読み上げを開始する。ページ内に読み上げ対象が
     /// なければ、章の先頭から始める。
@@ -74,7 +75,7 @@ extension EPUBReaderView {
     /// Starts narration at the clip whose text is visible on the current page,
     /// instead of at the start of the chapter.
     /// Falls back to the chapter start when nothing on the page is narrated.
-    public func playMediaOverlayFromCurrentPage() async {  // cooViewer-oxr.46 C26
+    public func playMediaOverlayFromCurrentPage() async {
         mediaOverlayCommandGeneration &+= 1
         let command = mediaOverlayCommandGeneration
         guard let publication,
@@ -84,23 +85,19 @@ extension EPUBReaderView {
         let sourceContext = mediaOverlayDocumentContext()
         func belongsToSourceSpine(_ par: MediaOverlay.Parallel) -> Bool {
             guard let href = par.textHref else { return false }
-            let document = href.split(separator: "#", maxSplits: 1,
-                                      omittingEmptySubsequences: false)[0]
+            let document = ContainerPath.documentPart(of: href)
             if document.isEmpty { return true }
             guard let path = ContainerPath.resolve(base: overlay.basePath,
-                                                   href: String(document)) else {
+                                                   href: document) else {
                 return false
             }
             return publication.spineIndex(forContainerPath: path) == sourceSpineIndex
         }
         let candidates = overlay.parallels.enumerated().compactMap {
             index, par -> (index: Int, identifier: String)? in
-            guard belongsToSourceSpine(par), let href = par.textHref else { return nil }
-            let parts = href.split(separator: "#", maxSplits: 1,
-                                   omittingEmptySubsequences: false)
-            guard parts.count == 2, !parts[1].isEmpty else { return nil }
-            let rawIdentifier = String(parts[1])
-            return (index, rawIdentifier.removingPercentEncoding ?? rawIdentifier)
+            guard belongsToSourceSpine(par), let href = par.textHref,
+                  let identifier = ContainerPath.fragment(of: href) else { return nil }
+            return (index, identifier)
         }
         var parIndex = overlay.parallels.firstIndex(where: belongsToSourceSpine) ?? 0
         if !candidates.isEmpty,

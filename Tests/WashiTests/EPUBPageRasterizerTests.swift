@@ -225,7 +225,7 @@ final class EPUBPageRasterizerTests: XCTestCase {
     private static func readinessTimeoutViewDiagnostics(_ views: NSHashTable<WKWebView>) async
         -> [String] {
         var attachment: String?
-        let replied: Bool? = await waitForOffscreenResult(timeout: .seconds(1)) { completion in
+        let replied: Bool? = await EPUBOffscreenWaiting.waitForResult(timeout: .seconds(1)) { completion in
             autoreleasepool {
                 guard let view = views.allObjects.first else {
                     completion(false)
@@ -258,7 +258,7 @@ final class EPUBPageRasterizerTests: XCTestCase {
             return ["WebKit log: launch failed: \(error)"]
         }
         let result: Result<(status: Int32, output: String), any Error>? =
-            await waitForOffscreenResult(timeout: .seconds(10)) { completion in
+            await EPUBOffscreenWaiting.waitForResult(timeout: .seconds(10)) { completion in
                 DispatchQueue.global(qos: .utility).async {
                     defer { try? pipe.fileHandleForReading.close() }
                     do {

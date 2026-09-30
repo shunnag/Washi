@@ -22,7 +22,7 @@ final class EPUBOffscreenSnapshotTests: XCTestCase {
         var result: Result<CGImage, any Error>?
         let task = Task { @MainActor in
             do {
-                result = .success(try await takeOffscreenSnapshot(
+                result = .success(try await EPUBOffscreenWaiting.takeSnapshot(
                     webView: view, configuration: WKSnapshotConfiguration(),
                     timeout: cancel ? .seconds(5) : .milliseconds(20)))
             } catch {

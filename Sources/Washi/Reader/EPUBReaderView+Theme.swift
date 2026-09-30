@@ -52,15 +52,13 @@ extension EPUBReaderView {
 
     /// ページ側(Web コンテンツ)へ配色 CSS だけを差し替える(再ページ割りなし)
     func applyThemeCSSOnly(retakesCover: Bool = true) {
-        guard let webView else { return }
+        guard webView != nil else { return }
         let css = settings.composedUserCSS(
             isDark: isDarkEffective,
             increaseContrast: shouldIncreaseContrast,
             differentiateWithoutColor: shouldDifferentiateWithoutColor)
         // 撮り直しの描画待ちより前に届くよう、Task を挟まずに送る
-        webView.callAsyncJavaScript(
-            "return __washi.setUserCSS(css);", arguments: ["css": css],
-            in: nil, in: WashiContentWorld.world, completionHandler: nil)
+        sendWashiNow("return __washi.setUserCSS(css);", arguments: ["css": css])
         if retakesCover {
             retakePageCoverAfterRestyle()
         } else if pageCover.prefetchedPageCover == nil {

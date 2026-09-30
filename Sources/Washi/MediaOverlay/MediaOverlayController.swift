@@ -28,13 +28,11 @@ final class MediaOverlayController {
     private let activeClass: String
 
     private var overlay: MediaOverlay?
-    /// 再生中の spine 項目(ホストが現在項目と突き合わせて古い章の再開を防ぐ)
+    /// 再生中の spine 項目(ホストが現在項目と突き合わせて古い章の再開を防ぐ。
+    /// テストの観測点でもある)
     private(set) var spineIndex = 0
-    /// 再生中の spine 項目(テストの観測点)
-    var currentSpineIndex: Int { spineIndex }
-    private var parIndex = 0
     /// 再生中の par 番号(テストの観測点)
-    var currentParIndex: Int { parIndex }
+    private(set) var parIndex = 0
     private var player: (any MediaOverlayAudioPlayer)?
     private var loadedAudioPath: String?
     private var ticker: Timer?
@@ -396,8 +394,9 @@ final class MediaOverlayController {
                   reader?.currentSpineIndex == target else { return false }
             spineIndex = target
         }
-        reader?.mediaOverlayHighlight(fragmentID: Self.fragment(of: par.textHref),
-                                      cssClass: activeClass)
+        reader?.mediaOverlayHighlight(
+            fragmentID: par.textHref.flatMap(ContainerPath.fragment(of:)),
+            cssClass: activeClass)
         return true
     }
 
@@ -410,22 +409,12 @@ final class MediaOverlayController {
     private func spineIndex(forPar par: MediaOverlay.Parallel,
                             in overlay: MediaOverlay) -> Int? {
         guard let href = par.textHref else { return nil }
-        let withoutFragment = href.split(separator: "#", maxSplits: 1,
-                                         omittingEmptySubsequences: false)[0]
+        let withoutFragment = ContainerPath.documentPart(of: href)
         guard !withoutFragment.isEmpty,
               let path = ContainerPath.resolve(base: overlay.basePath,
-                                               href: String(withoutFragment))
+                                               href: withoutFragment)
         else { return nil }
         return publication.spineIndex(forContainerPath: path)
-    }
-
-    private static func fragment(of href: String?) -> String? {
-        guard let href else { return nil }
-        let parts = href.split(separator: "#", maxSplits: 1,
-                               omittingEmptySubsequences: false)
-        guard parts.count == 2 else { return nil }
-        let fragment = String(parts[1])
-        return fragment.removingPercentEncoding ?? fragment
     }
 
     private func clearHighlight() {

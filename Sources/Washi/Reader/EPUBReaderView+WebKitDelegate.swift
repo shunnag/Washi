@@ -1,8 +1,6 @@
 import AppKit
 import WebKit
 
-// MARK: - WKNavigationDelegate / WKUIDelegate
-
 /// EPUBReaderView の WKNavigationDelegate / WKUIDelegate: 遷移の許可判定、
 /// コミットと完了・失敗の受け取り、WebContent プロセス終了時の再読み込み。
 extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
@@ -39,7 +37,7 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
             }
         }
         // JS のクリック捕捉をすり抜けたリンク(area 等)の安全網
-        if ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? ""),
+        if Self.externalLinkSchemes.contains(url.scheme?.lowercased() ?? ""),
            navigationAction.navigationType == .linkActivated {
             openExternalURLIfAllowed(url)
         }

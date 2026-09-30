@@ -211,7 +211,7 @@ public final class EPUBPageRasterizer {
         let configuration = WKSnapshotConfiguration()
         configuration.rect = CGRect(origin: .zero, size: frameSize)
         configuration.afterScreenUpdates = true
-        let image = try await takeOffscreenSnapshot(
+        let image = try await EPUBOffscreenWaiting.takeSnapshot(
             webView: webView, configuration: configuration)
         lastRenderTrace.snapshotEnd = .now
         try Task.checkCancellation()
@@ -247,7 +247,9 @@ public final class EPUBPageRasterizer {
                                   timeout: Duration = .seconds(5)) async -> Bool {
         // 呼び出し元の描画ジョブは userInitiated。キャンセル非対応の
         // async 版で WebView を保持せず、期限後は応答の有無によらず解放する。
-        let result: Bool? = await waitForOffscreenResult(timeout: timeout) { completion in
+        let result: Bool? = await EPUBOffscreenWaiting.waitForResult(
+            timeout: timeout
+        ) { completion in
             webView.callAsyncJavaScript(
                 ReaderScripts.awaitDecodedImagesScript(awaitFonts: true),
                 arguments: [:], in: nil, in: .defaultClient) { _ in

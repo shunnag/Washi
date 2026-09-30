@@ -22,13 +22,7 @@ extension EPUBReaderView {
             max(0, min($0.spineIndex, publication.readingOrder.count - 1))
         } ?? 0
         // 再オープン時も go(to:) と同じアンカーを使い、表示寸法の変更を吸収する。
-        let target: PendingTarget
-        if let resolved, let offset = resolved.textOffset {
-            target = .textRange(utf16Offset: offset, utf16Length: 1,
-                                fallbackProgression: resolved.progression)
-        } else {
-            target = resolved.map { .progression($0.progression) } ?? .start
-        }
+        let target = resolved.map(PendingTarget.init(restoring:)) ?? .start
         spineLoad.pendingRestoreLocator = resolved
         rebuildWebView(for: publication)
         loadSpineItem(at: index, target: target)
@@ -210,12 +204,7 @@ extension EPUBReaderView {
                                isRecovery: Bool = false) {
         let request = navigationRequestGeneration
         let previousGeneration = spineLoadGeneration
-        let isTextRangeTarget: Bool
-        if case .textRange = target {
-            isTextRangeTarget = true
-        } else {
-            isTextRangeTarget = false
-        }
+        let isTextRangeTarget = target.isTextRange
         guard let publication, let schemeHandler, let webView,
               publication.readingOrder.indices.contains(index) else {
             if isTextRangeTarget { cancelPendingTextRangeRequest() }
@@ -418,13 +407,6 @@ extension EPUBReaderView {
         for overlay in turn.turnOverlays where overlay !== survivor { foldTurnCover(overlay) }
     }
 
-    /// 保存した位置にテキストの錨があれば同じ文へ、無ければ進行率へ戻る。
-    private static func target(restoring locator: EPUBLocator) -> PendingTarget {
-        guard let offset = locator.textOffset else { return .progression(locator.progression) }
-        return .textRange(utf16Offset: offset, utf16Length: 1,
-                          fallbackProgression: locator.progression)
-    }
-
     /// 読み込み開始後の失敗は最後に setup を終えた位置を読み込み直す。
     /// 復旧自体の失敗や復旧先が無い場合は、その項目で止める。通知前に行き先を
     /// 決め、通知中にホストが始めた移動を後から上書きしない。
@@ -438,7 +420,7 @@ extension EPUBReaderView {
             webView?.alphaValue = awaitingCommit ? 1 : 0
             _ = beginNavigationRequest()
             loadSpineItem(at: settledLocator.spineIndex,
-                          target: Self.target(restoring: settledLocator), isRecovery: true)
+                          target: PendingTarget(restoring: settledLocator), isRecovery: true)
         } else {
             abandonSpineLoad()
             spineLoad.resetRecovery()
