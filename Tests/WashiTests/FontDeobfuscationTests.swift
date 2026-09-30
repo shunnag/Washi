@@ -186,4 +186,32 @@ final class FontDeobfuscationTests: XCTestCase {
         ]
         return try EPUBFixtures.publication(entries, name: "washi-obfuscation")
     }
+
+    /// encryption.xml の宣言に従って resource() が透過的に難読化を解除する
+    func testObfuscatedFontRoundTrip() throws {
+        let uid = "urn:uuid:12345678-1234-1234-1234-123456789abc"
+        let fontData = Data((0..<1500).map { UInt8($0 % 256) })
+        let obfuscated = FontDeobfuscator.deobfuscate(
+            fontData, algorithm: .idpf, uniqueIdentifier: uid)
+        let encryptionXML = """
+        <?xml version="1.0"?>
+        <encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container"
+                    xmlns:enc="http://www.w3.org/2001/04/xmlenc#">
+          <enc:EncryptedData>
+            <enc:EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/>
+            <enc:CipherData><enc:CipherReference URI="OEBPS/fonts/m.otf"/></enc:CipherData>
+          </enc:EncryptedData>
+        </encryption>
+        """
+        var entries = EPUBFixtures.verticalNovelEntries()
+        entries.append(("META-INF/encryption.xml", Data(encryptionXML.utf8)))
+        entries.append(("OEBPS/fonts/m.otf", obfuscated))
+        let publication = try EPUBPublication(
+            data: ZipBuilder.build(entries),
+            displayURL: URL(fileURLWithPath: "/tmp/novel.epub"))
+        // resource() が透過的に解除して元のフォントデータを返す
+        let (data, _) = try publication.resource(at: "OEBPS/fonts/m.otf")
+        XCTAssertEqual(data, fontData)
+        XCTAssertFalse(publication.isDRMProtected)
+    }
 }
