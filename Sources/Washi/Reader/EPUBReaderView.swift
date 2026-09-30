@@ -25,6 +25,19 @@ public final class EPUBReaderView: NSView {
     static let logger = Logger(
         subsystem: "org.cocoadialog.Washi", category: "EPUBReaderView")
 
+    // スクロール表示の地図: 連続スクロール(scrolled-continuous / roll)は
+    // EPUBScrollDocument が章をつないだ 1 文書として表示し、その JS は
+    // ReaderScripts+ContinuousScroll にある。リーダー側でスクロール表示に固有の分岐は
+    // 次の箇所だけ:
+    // - loadedScrollGroup / scrollProgression(読み込み状態): つないだ章の範囲と進行率
+    // - isRollItem(+Loading): roll 項目は余白なしで全面に置く
+    // - spineLoadURL(+Loading): scrolledContinuous では scrollDocumentURL を読む
+    // - advanceSpine(+Navigation): 章ではなく群(group)の端へ進む
+    // - setupOptionsJSON(+Layout): EPUBScrollDocument.options で章の一覧を足す
+    // - go(to:textRange:)(+Selection): roll 項目でもテキスト範囲の移動を許す
+    // - censusProgressionDivisions(+Census): 群の途中の章は count 分割で進行率を出す
+    // - scrollFailure(+ScriptBridge): 遅延読み込みの失敗を delegate へ伝える
+
     public internal(set) var publication: EPUBPublication?
     public weak var delegate: (any EPUBReaderViewDelegate)?
 
@@ -142,7 +155,11 @@ public final class EPUBReaderView: NSView {
     public internal(set) var pageInItem = 0
     public internal(set) var pageCountInItem = 1
     var isFixedLayoutItem = false
+    /// スクロール表示の進行率(0...1。JS の pageChanged が付ける)。ページ表示では nil で、
+    /// currentLocator はページ番号から進行率を出す
     var scrollProgression: Double?
+    /// 連続スクロール文書がつないでいる章の spine 範囲(ページ表示・scrolled-doc では nil)。
+    /// spineIndex 付きの JS 通知はこの範囲の章からだけ受け入れる
     var loadedScrollGroup: Range<Int>?
     var effectiveFlow: RenditionFlow {
         publication?.renderingFlow(at: currentSpineIndex) ?? .auto
