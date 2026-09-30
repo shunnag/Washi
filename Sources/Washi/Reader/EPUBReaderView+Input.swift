@@ -330,11 +330,11 @@ extension EPUBReaderView {
         // 表示される前に advanceSpine で飛ばされるカスケードを防ぐ)。手が動いている
         // ことは記録し、ラッチしたままにする(読み込み後も同じジェスチャが続く間は送らない)
         guard !spineLoad.isLoadingSpineItem else {
-            marginWheelLatch.lastTime = event.timestamp
-            marginWheelLatch.latched = true
+            wheelTurnLatch.lastTime = event.timestamp
+            wheelTurnLatch.latched = true
             return
         }
-        guard let (horizontal, positive) = marginWheelLatch.register(event) else { return }
+        guard let (horizontal, positive) = wheelTurnLatch.register(event) else { return }
         // AppKit の scrollingDelta は DOM の wheel と符号が逆
         // (正=文書の先頭方向へのスクロール)
         if horizontal {
