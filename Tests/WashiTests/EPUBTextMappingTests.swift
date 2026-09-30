@@ -452,3 +452,166 @@ final class EPUBTextMappingTests: XCTestCase {
         }.value
     }
 }
+
+/// extractText と WebKit DOM の対応を検証する spine 項目。
+private struct EPUBTextMappingFixture {
+    let name: String
+    let body: String
+    let searchQuery: String
+    var css = "html { writing-mode: horizontal-tb; }"
+    var usesXHTMLDoctype = false
+}
+
+private extension EPUBFixtures {
+    /// appendPlainText / collapsingWhitespace の境界条件を個別に識別できる
+    /// 忠実性フィクスチャ。各 query は少なくとも 1 個の可視 DOM Range を持つ
+    static let textMappingFixtures: [EPUBTextMappingFixture] = [
+        EPUBTextMappingFixture(
+            name: "U+3000 字下げ",
+            body: "<p>　字下げ検索　本文</p>",
+            searchQuery: "字下げ検索"),
+        EPUBTextMappingFixture(
+            name: "整形空白ノード",
+            body: "<p>整形前検索</p>\n<p>整形後検索</p>",
+            searchQuery: "検索"),
+        EPUBTextMappingFixture(
+            // NSXML は要素間の半角スペースだけのノードを落とす → 両側とも "xy"
+            name: "インライン間空白",
+            body: "<p><span>xy検索</span> <span>語</span></p>",
+            searchQuery: "xy検索語"),
+        EPUBTextMappingFixture(
+            // U+3000 は XML 空白ではないためノードが残り、両側とも空行 1 本になる
+            name: "全角空白ノード",
+            body: "<p>全角前</p>\u{3000}<p>全角後検索</p>",
+            searchQuery: "全角後検索"),
+        EPUBTextMappingFixture(
+            // &#13; は NSXML でも U+000D として残る。段落末の CR の直後に要素境界の改行
+            name: "CR 実体+段落末",
+            body: "<p>x&#13;</p><p>y検索</p>",
+            searchQuery: "y検索"),
+        EPUBTextMappingFixture(
+            name: "CR 実体+br",
+            body: "<div>x&#13;<br/>y検索</div>",
+            searchQuery: "y検索"),
+        EPUBTextMappingFixture(
+            // CR LF が 1 書記素になるケース(Character の split/hasSuffix の罠)
+            name: "CRLF 実体",
+            body: "<p>x&#13;&#10;</p><p>y検索</p>",
+            searchQuery: "y検索"),
+        EPUBTextMappingFixture(
+            name: "CDATA 内 CRLF",
+            body: "<p><![CDATA[x\r\n]]></p><p>y検索</p>",
+            searchQuery: "y検索"),
+        EPUBTextMappingFixture(
+            // NSXML は空白 Text と隣接 CDATA を結合して残す → 両側とも "x y検索"
+            name: "CDATA 隣接空白",
+            body: "<p><b>x</b> <![CDATA[y検索]]></p>",
+            searchQuery: "y検索"),
+        EPUBTextMappingFixture(
+            // 抽出本文には含まれるがレイアウト箱が無い → locateAndShow は null
+            name: "非表示テキスト",
+            body: "<p>可視</p><p style=\"display:none\">非表示検索</p>",
+            searchQuery: "非表示検索"),
+        EPUBTextMappingFixture(
+            name: "br",
+            body: "<p>改行前<br/>改行後検索</p>",
+            searchQuery: "改行後検索"),
+        EPUBTextMappingFixture(
+            name: "ruby",
+            body: "<p><ruby>葛<rp>（</rp><rt>かつ</rt><rp>）</rp></ruby>ルビ検索</p>",
+            searchQuery: "ルビ検索"),
+        EPUBTextMappingFixture(
+            name: "入れ子インライン",
+            body: "<p><span>入れ子<em>強調<a href=\"#nested\">リンク検索</a></em></span></p>",
+            searchQuery: "強調リンク検索"),
+        EPUBTextMappingFixture(
+            name: "空行連続",
+            body: "<p>空行前</p>\n\n\n<p>空行後検索</p>",
+            searchQuery: "空行後検索"),
+        EPUBTextMappingFixture(
+            name: "IVS",
+            body: "<p>異体字葛󠄀検索と通常字葛</p>",
+            searchQuery: "葛󠄀検索"),
+        EPUBTextMappingFixture(
+            name: "CDATA",
+            body: "<p><![CDATA[CDATA検索<&>]]></p>",
+            searchQuery: "CDATA検索"),
+        EPUBTextMappingFixture(
+            name: "名前付き実体",
+            body: "<p>実体&nbsp;検索&hellip;終端</p>",
+            searchQuery: "検索…終端",
+            usesXHTMLDoctype: true),
+        EPUBTextMappingFixture(
+            // cooViewer-oxr.10: WHATWG 実体を Core と WebKit で同じ本文へ写像する。
+            name: "WHATWG 名前付き実体",
+            body: "<p>矢印&rarr;検索&yen;価格&ensp;空白</p>",
+            searchQuery: "→検索¥価格",
+            usesXHTMLDoctype: true),
+        EPUBTextMappingFixture(
+            name: "pre",
+            body: "<pre>  pre検索\n    二行目  </pre>",
+            searchQuery: "pre検索"),
+        EPUBTextMappingFixture(
+            // cooViewer-oxr.89: SVG/MathML の不可視注釈を除き可視 text は残す。
+            name: "SVG・MathML 注釈",
+            body: "<p>前<svg xmlns=\"http://www.w3.org/2000/svg\">"
+                + "<title>不可視題</title><desc>不可視説明</desc>"
+                + "<text>SVG可視検索</text></svg>"
+                + "<math xmlns=\"http://www.w3.org/1998/Math/MathML\">"
+                + "<mi>x</mi><annotation>不可視注釈</annotation>"
+                + "<annotation-xml><mtext>不可視XML</mtext></annotation-xml>"
+                + "</math><desc>HTML説明</desc><annotation>HTML注記</annotation>"
+                + "後</p>",
+            searchQuery: "SVG可視検索"),
+        EPUBTextMappingFixture(
+            // cooViewer-oxr.92: 表題・見出し・セルを同じ改行境界で写像する。
+            name: "table/caption/th/td",
+            body: "<table><caption>書誌</caption><tr><th>発行者</th>"
+                + "<td>山田太郎</td><td>検索セル</td></tr></table>",
+            searchQuery: "検索セル"),
+        EPUBTextMappingFixture(
+            name: "縦書き",
+            body: "<p>\(String(repeating: "縦書き本文。", count: 350))縦書き検索\(String(repeating: "後続本文。", count: 350))</p>",
+            searchQuery: "縦書き検索",
+            css: "html { writing-mode: vertical-rl; }"),
+    ]
+
+    static func textMappingEntries() -> [(name: String, data: Data)] {
+        let manifest = textMappingFixtures.indices.map { index in
+            "<item id=\"text\(index)\" href=\"text/f\(index).xhtml\" media-type=\"application/xhtml+xml\"/>"
+        }.joined()
+        let spine = textMappingFixtures.indices.map { index in
+            "<itemref idref=\"text\(index)\"/>"
+        }.joined()
+        let opf = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+              <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                <dc:identifier id="uid">urn:uuid:text-map-fixtures</dc:identifier>
+                <dc:title>Text map fixtures</dc:title>
+                <dc:language>ja</dc:language>
+                <meta property="dcterms:modified">2026-09-02T00:00:00Z</meta>
+              </metadata>
+              <manifest>\(manifest)</manifest>
+              <spine>\(spine)</spine>
+            </package>
+            """
+        var entries: [(name: String, data: Data)] = [
+            ("mimetype", Data("application/epub+zip".utf8)),
+            ("META-INF/container.xml", Data(containerXML.utf8)),
+            ("OEBPS/package.opf", Data(opf.utf8)),
+        ]
+        for (index, fixture) in textMappingFixtures.enumerated() {
+            let doctype = fixture.usesXHTMLDoctype
+                ? "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">"
+                : ""
+            let xhtml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + doctype
+                + "<html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"ja\">"
+                + "<head><title>\(fixture.name)</title><style>\(fixture.css)</style></head>"
+                + "<body>\(fixture.body)</body></html>"
+            entries.append(("OEBPS/text/f\(index).xhtml", Data(xhtml.utf8)))
+        }
+        return entries
+    }
+}
