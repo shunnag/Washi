@@ -29,15 +29,22 @@ extension ReaderScripts {
             message.token = options.documentToken || '';
             try { window.webkit.messageHandlers.washi.postMessage(message); } catch (_) {}
         }
+        // pageChanged の mode は章の computed writing-mode('htb' / 'vrl' / 'vlr'。
+        // roll は 'htb')。この文書では setup の戻り値の mode も同じ値で、
+        // 'fxl' は返さない。値は従来どおり。
         function report() {
             if (!ready || !active) { return; }
             post({ type: 'pageChanged', spineIndex: active.index, page: page(active),
                    pageCount: count(active), pagesPerScreen: 1, mode: active.mode,
                    progression: progression(active), printPageMarkers: active.markers });
         }
+        // 本体スクリプトの setupResult と同じ鍵集合を返す。連続スクロールに
+        // 見開き末尾の空列はないので paddedPageCount は pageCount と同じ。
         function setupResult() {
-            return { pageCount: count(active), pagesPerScreen: 1, imagePage: false,
-                     mode: active.mode, printPageMarkers: active.markers,
+            const pageCount = count(active);
+            return { pageCount: pageCount, pagesPerScreen: 1, imagePage: false,
+                     mode: active.mode, paddedPageCount: pageCount,
+                     printPageMarkers: active.markers,
                      firstPageOnRight: false, supportsColumnAxis: true };
         }
         function sameOptions(a, b) {
@@ -296,14 +303,19 @@ extension ReaderScripts {
             return 'turned';
         };
         api.activeDocument = () => active && active.frame ? active.frame.contentDocument : document;
+        // 章の viewport 矩形。読み込み済みなら iframe の内寸を、枠だけなら wrapper を測る。
+        function itemRect(item) {
+            if (item.frame) {
+                return transformRect(item, { x:0, y:0, w:item.frame.contentWindow.innerWidth,
+                    h:item.frame.contentWindow.innerHeight });
+            }
+            const bounds = item.wrapper.getBoundingClientRect();
+            return { x:bounds.x, y:bounds.y, w:bounds.width, h:bounds.height };
+        }
         api.scrollMetrics = () => ({ ready: ready, scrolled: true, continuous: true,
             mode: active ? active.mode : 'htb', extent: total, viewport: viewport(), offset: offset(),
             items: items.map(item => ({ index: item.index, start: item.start, extent: item.extent,
-                pageCount: count(item), loaded: !!item.child, rect: item.frame
-                    ? transformRect(item, { x:0, y:0, w:item.frame.contentWindow.innerWidth,
-                        h:item.frame.contentWindow.innerHeight })
-                    : { x:item.wrapper.getBoundingClientRect().x, y:item.wrapper.getBoundingClientRect().y,
-                        w:item.wrapper.getBoundingClientRect().width, h:item.wrapper.getBoundingClientRect().height } })) });
+                pageCount: count(item), loaded: !!item.child, rect: itemRect(item) })) });
         for (const name of ['clearSelection', 'buildTextMap']) {
             api[name] = async (...args) => {
                 if (!active) { return null; }
@@ -375,16 +387,20 @@ extension ReaderScripts {
             }
             return result;
         };
-        for (const name of ['setUserCSS', 'setKeysEnabled', 'setTapDeferral']) {
+        // 読み込み後の設定変更は options にも写し、次の setup と同値判定へ引き継ぐ。
+        // options は setup で差し替わるので、呼ばれた時点の変数を読む。
+        const optionSetters = {
+            setUserCSS: args => { options.userCSS = args[0]; },
+            setKeysEnabled: args => { options.keysEnabled = args[0]; },
+            setTapDeferral: args => { options.deferTaps = args[0]; options.doubleClickDelayMS = args[1]; }
+        };
+        for (const name of Object.keys(optionSetters)) {
             api[name] = (...args) => {
-                if (name === 'setUserCSS') { options.userCSS = args[0]; }
-                if (name === 'setKeysEnabled') { options.keysEnabled = args[0]; }
-                if (name === 'setTapDeferral') { options.deferTaps = args[0]; options.doubleClickDelayMS = args[1]; }
+                optionSetters[name](args);
                 for (const item of items) { if (item.child && item.child[name]) { item.child[name](...args); } }
                 return true;
             };
         }
-        api.printPageMarkers = () => active ? active.markers : [];
         window.addEventListener('scroll', function () {
             if (Math.abs(offset() - previousOffset) > 0.5) { preferred = null; }
             sync();

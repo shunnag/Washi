@@ -51,6 +51,8 @@ enum ReaderScripts {
         const washi = {};
         window.__washi = washi;
 
+        // ---- 状態 ----
+
         let mode = 'htb';        // 'htb' | 'vrl' | 'vlr'
         let pageW = 0, pageH = 0, gap = 0;
         let pageCount = 1;
@@ -106,6 +108,8 @@ enum ReaderScripts {
             try { window.webkit.messageHandlers.washi.postMessage(message); }
             catch (e) { /* ハンドラ未登録(ラスタライザ等)は黙って無視 */ }
         }
+
+        // ---- スタイル所有と既定フォント ----
 
         \#(styleOwnershipScript)
 
@@ -205,6 +209,8 @@ enum ReaderScripts {
                 s.textContent = rootRule + 'body { font-size: 1rem !important; }\n';
             }
         }
+
+        // ---- 画像ページ・外字判定 ----
 
         // 表紙・口絵など「画像 1 枚だけで本文テキストがないページ」の判定。
         // 電書協テンプレートの p-cover(hltr + img.fit)もこの形。
@@ -355,6 +361,8 @@ enum ReaderScripts {
                 }`;
         }
 
+        // ---- ページ割りの幾何 ----
+
         // body の writing-mode は主書字方向としてルートへ伝播するため両方見る
         function detectMode() {
             const rootWM = getComputedStyle(root()).writingMode || 'horizontal-tb';
@@ -487,13 +495,16 @@ enum ReaderScripts {
                     width: 0 !important;
                     height: 0 !important;
                 }`;
+            // 3 経路で共通の html リセット。書籍側の余白と寸法制約を無効化する。
+            // 継続行の字下げは、展開後の CSS 文字列が従来と同じになるよう揃えてある。
+            const rootReset = `margin: 0 !important; padding: 0 !important;
+                        box-sizing: border-box;
+                        max-width: none !important; max-height: none !important;
+                        min-width: 0 !important; min-height: 0 !important;`;
             if (mode === 'htb') {
                 s.textContent = `
                     html {
-                        margin: 0 !important; padding: 0 !important;
-                        box-sizing: border-box;
-                        max-width: none !important; max-height: none !important;
-                        min-width: 0 !important; min-height: 0 !important;
+                        ${rootReset}
                         width: ${pagesPerScreen === 2 ? 2 * pageW + gap : pageW}px !important;
                         height: ${pageH}px !important;
                         column-width: ${pageW}px !important;
@@ -508,10 +519,7 @@ enum ReaderScripts {
                 // column-progression は使わない(壊れる。調査済み)
                 s.textContent = `
                     html {
-                        margin: 0 !important; padding: 0 !important;
-                        box-sizing: border-box;
-                        max-width: none !important; max-height: none !important;
-                        min-width: 0 !important; min-height: 0 !important;
+                        ${rootReset}
                         width: ${pageW}px !important;
                         height: ${pageH}px !important;
                         -webkit-column-axis: horizontal;
@@ -523,10 +531,7 @@ enum ReaderScripts {
             } else {
                 s.textContent = `
                     html {
-                        margin: 0 !important; padding: 0 !important;
-                        box-sizing: border-box;
-                        max-width: none !important; max-height: none !important;
-                        min-width: 0 !important; min-height: 0 !important;
+                        ${rootReset}
                         width: ${pageW}px !important;
                         height: ${pageH}px !important;
                         column-width: ${pageH}px !important;
@@ -585,6 +590,8 @@ enum ReaderScripts {
             return { ready: ready, scrolled: scrolled, mode: mode, extent: scrollExtent(),
                      viewport: clientExtent(), offset: scrollOffset() };
         };
+
+        // ---- 末尾スプレッドの padding ----
 
         function resetPaginationMarkers() {
             // cooViewer-oxr.58: 前回だけに使った pseudo selector を無効化し、
@@ -835,6 +842,8 @@ enum ReaderScripts {
             paddedPageCount = pageCount;
         }
 
+        // ---- ページ数の実測とページ移動 ----
+
         function firstPageOnRight() {
             return pagesPerScreen === 2
                 && (mode === 'vrl' || (mode === 'htb' && horizontalRTL));
@@ -916,6 +925,9 @@ enum ReaderScripts {
             }
         }
 
+        // pageChanged の mode は computed writing-mode('htb' / 'vrl' / 'vlr')。
+        // setup の戻り値だけは FXL で 'fxl' を返す(repaginate が進行率の復元
+        // 要否に使う)。値は従来どおり。
         function report() {
             const message = { type: 'pageChanged', page: currentPage, pageCount: pageCount,
                               mode: mode, pagesPerScreen: pagesPerScreen };
@@ -935,7 +947,7 @@ enum ReaderScripts {
 
         washi.showLastPage = function () { return washi.showPage(pageCount - 1); };
 
-        /// 項目内進行率(0..1)からの復元
+        // 項目内進行率(0..1)からの復元
         washi.showProgression = function (p) {
             if (scrolled) {
                 return showScrollOffset(Math.max(0, Math.min(1, Number(p) || 0))
@@ -1006,8 +1018,6 @@ enum ReaderScripts {
             }).filter(Boolean);
         }
 
-        washi.printPageMarkers = collectPrintPageMarkers;
-
         washi.showFragment = function (id) {
             let el = null;
             try {
@@ -1021,6 +1031,8 @@ enum ReaderScripts {
             return washi.showPage(pageForRect(rect));
         };
 
+        // ---- 本文地図 ----
+
         // WashiCore の appendPlainText / collapsingWhitespace と同じ本文を
         // 作りながら、正規化後の UTF-16 各単位を元 Text ノードへ対応づける。
         // キャッシュの無効化は不要: 地図は DOM のみに依存し(レイアウト・
@@ -1031,7 +1043,7 @@ enum ReaderScripts {
         // 1 単位あたり約 250B から 12B + 本文 2B へ落ちる。寿命は従来どおり
         // 文書と同じなので、選択 API や rectsForTextRange と地図を共有する
         // 前提(バッチ 13 で時限破棄を見送った理由)はそのまま成り立つ。
-        var textMapCache = null;
+        let textMapCache = null;
 
         washi.buildTextMap = function () {
             if (textMapCache) { return textMapCache; }
@@ -1377,10 +1389,10 @@ enum ReaderScripts {
             }
         }
 
-        /// cooViewer-oxr.46 C52: 表示中ページの先頭に見えている文字の、
-        /// 抽出本文における UTF-16 位置。しおり・読書位置を font 倍率や
-        /// 画面幅の変化を跨いで同じ文へ戻すためのアンカーに使う。
-        /// 特定できなければ -1(呼び出し側は progression のみで復元する)。
+        // cooViewer-oxr.46 C52: 表示中ページの先頭に見えている文字の、
+        // 抽出本文における UTF-16 位置。しおり・読書位置を font 倍率や
+        // 画面幅の変化を跨いで同じ文へ戻すためのアンカーに使う。
+        // 特定できなければ -1(呼び出し側は progression のみで復元する)。
         washi.visibleTextOffset = function (clipX = 0, clipY = 0) {
             if (!ready) { return -1; }
             // ページ左上(縦書きは右上)から少しずつ内側を突いて、最初に
@@ -1409,6 +1421,8 @@ enum ReaderScripts {
             return -1;
         };
 
+        // ---- 選択とハイライト ----
+
         // cooViewer-oxr.46 C40: 保存済みハイライトの描画。CSS Custom Highlight
         // API を使うので本文の DOM には一切触れない(著者 CSS・選択・検索と
         // 干渉せず、範囲が重なっても入れ子要素を作らない)。
@@ -1434,7 +1448,7 @@ enum ReaderScripts {
             style.textContent = rules.join('\n');
         }
 
-        /// list: [{ offset, length, style }]。戻り値は実際に描けた個数。
+        // list: [{ offset, length, style }]。戻り値は実際に描けた個数。
         washi.setHighlights = function (list) {
             if (typeof Highlight === 'undefined' || !window.CSS || !CSS.highlights) {
                 return 0;   // 未対応環境では黙って何もしない
@@ -1462,12 +1476,11 @@ enum ReaderScripts {
             return drawn;
         };
 
-        /// cooViewer-oxr.46 C26: 表示中のページに見えている要素 id のうち、
-        /// 先頭に近いものを返す(音声同期を現在ページから始めるため)。
-        /// candidates は SMIL の par が指す id を文書順に並べたもの。
+        // cooViewer-oxr.46 C26: 表示中のページに見えている要素 id のうち、
+        // 先頭に近いものを返す(音声同期を現在ページから始めるため)。
+        // candidates は SMIL の par が指す id を文書順に並べたもの。
         washi.firstVisibleIdentifier = function (candidates) {
             if (!ready || !Array.isArray(candidates)) { return null; }
-            const startEdge = axisIsX() ? 0 : 0;
             for (const id of candidates) {
                 let element = null;
                 try { element = document.getElementById(id); } catch (e) { element = null; }
@@ -1481,17 +1494,19 @@ enum ReaderScripts {
                 if (page >= currentPage && page < currentPage + pagesPerScreen) {
                     return id;
                 }
-                void startEdge;
             }
             return null;
         };
 
+        // DOMRect を native へ渡す素の { x, y, w, h } に写す。
+        function plainRect(rect) {
+            return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+        }
+
         washi.rectsForTextRange = function (utf16Offset, utf16Length) {
             const mapped = domRangeForTextRange(utf16Offset, utf16Length);
             if (!mapped) { return []; }
-            return Array.from(mapped.range.getClientRects()).map(rect => ({
-                x: rect.x, y: rect.y, w: rect.width, h: rect.height
-            }));
+            return Array.from(mapped.range.getClientRects()).map(plainRect);
         };
 
         let selectionReportTimer = 0;
@@ -1510,9 +1525,7 @@ enum ReaderScripts {
                 post({ type: 'selection', text: '' });
                 return;
             }
-            const rects = Array.from(range.getClientRects()).map(rect => ({
-                x: rect.x, y: rect.y, w: rect.width, h: rect.height
-            }));
+            const rects = Array.from(range.getClientRects()).map(plainRect);
             post({ type: 'selection', text: textMap.text.slice(start, end),
                    start: start, end: end, rects: rects });
         }
@@ -1547,9 +1560,7 @@ enum ReaderScripts {
                 // 見開きでは先頭ページへ丸めるため、その戻り値は使わない(cooViewer-tlo)
                 const targetPage = pageForRect(beforeRects[0]);
                 washi.showPage(targetPage);
-                const rects = Array.from(range.getClientRects()).map(rect => ({
-                    x: rect.x, y: rect.y, w: rect.width, h: rect.height
-                }));
+                const rects = Array.from(range.getClientRects()).map(plainRect);
                 if (rects.length === 0) { return { found: false }; }
                 // text は地図上の正規化本文(=検索した文字列)。range.toString() は
                 // 地図が飛ばした空白ノードや rt を含む DOM 生テキストなので別枠で返し、
@@ -1569,9 +1580,11 @@ enum ReaderScripts {
             }
         };
 
-        /// メディアオーバーレイ再生: 直前の active を外して id 要素へ付け直し、
-        /// その要素が現在のスプレッドに無ければそのページへめくる(ページ計数は
-        /// showPage 経由で同期)。id が空なら全 active を解除するだけ
+        // ---- 音声同期 ----
+
+        // メディアオーバーレイ再生: 直前の active を外して id 要素へ付け直し、
+        // その要素が現在のスプレッドに無ければそのページへめくる(ページ計数は
+        // showPage 経由で同期)。id が空なら全 active を解除するだけ
         let mediaOverlayActiveIds = [];
         washi.mediaOverlayHighlight = function (id, cls) {
             try {
@@ -1601,10 +1614,12 @@ enum ReaderScripts {
             return currentPage;
         };
 
-        /// 文書内で 1 画面(単ページ=1、見開き=2 ページ)進む/戻る。
-        /// ページが変わったら true。境界を越えるときは native へ通知して false。
-        /// setup 前(ready=false)は何もしない(読み込み直後の連打で
-        /// pageCount=1 のまま境界扱いになり章を飛ばすのを防ぐ)
+        // ---- 文書内のページ送り ----
+
+        // 文書内で 1 画面(単ページ=1、見開き=2 ページ)進む/戻る。
+        // ページが変わったら true。境界を越えるときは native へ通知して false。
+        // setup 前(ready=false)は何もしない(読み込み直後の連打で
+        // pageCount=1 のまま境界扱いになり章を飛ばすのを防ぐ)
         washi.turnInDoc = function (forward) {
             if (!ready) { return 'ignored'; }
             if (scrolled) {
@@ -1637,6 +1652,22 @@ enum ReaderScripts {
         };
 
         // ---- セットアップ(native から didFinish 後に呼ぶ) ----
+
+        // setup の戻り値。native の applySetupResult と census が読む鍵集合は
+        // 全経路で同じにする(EPUBScriptSetupResultKey と ReaderScriptContractTests
+        // が一致を検証する)。singlePage は FXL・画像ページ用で、印刷ページ境界を
+        // 全て 0 ページに置く。overrides は状態変数と返す値が違う経路(FXL は
+        // pagesPerScreen / imagePage を更新せず 1 / false を返す)のためで、
+        // 状態そのものは変えない。
+        function setupResult(singlePage, overrides) {
+            return Object.assign({
+                pageCount: pageCount, mode: mode, imagePage: imagePage,
+                pagesPerScreen: pagesPerScreen, paddedPageCount: paddedPageCount,
+                printPageMarkers: collectPrintPageMarkers(singlePage),
+                firstPageOnRight: firstPageOnRight(),
+                supportsColumnAxis: supportsColumnAxis()
+            }, overrides);
+        }
 
         washi.setup = function (options) {
             if (typeof options.documentToken === 'string') {
@@ -1676,11 +1707,7 @@ enum ReaderScripts {
                 horizontalRTL = false;
                 paddedPageCount = 1;
                 ready = true;
-                return { pageCount: 1, mode: 'fxl', imagePage: false,
-                         pagesPerScreen: 1, paddedPageCount: 1,
-                         printPageMarkers: collectPrintPageMarkers(true),
-                         firstPageOnRight: false,
-                         supportsColumnAxis: columnAxisSupported };
+                return setupResult(true, { mode: 'fxl', imagePage: false, pagesPerScreen: 1 });
             }
             viewportW = Math.max(1, Math.floor(Number(options.width) || 1));
             pageH = Math.max(1, Math.floor(Number(options.height) || 1));
@@ -1705,11 +1732,7 @@ enum ReaderScripts {
                 horizontalRTL = false;
                 ensureStyle('washi-font-scale').textContent = '';
                 ready = true;
-                return { pageCount: 1, mode: mode, imagePage: true,
-                         pagesPerScreen: 1, paddedPageCount: 1,
-                         printPageMarkers: collectPrintPageMarkers(true),
-                         firstPageOnRight: false,
-                         supportsColumnAxis: columnAxisSupported };
+                return setupResult(true);
             }
             mode = detectMode();
             // cooViewer-oxr.33: 縦組みでは reader の letter-spacing 規則を
@@ -1727,10 +1750,7 @@ enum ReaderScripts {
                 paddedPageCount = pageCount;
                 currentPage = Math.max(0, Math.min(currentPage, pageCount - 1));
                 ready = true;
-                return { pageCount: pageCount, mode: mode, imagePage: false,
-                         pagesPerScreen: 1, paddedPageCount: pageCount,
-                         printPageMarkers: collectPrintPageMarkers(),
-                         firstPageOnRight: false, supportsColumnAxis: columnAxisSupported };
+                return setupResult(false);
             }
             if (options.spread && viewportW >= 2
                 && (mode === 'htb' || columnAxisSupported)) {
@@ -1757,15 +1777,10 @@ enum ReaderScripts {
             currentPage = spreadStart(Math.min(currentPage, pageCount - 1));
             scrollToPage(currentPage);
             ready = true;
-            return { pageCount: pageCount, mode: mode, imagePage: false,
-                     pagesPerScreen: pagesPerScreen,
-                     paddedPageCount: paddedPageCount,
-                     printPageMarkers: collectPrintPageMarkers(),
-                     firstPageOnRight: firstPageOnRight(),
-                     supportsColumnAxis: columnAxisSupported };
+            return setupResult(false);
         };
 
-        /// 配色などページ割りに影響しない CSS の差し替え(再ページ割りなし)
+        // 配色などページ割りに影響しない CSS の差し替え(再ページ割りなし)
         washi.setUserCSS = function (css) {
             ensureStyle('washi-user').textContent = css || '';
             // cooViewer-oxr.78: theme/反転設定だけの変更も再ページ割りせず、
@@ -1780,7 +1795,7 @@ enum ReaderScripts {
             return keysEnabled;
         };
 
-        /// リサイズ・フォント変更後の再ページ割り(進行率を保存して復元)
+        // リサイズ・フォント変更後の再ページ割り(進行率を保存して復元)
         washi.repaginate = function (options) {
             const p = washi.currentProgression();
             const result = washi.setup(options);
@@ -1852,8 +1867,8 @@ enum ReaderScripts {
         // MouseGestureRecognizer と同じ閾値)。WebKit は選択ドラッグの解放でも
         // press/release の共通祖先で click を発火するため、素通しすると
         // ページがめくれて選択まで失われる
-        var pressX = 0, pressY = 0, pressT = 0;
-        var selectionAtPress = false, releasedGesture = false;
+        let pressX = 0, pressY = 0, pressT = 0;
+        let selectionAtPress = false, releasedGesture = false;
         function hasSelection() {
             const selection = window.getSelection ? window.getSelection() : null;
             return !!(selection && !selection.isCollapsed);
@@ -2042,15 +2057,15 @@ enum ReaderScripts {
         // 途切れるまでラッチ**する(トラックパッドの慣性イベントで
         // 何ページも飛ぶのを防ぐ。画像本のスワイプめくりと同じ感覚)。
         // めくり自体は native へ通知して行う(スライドアニメーション付与のため)
-        var wheelAccumulator = 0;
-        var wheelQuietTimer = 0;
+        let wheelAccumulator = 0;
+        let wheelQuietTimer = 0;
         // 文書ロード直後は前文書から続くトラックパッド慣性を「新しい
         // ジェスチャ」と誤認して章頭で 1 ページ余分に進めないよう、250ms の
         // 静穏が経過するまでラッチしたまま始める(画像本の
         // swipeConsumeMomentum と同じ「残慣性は終端まで飲む」意味論)
-        var wheelLatched = true;
-        var wheelHorizontal = false;
-        var wheelAxisChosen = false;
+        let wheelLatched = true;
+        let wheelHorizontal = false;
+        let wheelAxisChosen = false;
         function wheelUnlatch() {
             wheelLatched = false;
             wheelAccumulator = 0;
@@ -2135,6 +2150,8 @@ enum ReaderScripts {
             if (handled) { event.preventDefault(); }
         }, true);
 
+        // ---- スクロール guard ----
+
         // 中途半端なスクロール位置をページ境界へ揃える。
         // cooViewer-oxr.46 C10: 以前は必ず currentPage へ戻していたため、
         // VoiceOver のカーソル移動や Tab フォーカスのために WebKit が行った
@@ -2195,14 +2212,35 @@ enum ReaderScripts {
            だけ最小限の下地を与える(本が同じクラスを飾っていれば後勝ちで上書き
            される)。currentColor を使い、明暗どちらのテーマでも成立させる。 */
         [class~="-epub-media-overlay-active"] {
-        background-color: color-mix(in srgb, currentColor 18%, transparent);         border-radius: 0.15em; }
+        background-color: color-mix(in srgb, currentColor 18%, transparent); border-radius: 0.15em; }
         """
 
+    /// 文字列を JS の文字列リテラル("…")にする。JSON と同じ規則で \ と " と
+    /// 制御文字を、加えて JS の行終端子 U+2028 / U+2029 をエスケープするので、
+    /// 結果は JSON としても読める(ReaderScriptContractTests が往復を検証する)。
+    static func jsStringLiteral(_ value: String) -> String {
+        var literal = "\""
+        for scalar in value.unicodeScalars {
+            switch scalar {
+            case "\\": literal += "\\\\"
+            case "\"": literal += "\\\""
+            case "\n": literal += "\\n"
+            case "\r": literal += "\\r"
+            case "\t": literal += "\\t"
+            case "\u{2028}": literal += "\\u2028"
+            case "\u{2029}": literal += "\\u2029"
+            case _ where scalar.value < 0x20:
+                literal += String(format: "\\u%04x", scalar.value)
+            default:
+                literal.unicodeScalars.append(scalar)
+            }
+        }
+        return literal + "\""
+    }
+
     /// 基礎 CSS を挿し込む起動スクリプト(atDocumentStart。XHTML は head 出現を待つ)
-    static var baseCSSInjector: String {
-        let escaped = baseCSS
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "`", with: "\\`")
+    static let baseCSSInjector: String = {
+        let literal = jsStringLiteral(baseCSS)
         return """
         (function () {
             \(styleOwnershipScript)
@@ -2214,7 +2252,7 @@ enum ReaderScripts {
                 let el = findOwnedStyle('washi-base');
                 if (!el) {
                     el = newOwnedStyle('washi-base');
-                    el.textContent = `\(escaped)`;
+                    el.textContent = \(literal);
                 }
                 if (el.parentNode !== head || el !== head.firstChild) {
                     head.insertBefore(el, head.firstChild);
@@ -2235,5 +2273,5 @@ enum ReaderScripts {
             }
         })();
         """
-    }
+    }()
 }
