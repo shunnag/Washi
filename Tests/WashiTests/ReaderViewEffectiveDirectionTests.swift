@@ -3,7 +3,7 @@ import XCTest
 @testable import Washi
 
 @MainActor
-final class EffectiveDirectionReaderTests: XCTestCase {
+final class ReaderViewEffectiveDirectionTests: XCTestCase {
     /// cooViewer-oxr.36: PPD のない縦書き本も右綴じとして左方向に進む。
     func testPPDlessVerticalBookTurnsLeftForward() async throws {
         let publication = try makePublication()
