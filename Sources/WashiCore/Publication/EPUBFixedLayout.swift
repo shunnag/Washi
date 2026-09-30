@@ -65,7 +65,7 @@ extension EPUBPublication {
         return singleImageItemCache.item(index) {
             let entry = readingOrder[index]
             // 画像・SVG の spine 項目は、ヘッダーだけを見る fixedLayoutInfo に任せる
-            if Self.normalizedMediaType(entry.resolvedItem.mediaType).hasPrefix("image/") {
+            if EPUBMediaType.normalized(entry.resolvedItem.mediaType).hasPrefix("image/") {
                 return (try? fixedLayoutInfo(forSpineIndex: index))?.simpleImagePath != nil
             }
             // 文書は fixedLayoutInfo と同じ判定を、画像要素の名前が現れない章では
@@ -124,7 +124,7 @@ extension EPUBPublication {
 
         let resolvedPath = entry.resolvedContainerPath
         let data = try resource(at: resolvedPath).data
-        let mediaType = Self.normalizedMediaType(entry.resolvedItem.mediaType)
+        let mediaType = EPUBMediaType.normalized(entry.resolvedItem.mediaType)
         // cooViewer-oxr.15: Core 画像が spine 自身なら ImageIO のヘッダー情報
         // だけで自然寸法を得て、WebKit を通さず画像そのものを表示できる。
         if mediaType.hasPrefix("image/"), mediaType != EPUBMediaType.svg {
@@ -168,8 +168,8 @@ extension EPUBPublication {
 
     /// <meta name="viewport" content="width=1200, height=1920"> の解析
     private static func viewportDescription(in root: XMLElement) -> ParsedViewport? {
-        guard let head = firstDescendant("head", in: root) else { return nil }
-        for meta in descendants("meta", in: head) {
+        guard let head = root.firstDescendant(localName: "head") else { return nil }
+        for meta in head.descendants(localName: "meta") {
             guard meta.attr("name") == "viewport",
                   let content = meta.attr("content") else { continue }
             if let viewport = parseViewportDescription(content) { return viewport }
@@ -302,9 +302,7 @@ extension EPUBPublication {
                 if localName == "text" {
                     hasUnsupportedContent = true
                 } else if localName == "image" {
-                    hrefs.append(child.attribute(
-                        forLocalName: "href", uri: XMLNamespace.xlink)?.stringValue
-                        ?? child.attr("xlink:href") ?? child.attr("href"))
+                    hrefs.append(child.xlinkHref)
                 } else if structural.contains(localName) {
                     inspect(child)
                 } else {
@@ -323,44 +321,18 @@ extension EPUBPublication {
     // cooViewer-oxr.6: 可視本文がなく、img / svg image の参照先が
     // 重複を除いて 1 種類だけの XHTML なら画像 href を返す。
     private static func simpleImageHref(in root: XMLElement) -> String? {
-        guard let body = firstDescendant("body", in: root) else { return nil }
+        guard let body = root.firstDescendant(localName: "body") else { return nil }
         // cooViewer-oxr.6: ReaderScripts と同じ可視テキスト・同一 src の判定。
         // style/script や隠された代替文、KCC のパネル用複製で表紙を除外しない。
         guard body.normalizedVisibleText.isEmpty else { return nil }
-        let imgs = descendants("img", in: body)
-        let svgImages = descendants("svg", in: body).flatMap { descendants("image", in: $0) }
-        let sources = imgs.map { $0.attr("src") } + svgImages.map { image in
-            image.attribute(forLocalName: "href", uri: XMLNamespace.xlink)?.stringValue
-                ?? image.attr("xlink:href")
-                ?? image.attr("href")
-        }
+        let imgs = body.descendants(localName: "img")
+        let svgImages = body.descendants(localName: "svg").flatMap { $0.descendants(localName: "image") }
+        let sources = imgs.map { $0.attr("src") } + svgImages.map(\.xlinkHref)
         guard !sources.isEmpty, sources.allSatisfy({
             guard let source = $0 else { return false }
             return !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }) else { return nil }
         let uniqueSources = Set(sources.compactMap { $0 })
         return uniqueSources.count == 1 ? uniqueSources.first : nil
-    }
-
-    // 別ファイルの extension(本文抽出)からも使うため internal
-    static func firstDescendant(_ localName: String,
-                                in element: XMLElement) -> XMLElement? {
-        for node in element.children ?? [] {
-            guard let child = node as? XMLElement else { continue }
-            if child.localName == localName { return child }
-            if let found = firstDescendant(localName, in: child) { return found }
-        }
-        return nil
-    }
-
-    static func descendants(_ localName: String,
-                            in element: XMLElement) -> [XMLElement] {
-        var result: [XMLElement] = []
-        for node in element.children ?? [] {
-            guard let child = node as? XMLElement else { continue }
-            if child.localName == localName { result.append(child) }
-            result.append(contentsOf: descendants(localName, in: child))
-        }
-        return result
     }
 }

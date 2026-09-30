@@ -312,7 +312,7 @@ public final class EPUBPublication: Sendable {
     /// cooViewer-oxr.16: spine 表示に使える Core Media Type と XHTML だけを
     /// fallback 解決の終端候補にする。未知形式は連鎖をさらに辿る。
     private static func isRenderableSpineItem(_ item: ManifestItem) -> Bool {
-        let mediaType = normalizedMediaType(item.mediaType)
+        let mediaType = EPUBMediaType.normalized(item.mediaType)
         return mediaType == EPUBMediaType.xhtml
             || EPUBMediaType.coreImageTypes.contains(mediaType)
     }
@@ -333,13 +333,6 @@ public final class EPUBPublication: Sendable {
             current = candidate.fallback.flatMap { package.manifestByID[$0] }
         }
         return nil
-    }
-
-    static func normalizedMediaType(_ mediaType: String) -> String {
-        mediaType.split(separator: ";", maxSplits: 1).first.map {
-            String($0).trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-        } ?? ""
     }
 
     // MARK: - 基本情報

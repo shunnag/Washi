@@ -29,12 +29,7 @@ extension EPUBPublication {
         }
         return try cachedExtractedText(forSpineIndex: index) {
             let entry = readingOrder[index]
-            let mediaType = entry.resolvedItem.mediaType
-                .split(separator: ";", maxSplits: 1)
-                .first.map {
-                    String($0).trimmingCharacters(in: .whitespacesAndNewlines)
-                        .lowercased()
-                } ?? ""
+            let mediaType = EPUBMediaType.normalized(entry.resolvedItem.mediaType)
             // cooViewer-oxr.10: 非 XML spine は解析せず空本文として扱う。
             guard Self.textExtractableMediaTypes.contains(mediaType) else {
                 return ""
@@ -43,7 +38,7 @@ extension EPUBPublication {
             let (data, _) = try resource(at: entry.resolvedContainerPath)
             guard let document = try? WashiXML.document(from: data),
                   let root = document.rootElement() else { return "" }
-            let body = Self.firstDescendant("body", in: root) ?? root
+            let body = root.firstDescendant(localName: "body") ?? root
             var text = ""
             Self.appendPlainText(of: body, into: &text)
             return Self.collapsingWhitespace(text)

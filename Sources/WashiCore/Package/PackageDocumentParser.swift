@@ -413,11 +413,6 @@ enum PackageDocumentParser {
         return sawAny ? result : nil
     }
 
-    /// 明示の rendition:layout 宣言があるか(旧世代表明より優先する判断に使う)
-    static func declaresRenditionLayout(_ metaItems: [EPUBMetaItem]) -> Bool {
-        metaItems.contains { $0.refines == nil && $0.property == "rendition:layout" }
-    }
-
     /// EPUB 2 時代の `<meta name=… content=…>` による固定レイアウト表明。
     /// - `fixed-layout: true`(Kobo ほか)
     /// - `book-type: comic`(iBooks 向け漫画)

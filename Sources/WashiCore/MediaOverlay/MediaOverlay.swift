@@ -74,12 +74,7 @@ extension EPUBPublication {
     }
 
     public func mediaOverlay(forSpineIndex index: Int) -> MediaOverlay? {
-        guard readingOrder.indices.contains(index) else { return nil }
-        let entry = readingOrder[index]
-        guard let overlayID = entry.item.mediaOverlay,
-              let overlayItem = package.manifestByID[overlayID],
-              let path = containerPath(forHref: overlayItem.href,
-                                       relativeTo: package.path),
+        guard let path = mediaOverlayPath(forSpineIndex: index),
               let data = try? resource(at: path).data else { return nil }
         return try? SMILParser.parse(data: data, at: path)
     }

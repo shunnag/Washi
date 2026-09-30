@@ -111,7 +111,7 @@ extension EPUBPublication {
     /// ヒューリスティックとして扱う。
     private func firstReadingOrderStylesUseVerticalRTL() -> Bool {
         let documents = readingOrder.lazy.filter {
-            Self.normalizedMediaType($0.resolvedItem.mediaType) == EPUBMediaType.xhtml
+            EPUBMediaType.normalized($0.resolvedItem.mediaType) == EPUBMediaType.xhtml
         }.prefix(3)
 
         for item in documents {
@@ -121,21 +121,21 @@ extension EPUBPublication {
             else { continue }
 
             let html = root.localName?.lowercased() == "html"
-                ? root : Self.firstDescendant("html", in: root)
-            let body = html.flatMap { Self.firstDescendant("body", in: $0) }
+                ? root : root.firstDescendant(localName: "html")
+            let body = html.flatMap { $0.firstDescendant(localName: "body") }
             if [html?.attr("style"), body?.attr("style")]
                 .compactMap({ $0 })
                 .contains(where: Self.cssUsesVerticalRTL) {
                 return true
             }
 
-            let styles = Self.descendants("style", in: root)
+            let styles = root.descendants(localName: "style")
                 .compactMap(\.stringValue)
             if styles.contains(where: Self.cssUsesVerticalRTL) {
                 return true
             }
 
-            for link in Self.descendants("link", in: root) {
+            for link in root.descendants(localName: "link") {
                 let relationships = (link.attr("rel") ?? "")
                     .lowercased()
                     .split(whereSeparator: { $0.isWhitespace })

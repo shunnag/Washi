@@ -66,16 +66,14 @@ extension EPUBPublication {
               let (data, _) = try? resource(at: docPath),
               let document = try? WashiXML.document(from: data),
               let root = document.rootElement(),
-              let body = Self.firstDescendant("body", in: root) else { return nil }
-        let imgs = Self.descendants("img", in: body)
+              let body = root.firstDescendant(localName: "body") else { return nil }
+        let imgs = body.descendants(localName: "img")
         if imgs.count == 1, let src = imgs[0].attr("src") {
             return ContainerPath.resolve(base: docPath, href: src)
         }
-        let svgImages = Self.descendants("image", in: body)
+        let svgImages = body.descendants(localName: "image")
         if imgs.isEmpty, svgImages.count == 1 {
-            let href = svgImages[0].attribute(forLocalName: "href",
-                                              uri: XMLNamespace.xlink)?.stringValue
-                ?? svgImages[0].attr("xlink:href") ?? svgImages[0].attr("href")
+            let href = svgImages[0].xlinkHref
             return href.flatMap { ContainerPath.resolve(base: docPath, href: $0) }
         }
         return nil
