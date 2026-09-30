@@ -3,6 +3,7 @@
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -25,8 +26,9 @@ class ReleasePreflightTests(unittest.TestCase):
         self.git("remote", "add", "origin", str(self.remote))
         (self.repo / "Scripts").mkdir()
         self.script = self.repo / "Scripts" / "release.sh"
-        shutil.copyfile(SCRIPT, self.script)
-        shutil.copyfile(SCRIPT.with_name("release_support.py"), self.script.with_name("release_support.py"))
+        # 入口の release.sh、本体の release.py、共通部の 3 つを揃えて写す。
+        for name in (SCRIPT.name, "release.py", "release_support.py"):
+            shutil.copyfile(SCRIPT.with_name(name), self.script.with_name(name))
         self.changelog = self.repo / "CHANGELOG.md"
         self.changelog.write_text("# 変更履歴\n\n## [1.2.0] - 2026-09-14\n\n- 対象の変更\n", encoding="utf-8")
         self.reading_system = self.repo / "Sources/Washi/Reader/EPUBReadingSystem.swift"
@@ -67,6 +69,18 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn("1.1.0", result.stdout)
         self.assertEqual(before, (self.git("rev-parse", "HEAD"), self.git("show-ref")))
         self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_release_py_matches_the_shell_entry_point(self):
+        # release.sh は release.py を呼ぶだけなので、直接実行しても同じ結果になる。
+        self.publish_tag("1.1.0")
+        expected = self.run_check()
+        direct = subprocess.run(
+            [sys.executable, "-B", str(self.script.with_name("release.py")), "1.2.0"],
+            cwd=self.root, capture_output=True, text=True,
+        )
+        self.assertEqual((direct.returncode, direct.stdout, direct.stderr),
+                         (expected.returncode, expected.stdout, expected.stderr))
+        self.assertEqual(expected.returncode, 0, expected.stderr)
 
     def test_first_release_without_public_tags(self):
         result = self.run_check()

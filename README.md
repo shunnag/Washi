@@ -77,7 +77,8 @@ the latest GitHub Release. MIT-licensed, with no third-party package dependencie
 | `Scripts/build-documentation.py` | DocC のビルド、ガイドと README の Swift 例の型検査、静的サイト生成 / DocC build, example typecheck, site |
 | `Scripts/fetch-epub-corpus.py` | 公開コーパスの取得と照合 / Fetch and verify the corpus |
 | `Scripts/generate-html-entities.py` | WHATWG entities.json から `HTMLEntities.swift` を生成 / Generate the entity table |
-| `Scripts/release.sh` | リリース前検証(タグ作成は行わない) / Release preflight |
+| `Scripts/release.sh` | リリース前検証の入口(`release.py` を呼ぶだけ、タグ作成は行わない) / Release preflight entry point |
+| `Scripts/release.py` | リリース前検証の本体 / Release preflight checks |
 | `Scripts/release_support.py` | 版番号と CHANGELOG 検証の共通部 / Shared version and changelog checks |
 | `Scripts/publish-github-release.py` | CI がタグから GitHub Release を作る / CI release publisher |
 | `Documentation/` | 監査記録などの開発文書 / Development documents such as audit records |
