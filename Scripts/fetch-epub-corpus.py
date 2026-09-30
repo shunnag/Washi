@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Fetch the public EPUB corpus recorded in Tests/Corpus/manifest.json.
+"""Tests/Corpus/manifest.json に記録した公開 EPUB コーパスを取得・照合する。
+
+Fetch the public EPUB corpus recorded in Tests/Corpus/manifest.json.
 
 Uses only Python's standard library. Books keep their original copyright and
 license notices; no book contents are added to the Washi repository.
