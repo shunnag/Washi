@@ -105,7 +105,8 @@ final class ReaderScriptHarness {
     }
 
     /// 物理座標の検証用: viewport と綴じ代を指定して setup し、ページ数と方向を返す
-    /// (PaginationGeometryTests / TrailingSpreadPageTests)
+    /// (PaginationGeometryTests / TrailingSpreadPageTests)。WebView の箱(`size`)と
+    /// JS の viewport をわざと食い違わせる検証のための入口で、箱に合わせるなら `setup()` を使う
     func setup(width: Int, height: Int, spread: Bool,
                gutter: Int = 48, gap: Int = 24) async throws -> [String: Double] {
         try await evaluate("""
@@ -121,12 +122,12 @@ final class ReaderScriptHarness {
             """)
     }
 
-    /// 640x400 の見開きで setup し、画像ページ判定とページ数と縦組みを返す
-    /// (ImagePageLayoutTests / VerticalSpreadPagingTests)
+    /// WebView の箱(`size`、既定 640x400)に合わせた見開きで setup し、画像ページ判定と
+    /// ページ数と縦組みを返す(ImagePageLayoutTests / VerticalSpreadPagingTests)
     func setup() async throws -> [String: Double] {
         try await evaluate("""
-            const s = __washi.setup({width:640,height:400,gap:24,spread:true,
-                gutter:48,fixedLayout:false,keysEnabled:false,userCSS:''});
+            const s = __washi.setup({width:\(Int(size.width)),height:\(Int(size.height)),
+                gap:24,spread:true,gutter:48,fixedLayout:false,keysEnabled:false,userCSS:''});
             return {imagePage: Number(s.imagePage), pageCount:s.pageCount,
                     pagesPerScreen:s.pagesPerScreen, verticalRL:Number(s.mode === 'vrl')};
             """)
