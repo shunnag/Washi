@@ -45,7 +45,7 @@ final class TrailingSpreadPageTests: XCTestCase {
             """ + (0..<5).map {
                 "<p class=\"fixture-page\" id=\"page-\($0)\">第\($0)ページ</p>"
             }.joined()
-        let harness = try PaginationGeometryHarness(
+        let harness = try ReaderScriptHarness(
             bodyHTML: body, size: NSSize(width: 640, height: 400),
             htmlDirection: htmlDirection)
         defer { harness.close() }
@@ -99,7 +99,7 @@ final class TrailingSpreadPageTests: XCTestCase {
             """ + (0..<5).map {
                 "<p class=\"fixture-page\" id=\"page-\($0)\">第\($0)ページ</p>"
             }.joined()
-        let harness = try PaginationGeometryHarness(
+        let harness = try ReaderScriptHarness(
             bodyHTML: body, size: NSSize(width: 640, height: 400))
         defer { harness.close() }
         try await harness.load()
@@ -145,7 +145,7 @@ final class TrailingSpreadPageTests: XCTestCase {
             ("", "rtl", .right, "horizontal RTL"),
         ]
         for mode in modes {
-            let harness = try PaginationGeometryHarness(
+            let harness = try ReaderScriptHarness(
                 bodyHTML: pages, size: NSSize(width: 640, height: 400),
                 htmlDirection: mode.direction,
                 headCSS: """
@@ -191,7 +191,7 @@ final class TrailingSpreadPageTests: XCTestCase {
         let pages = (0..<5).map {
             "<p class=\"fixture-page\" id=\"page-\($0)\">第\($0)ページ</p>"
         }.joined()
-        let harness = try PaginationGeometryHarness(
+        let harness = try ReaderScriptHarness(
             bodyHTML: pages, size: NSSize(width: 640, height: 400),
             headCSS: """
                 html::before, html::after, body::before, body::after {
@@ -354,7 +354,7 @@ final class TrailingSpreadPageTests: XCTestCase {
                        firstSlot == .right ? [nil, 5] : [5, nil], context)
     }
 
-    private func visibleFixturePages(in harness: PaginationGeometryHarness) async throws -> String {
+    private func visibleFixturePages(in harness: ReaderScriptHarness) async throws -> String {
         try await harness.evaluate("""
             return Array.from(document.querySelectorAll('.fixture-page')).filter(element =>
                 Array.from(element.getClientRects()).some(rect =>
