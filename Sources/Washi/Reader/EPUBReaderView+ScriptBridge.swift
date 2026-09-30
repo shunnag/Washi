@@ -7,9 +7,9 @@ extension EPUBReaderView {
     /// washi world で `script` の完了を待つ。取り消されたらすぐに戻る。
     ///
     /// async 版の callAsyncJavaScript は取り消しに応じず、rAF が進まない間
-    /// (最小化・遮蔽・ビューの取り外し)は ``race`` が打ち切った後も WKWebView を
-    /// 保持し続ける。応答側が弱参照だけを持つ waitForOffscreenResult で待ち、
-    /// 取り消されたら WebView を手放す。60 秒は取り消されなかった場合の保険
+    /// (最小化・遮蔽・ビューの取り外し)は TimeoutRace.run が打ち切った後も
+    /// WKWebView を保持し続ける。応答側が弱参照だけを持つ waitForOffscreenResult
+    /// で待ち、取り消されたら WebView を手放す。60 秒は取り消されなかった場合の保険
     static func waitForWashiScript(_ script: String, in webView: WKWebView) async {
         let _: Bool? = await waitForOffscreenResult(timeout: .seconds(60)) { completion in
             webView.callAsyncJavaScript(
@@ -20,12 +20,11 @@ extension EPUBReaderView {
     }
 
     /// washi world で式を評価して結果を受け取る(内部・テスト共用)。
-    /// 拡張側からは webView が見えないのでここに置く。
+    /// 表示中の webView を解いて callWashi へ委ねる薄い包み(webView が無ければ nil)
     func callWashiReturning(_ body: String,
                             arguments: [String: Any] = [:]) async -> Any? {
         guard let webView else { return nil }
-        return try? await webView.callAsyncJavaScript(
-            body, arguments: arguments, in: nil, contentWorld: WashiContentWorld.world)
+        return await callWashi(body, arguments: arguments, in: webView)
     }
 
     // MARK: - washi ワールドへの送信

@@ -8,9 +8,12 @@ extension EPUBReaderView {
         pageCover.prefetchedPageCover = cover
     }
 
-    /// テスト用: washi world で任意の式を評価する
+    /// テスト用: washi world で任意の式を評価する。callWashi と違って JS の
+    /// 失敗を握りつぶさず投げるので、テストが JS エラーに気づける
     func evaluateForTest(_ body: String) async throws -> Any? {
-        await callWashiReturning(body)
+        guard let webView else { return nil }
+        return try await webView.callAsyncJavaScript(
+            body, arguments: [:], in: nil, contentWorld: WashiContentWorld.world)
     }
 
     // cooViewer-oxr.54

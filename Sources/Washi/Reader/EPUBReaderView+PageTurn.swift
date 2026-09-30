@@ -205,9 +205,8 @@ extension EPUBReaderView {
         //    失って回収経路を全て失い、画面が旧ページで固着する
         takeOverPendingSpineTurn(PendingSpineTurn(
             oldPage: oldPage, cover: cover, forward: forward))
-        let result = try? await webView.callAsyncJavaScript(
-            "return __washi.turnInDoc(\(forward));",
-            arguments: [:], in: nil, contentWorld: WashiContentWorld.world)
+        let result = await callWashi("return __washi.turnInDoc(\(forward));",
+                                     arguments: [:], in: webView)
         switch result as? String {
         case "turned":
             guard canContinueTurn(context), turn.turnOverlays.contains(cover) else {

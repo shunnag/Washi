@@ -58,9 +58,8 @@ extension EPUBReaderView {
         var locator = currentLocator
         guard !spineLoad.isLoadingSpineItem, canRenderSpine(at: currentSpineIndex),
               let webView else { return locator }
-        let result = try? await webView.callAsyncJavaScript(
-            "return __washi.visibleTextOffset();",
-            arguments: [:], in: nil, contentWorld: WashiContentWorld.world)
+        let result = await callWashi("return __washi.visibleTextOffset();",
+                                     arguments: [:], in: webView)
         if let offset = result as? Int, offset >= 0 {
             locator.textOffset = offset
         }
