@@ -18,12 +18,13 @@ def run(*args):
 
 
 def check_examples(derived_data):
-    # ガイドの Swift ブロックは、暗黙の reader などを持たない完結した例にする。
+    # ガイドと README の Swift ブロックは、暗黙の reader などを持たない完結した例にする。
     # Package.swift の例も SwiftPM の manifest として評価し、構文だけの検査にしない。
     count = 0
     with tempfile.TemporaryDirectory(prefix="washi-doc-examples-") as directory:
         scratch = Path(directory)
-        for article in sorted((ROOT / "Sources").glob("**/*.docc/*.md")):
+        articles = sorted((ROOT / "Sources").glob("**/*.docc/*.md")) + [ROOT / "README.md"]
+        for article in articles:
             blocks = re.findall(r"^```swift\s*\n(.*?)^```\s*$", article.read_text(), re.M | re.S)
             for index, code in enumerate(blocks, 1):
                 count += 1

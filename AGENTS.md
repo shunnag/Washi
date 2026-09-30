@@ -19,8 +19,10 @@ cooViewer 本体の UI・統合・framework 組み立てに固有の課題は co
 ## 実装と検証
 
 SwiftPM パッケージとして、macOS 14 以降と既存の公開 API の互換性を維持する。
-変更範囲に応じて `swift test`、必要なら release ビルドを確認する。
+ディレクトリの役割は [README のリポジトリ構成](README.md#リポジトリ構成--repository-layout)
+を参照する。変更範囲に応じて `swift test`、必要なら release ビルドを確認する。
 内部コメントは日本語で書き、公開 API の説明は既存方針に合わせて日本語を先に日英併記する。
+Tests/Corpus の出典・ライセンスの記述は、上流の読者のために英語のままにする。
 シェルや Python のスクリプトは、リポジトリ外のカレントディレクトリでも動くようにする。
 
 Git の commit・push と Dolt の同期は、そのセッションのユーザーの許可に従う。

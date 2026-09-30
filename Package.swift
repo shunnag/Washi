@@ -24,8 +24,23 @@ let package = Package(
         // 表示層込み(WashiCore を再輸出)
         .library(name: "Washi", targets: ["Washi"]),
         // cooViewer 用: Washi.framework を組み立てる材料の dylib。両ターゲットを
-        // 1 つの動的ライブラリへまとめる(cooViewer の Scripts/build-washi-framework.sh が使う。
-        // SwiftPM 利用者は上の automatic ライブラリをそのまま使えばよい)
+        // 1 つの動的ライブラリへまとめる(SwiftPM 利用者は上の automatic
+        // ライブラリをそのまま使えばよい)。
+        //
+        // cooViewer の Scripts/build-washi-framework.sh との契約:
+        //   - このプロダクトは Washi と WashiCore のちょうど 2 モジュールから成る。
+        //     同スクリプトは `swift build --product WashiDynamic` の成果物から
+        //     libWashiDynamic.dylib をコピーし、Washi / WashiCore の swiftmodule を
+        //     名前で探して Modules/ へ据える。ターゲットを増やす、名前を変える、
+        //     いずれかの target に `resources:` を足す場合は、このプロダクトと同
+        //     スクリプトの両方を更新する(resource bundle は手組みの framework に
+        //     含まれず、Bundle.module が実行時に落ちる)。
+        //   - `unsafeFlags` は書かない。書くと依存パッケージとして使えなくなる。
+        //     library evolution と module interface のフラグは同スクリプトと CI が
+        //     `-Xswiftc` で渡す。
+        //   - Release ビルドで各モジュールの .swiftinterface が .build 配下
+        //     (ModuleCache 以外)から見つかること。同スクリプトと CI は場所を
+        //     決め打ちせず .build 全体を検索する。
         .library(name: "WashiDynamic", type: .dynamic,
                  targets: ["WashiCore", "Washi"]),
     ],

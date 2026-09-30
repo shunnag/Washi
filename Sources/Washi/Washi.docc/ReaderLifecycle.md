@@ -57,6 +57,19 @@ releases its offscreen census and thumbnails, but the host must cancel its own t
 Call `invalidate()` on host-owned ``EPUBScreenAtlas`` and ``EPUBPageRasterizer`` instances
 when finished. See <doc:SearchAndRendering> for an example.
 
+## 実行環境 / Execution environment
+
+表示・計測系の API(``EPUBReaderView``、``EPUBScreenAtlas``、``EPUBPageRasterizer`` と
+それらが抱えるオフスクリーン WebKit)はすべて `@MainActor` で、GUI セッションを必要とする。
+GUI セッションのないデーモンや CLI からは、WashiCore の解析層(`EPUBPublication` ほか)
+だけを使う。オフスクリーン API の優先度と解放の規則は <doc:Pagination> を参照。
+
+All rendering and measurement APIs (``EPUBReaderView``, ``EPUBScreenAtlas``,
+``EPUBPageRasterizer``, and the offscreen WebKit they own) are `@MainActor` and require a
+GUI session. Daemons and command-line tools without one should use only WashiCore's
+parsing layer (`EPUBPublication` and related types). See <doc:Pagination> for the
+priority and release rules of the offscreen APIs.
+
 ## キーボード操作 / Keyboard routing
 
 既定のページ送りを使うなら設定は不要。独自のキーバインドでは

@@ -1,8 +1,9 @@
 import Foundation
 
-// cooViewer-oxr.10/13: WHATWG HTML entities.json(2026-09-05 取得)の
-// セミコロン付き 2,125 名から XML 定義済み 5 名を除いた 2,120 名。
-// 生成: python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); x={"amp","lt","gt","quot","apos"}; print("\n".join("        \"{}\": \"{}\",".format(k[1:-1], "".join("&#{};".format(n) for n in v["codepoints"])) for k,v in sorted(d.items()) if k.endswith(";") and k[1:-1] not in x))' entities.json
+// 自動生成: Scripts/generate-html-entities.py で再生成する。手で編集しない。
+// 出典: https://html.spec.whatwg.org/entities.json(2026-09-30 取得)
+// セミコロン付きの名前から XML 定義済みの amp / lt / gt / quot / apos を除いた
+// 2,120 名。値は数値文字参照。経緯は cooViewer-oxr.10/13 を参照。
 enum HTMLEntities {
     static let table: [String: String] = [
         "AElig": "&#198;",

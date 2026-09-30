@@ -50,6 +50,19 @@ item, and the publication release identifier.
 Use `exportCensus()` only after the reader delegate reports a census update,
 and feed the decoded record to `importCensus(_:)` after loading the book.
 
+全文ページ数の実測はオフスクリーン WebKit で数秒かかることがあります。
+`exportCensus()` の結果を保存し、再オープン時に `importCensus(_:)` へ渡すと
+再実測を省けます。受け付けるのは同じ版かつ現行の `paginationVersion` の
+記録だけで、メトリクスも一致していればページ番号とページバーへ即時反映され、
+一致しない記録は該当メトリクスが有効になるまで保持されます。
+
+Measuring the whole-book page count with offscreen WebKit can take several
+seconds. Persist the result of `exportCensus()` and pass it to
+`importCensus(_:)` when reopening to skip remeasurement. Only records for the
+same edition and the current `paginationVersion` are accepted; if the metrics
+also match, the page number and page bar update immediately, and a record for
+other metrics is kept until those metrics become active.
+
 読書順に並ぶリソースに欠落があるか、破損によって確実に読み込めない場合は、
 その項目を 1 ページと数えて残りの項目の計測を続けます。キャンセル、
 タイムアウト、WebContent プロセスの終了が発生した場合は、不完全な
@@ -90,18 +103,23 @@ func buildPlan(
 ```
 
 オフスクリーン描画は、優先度が `.userInitiated` 以上のタスクから
-呼び出してください。atlas の census 用とサムネイル用の WebKit インスタンスは、
+呼び出してください。`.utility` などの低い QoS を継いだまま最初の JavaScript
+実行を発行すると、WebKit の応答が返らず永久に待ち続けることがあります(実測)。
+atlas の census 用とサムネイル用の WebKit インスタンスは、
 要求がない状態が 20 秒続くと解放され、次に必要になったときに再作成されます。
-それでも、atlas を破棄するときは必ず ``EPUBScreenAtlas/invalidate()`` を
-呼び出してください。無効化すると、処理をキャンセルし、不可視ウインドウと
-WebContent プロセスを終了させ、その atlas は以後使えなくなります。
+それでも、atlas を破棄するときは(キャッシュから追い出すときも含めて)必ず
+``EPUBScreenAtlas/invalidate()`` を呼び出してください。無効化すると、処理を
+キャンセルし、不可視ウインドウと WebContent プロセスを終了させ、その atlas は
+以後使えなくなります。
 
 Call offscreen rendering work from a task with `.userInitiated` priority or
-higher. The atlas's census and thumbnail WebKit instances are released after
-20 seconds without a request and recreated lazily. You must still call
-``EPUBScreenAtlas/invalidate()`` when discarding an atlas; invalidation cancels
-work, tears down invisible windows and WebContent processes, and makes that
-atlas permanently unusable.
+higher. Issuing the first JavaScript execution while inheriting a low QoS such
+as `.utility` can leave WebKit unresponsive and wait indefinitely, as observed
+in testing. The atlas's census and thumbnail WebKit instances are released
+after 20 seconds without a request and recreated lazily. You must still call
+``EPUBScreenAtlas/invalidate()`` when discarding an atlas, including when
+evicting it from a cache; invalidation cancels work, tears down invisible
+windows and WebContent processes, and makes that atlas permanently unusable.
 
 ``EPUBPageRasterizer`` は、``EPUBPageRasterizer/invalidate()`` が
 呼び出されるまでオフスクリーンリソースを保持します。リーダービューは、

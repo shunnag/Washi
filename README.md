@@ -10,12 +10,14 @@ tate-chu-yoko, emphasis marks, and right binding.
 ## すぐに試す / Quick Start
 
 **macOS 14 以降・Swift 6**。Xcode の **File → Add Package Dependencies…** に
-`https://github.com/shunnag/Washi.git` を入力し、**Up to Next Major Version: 1.22.0**
-で追加する。アプリのターゲットには、表示するなら **Washi**、解析・表紙・検索だけなら
+`https://github.com/shunnag/Washi.git` を入力し、**Up to Next Major Version** に
+最新の [GitHub Release](https://github.com/shunnag/Washi/releases) の版を指定して
+追加する。アプリのターゲットには、表示するなら **Washi**、解析・表紙・検索だけなら
 **WashiCore** を選ぶ。通常の SwiftPM 利用で WashiDynamic を選ぶ必要はない。
 
 Requires **macOS 14+ and Swift 6**. In Xcode, choose **File → Add Package Dependencies…**,
-enter `https://github.com/shunnag/Washi.git`, and use **Up to Next Major Version: 1.22.0**.
+enter `https://github.com/shunnag/Washi.git`, and use **Up to Next Major Version** with
+the latest [GitHub Release](https://github.com/shunnag/Washi/releases).
 Add **Washi** to your app target for rendering, or **WashiCore** for parsing, covers,
 and search. Ordinary SwiftPM clients do not need WashiDynamic.
 
@@ -35,534 +37,262 @@ Scripts/run-sample.sh SwiftUIReader
 
 - [導入と最初の表示 / Installation and first display](Sources/Washi/Washi.docc/Installation.md)
 - [サンプルの構成・実行方法 / Sample apps](Samples/README.md)
-- [公開ドキュメント / Online documentation](https://shunnag.github.io/Washi/)
-- [SwiftUI への組み込み / SwiftUI integration](Sources/Washi/Washi.docc/SwiftUIIntegration.md)
-- [ファイルアクセス / File access](Sources/Washi/Washi.docc/FileAccess.md)
-- [検索・表紙・サムネイル / Search, covers, and thumbnails](Sources/Washi/Washi.docc/SearchAndRendering.md)
-- [読み込みと終了 / Loading and lifetime](Sources/Washi/Washi.docc/ReaderLifecycle.md)
+- [公開ドキュメント / Online documentation](https://shunnag.github.io/Washi/)(ガイド一覧は下の「使い方」 / guide list under Usage)
 
-公開ガイドとサンプルは main ブランチに追従する。利用 API は各ガイドに記載し、
-現在のサンプルは Washi 1.22.0 の公開 API で動作する。
+公開ガイドとサンプルは main ブランチに追従し、最新の GitHub Release の公開 API で動作する。
+MIT ライセンスで、第三者パッケージには依存しない。
 
-The online guides and samples follow the main branch. The current samples use
-the public API available in Washi 1.22.0.
+The online guides and samples follow the main branch and use the public API of
+the latest GitHub Release. MIT-licensed, with no third-party package dependencies.
 
-**Washi** は macOS のシステムフレームワークだけで構成した、MIT ライセンスの
-EPUB 3 ツールキット。第三者パッケージには依存しない。解析層は Foundation /
-CoreFoundation / Compression / CryptoKit / CoreGraphics / ImageIO だけを使うため
-ヘッドレスでも動作し、表示層は AppKit / WebKit を加える。縦組み(`vertical-rl`)・
-ルビ・縦中横・圏点・右綴じを含む日本語組版を第一級の機能として扱う。
+## リポジトリ構成 / Repository layout
 
-**Washi** is an MIT-licensed EPUB 3 toolkit built solely on macOS system
-frameworks, with no third-party package dependencies. Its parsing layer uses
-only Foundation / CoreFoundation / Compression / CryptoKit / CoreGraphics /
-ImageIO and works headlessly; its rendering layer adds AppKit / WebKit.
-Japanese typography is a first-class feature, including vertical writing
-(`vertical-rl`), ruby, tate-chu-yoko, emphasis marks, and right binding.
+| パス / Path | 内容 / Contents |
+|---|---|
+| `Package.swift` | SwiftPM manifest。プロダクト `WashiCore` / `Washi` / `WashiDynamic`(cooViewer 向け dylib、契約はコメント参照) / Manifest; products and the WashiDynamic contract |
+| `Sources/WashiCore/` | 解析層(AppKit / WebKit なし)。話題ごとのフォルダ / Parsing layer, one folder per topic |
+| `Sources/WashiCore/Container/` | ZIP・OCF コンテナの読み出しと CRC / ZIP, OCF container, CRC |
+| `Sources/WashiCore/Package/` | パッケージ文書(OPF)とメタデータ・アクセシビリティ / Package document and metadata |
+| `Sources/WashiCore/Navigation/` | nav 文書と NCX / Navigation document and NCX |
+| `Sources/WashiCore/Publication/` | `EPUBPublication`、locator、本文抽出・検索、表紙、固定レイアウト、脚注 / Publication, locators, text, search, covers |
+| `Sources/WashiCore/Encryption/` | `encryption.xml`、フォント難読化、DRM 検出 / Encryption, font deobfuscation, DRM detection |
+| `Sources/WashiCore/MediaOverlay/` | SMIL の解析 / SMIL parsing |
+| `Sources/WashiCore/Util/` | XML 走査、文字コード判定、メディアタイプ、HTML 実体表(自動生成) / XML, charset, media types, generated HTML entities |
+| `Sources/WashiCore/WashiCore.docc/` | WashiCore の DocC カタログ / DocC catalog |
+| `Sources/Washi/` | 表示層(AppKit / WebKit)。`WashiExports.swift` が WashiCore を再輸出 / Rendering layer; re-exports WashiCore |
+| `Sources/Washi/Reader/` | `EPUBReaderView`、delegate、設定、テーマ CSS、キー処理 / Reader view, delegate, settings |
+| `Sources/Washi/WebContent/` | 注入 JavaScript / CSS、scheme handler、スクリプト強化 / Injected scripts, scheme handler |
+| `Sources/Washi/Pagination/` | 表示メトリクス、census 記録、フロー判定 / Screen metrics, census records |
+| `Sources/Washi/Offscreen/` | 不可視 WebKit による census・サムネイル・ラスタライズ / Offscreen census, thumbnails, rasterizer |
+| `Sources/Washi/MediaOverlay/` | メディアオーバーレイ再生 / Media overlay playback |
+| `Sources/Washi/Util/` | CSS 色の解析、タイムアウト付き待機 / CSS colors, timeout helpers |
+| `Sources/Washi/Washi.docc/` | Washi の DocC カタログとガイド / DocC catalog and guides |
+| `Tests/WashiTests/` | 両層の単体テスト(`@testable`)。WebKit を使うものは GUI セッションで実行 / Unit tests for both layers |
+| `Tests/WashiPublicAPITests/` | 公開 API だけを使うテスト / Public-API-only tests |
+| `Tests/Scripts/` | `Scripts/` の Python テスト(`unittest`) / Python tests for the scripts |
+| `Tests/Corpus/` | 公開 EPUB コーパスの manifest と手順(英語) / Public corpus manifest and instructions |
+| `Samples/` | 独立した AppKit / SwiftUI サンプルアプリ / Standalone sample apps |
+| `Scripts/run-sample.sh` | サンプルのビルドと起動 / Build and launch a sample |
+| `Scripts/build-documentation.py` | DocC のビルド、ガイドと README の Swift 例の型検査、静的サイト生成 / DocC build, example typecheck, site |
+| `Scripts/fetch-epub-corpus.py` | 公開コーパスの取得と照合 / Fetch and verify the corpus |
+| `Scripts/generate-html-entities.py` | WHATWG entities.json から `HTMLEntities.swift` を生成 / Generate the entity table |
+| `Scripts/release.sh` | リリース前検証(タグ作成は行わない) / Release preflight |
+| `Scripts/release_support.py` | 版番号と CHANGELOG 検証の共通部 / Shared version and changelog checks |
+| `Scripts/publish-github-release.py` | CI がタグから GitHub Release を作る / CI release publisher |
+| `Documentation/` | 監査記録などの開発文書 / Development documents such as audit records |
+| `CHANGELOG.md` | 変更履歴(Keep a Changelog) / Change log |
+| `.beads/` | 課題管理(beads)。[.beads/README.md](.beads/README.md) 参照 / Issue tracking |
 
 ## 特徴 / Features
 
-- **依存ゼロ**: ZIP 読み取り(zip64 対応・CRC 検証)から自前実装。
-  解析層は Foundation の `XMLDocument`・CoreFoundation・Compression・CryptoKit・
-  CoreGraphics・ImageIO のみ(ヘッドレス利用可)、表示層(`EPUBReaderView` 等)は
-  AppKit・WebKit を使用
+- **依存ゼロ**: ZIP 読み取り(zip64・CRC 検証)から自前実装。解析層は Foundation の
+  `XMLDocument`・CoreFoundation・Compression・CryptoKit・CoreGraphics・ImageIO のみ
+  (ヘッドレス利用可)、表示層(`EPUBReaderView` 等)は AppKit・WebKit を使用
 
-  **Zero dependencies**: implemented in-house, starting with ZIP reading
-  (zip64 support and CRC validation). The parsing layer uses only Foundation's
-  `XMLDocument`, CoreFoundation, Compression, CryptoKit, CoreGraphics, and
-  ImageIO (suitable for headless use); the rendering layer (`EPUBReaderView`
-  and related types) uses AppKit and WebKit.
+  **Zero dependencies**: implemented in-house, starting with ZIP reading (zip64,
+  CRC validation). The parsing layer uses only Foundation's `XMLDocument`,
+  CoreFoundation, Compression, CryptoKit, CoreGraphics, and ImageIO (headless);
+  the rendering layer (`EPUBReaderView` and related types) uses AppKit and WebKit.
 
-- **攻撃的 EPUB への耐性**: zip 爆弾(比率+絶対上限)、XML 実体爆弾
-  (billion laughs。互換シムは許容)、異常な深さの XML、パス走査・
-  シンボリックリンク脱出をすべて入口で遮断(テスト付き)
+- **攻撃的 EPUB への耐性**: zip 爆弾(比率+絶対上限)、XML 実体爆弾(billion laughs。
+  互換シムは許容)、異常な深さの XML、パス走査・シンボリックリンク脱出を入口で遮断(テスト付き)
 
   **Resilience against malicious EPUBs**: blocks zip bombs (ratio and absolute
-  limits), XML entity bombs (billion laughs, while allowing compatibility
-  shims), excessively deep XML, path traversal, and symlink escapes at the
-  point of entry, with tests.
+  limits), XML entity bombs (billion laughs, allowing compatibility shims),
+  excessively deep XML, path traversal, and symlink escapes at the point of entry, with tests.
 
 - **EPUB 3.3 の RS(閲覧システム)要件に準拠する設計**(EPUB 2.0.1 後方互換込み):
+  OCF コンテナ(複数 rootfile・`mimetype` 検証・`encryption.xml`、`.epub` と展開済み
+  フォルダの両方)。パッケージ文書は DCMES + `refines`、`display-seq`、シリーズ
+  (`belongs-to-collection`)、`prefix` 正規化、rendition プロパティ、
+  `page-progression-direction`、循環ガード付き manifest フォールバック、EPUB 2 の
+  `opf:*` 属性と `meta name="cover"`。ナビゲーションは EPUB 3 nav(toc / page-list /
+  landmarks)+ NCX フォールバック
 
-  **Designed to conform to EPUB 3.3 reading system (RS) requirements**, with
-  backward compatibility for EPUB 2.0.1:
+  **Designed to conform to EPUB 3.3 reading-system requirements**, with EPUB 2.0.1
+  compatibility: OCF containers (multiple rootfiles, `mimetype` validation,
+  `encryption.xml`; both `.epub` files and unpacked directories); package documents
+  with DCMES + `refines`, `display-seq`, series (`belongs-to-collection`), `prefix`
+  normalization, rendition properties, `page-progression-direction`, manifest
+  fallback chains with cycle guards, and EPUB 2 `opf:*` attributes and
+  `meta name="cover"`; EPUB 3 nav (toc / page-list / landmarks) with an NCX fallback.
 
-  - OCF コンテナ(`container.xml` 複数 rootfile / `mimetype` 検証 /
-    `encryption.xml`)。`.epub` と展開済みフォルダの両方を開ける
+- **本文抽出・全文検索**(WebKit 不要): 大小文字・ダイアクリティカルマーク・全半角の
+  区別を `EPUBSearchOptions` で個別指定。`EPUBSearchHit.utf16Range` は DOM Range と同じ
+  UTF-16 コード単位。XML 宣言と HTML の meta charset を解析・表示で共通判定し、
+  Shift_JIS 系は NEC / IBM 拡張を含む CP932、EUC-JP は日本語 EUC として復号
 
-    OCF containers (multiple rootfiles in `container.xml`, `mimetype`
-    validation, and `encryption.xml`). Opens both `.epub` files and unpacked
-    directories.
+  **Text extraction and full-text search** without WebKit. Configure case, diacritic,
+  and character-width sensitivity with `EPUBSearchOptions`; `EPUBSearchHit.utf16Range`
+  uses UTF-16 code units like DOM Range. Parsing and rendering share encoding detection;
+  Shift_JIS variants decode as CP932 (NEC / IBM extensions), EUC-JP as Japanese EUC.
 
-  - パッケージ文書: DCMES + `refines`、`display-seq`、`belongs-to-collection`
-    (シリーズ)、`prefix` 宣言の正規化、rendition プロパティ、
-    `page-progression-direction`、manifest フォールバック連鎖(循環ガード付き)、
-    EPUB 2 の `opf:*` 属性・`meta name="cover"`
+- **フォント難読化の透過解除**(IDPF / Adobe)。DRM(ADEPT / LCP / FairPlay)は指紋検出して
+  明示的に報告(復号はしない)
 
-    Package documents: DCMES with `refines`, `display-seq`,
-    `belongs-to-collection` (series), normalization of `prefix` declarations,
-    rendition properties, `page-progression-direction`, manifest fallback
-    chains with cycle guards, and EPUB 2 `opf:*` attributes and
-    `meta name="cover"`.
+  **Transparent font deobfuscation** (IDPF / Adobe). DRM (ADEPT / LCP / FairPlay) is
+  detected by its signatures and reported explicitly; it is not decrypted.
 
-  - ナビゲーション: EPUB 3 nav(toc / page-list / landmarks)+ NCX フォールバック
+- **メディアオーバーレイ(SMIL)の再生**: `playMediaOverlay()` / `pauseMediaOverlay()` /
+  `stopMediaOverlay()`。読み上げ箇所に `media:active-class` を付け、必要なページへ自動追従
 
-    Navigation: EPUB 3 nav (toc / page-list / landmarks), with an NCX fallback.
-
-  - **本文抽出・全文検索**: WebKit を使わず、大小文字・ダイアクリティカルマーク・
-    全半角の区別を `EPUBSearchOptions` で個別指定できる。
-    `EPUBSearchHit.utf16Range` は DOM Range と同じ UTF-16 コード単位
-
-    **Text extraction and full-text search** without WebKit. Configure case,
-    diacritic, and character-width sensitivity independently with
-    `EPUBSearchOptions`. `EPUBSearchHit.utf16Range` uses UTF-16 code units,
-    just like DOM Range.
-
-  - XML 宣言と HTML の meta charset を解析・表示で共通判定し、Shift_JIS 系は
-    NEC / IBM 拡張文字を含む CP932、EUC-JP は日本語 EUC として復号
-
-    Parsing and rendering share encoding detection for XML declarations and
-    HTML meta charset. Shift_JIS variants are decoded as CP932, including
-    NEC / IBM extensions, and EUC-JP is decoded as Japanese EUC.
-
-  - **フォント難読化の透過解除**: IDPF(SHA-1/1040 バイト)と
-    Adobe(UUID/1024 バイト)。DRM(ADEPT / LCP / FairPlay)は指紋検出して
-    明示的に報告(復号はしない)
-
-    **Transparent font deobfuscation**: IDPF (SHA-1 / 1040 bytes) and Adobe
-    (UUID / 1024 bytes). DRM (ADEPT / LCP / FairPlay) is detected by its
-    signatures and explicitly reported; it is not decrypted.
-
-  - **メディアオーバーレイ(SMIL)の再生**: `playMediaOverlay()` /
-    `pauseMediaOverlay()` / `stopMediaOverlay()` で制御し、読み上げ箇所へ
-    `media:active-class` を付けてハイライトしながら必要なページへ自動追従
-
-    **Media overlay (SMIL) playback**: control playback with
-    `playMediaOverlay()` / `pauseMediaOverlay()` / `stopMediaOverlay()`.
-    The narrated passage is highlighted with `media:active-class`, and the
-    reader automatically follows it to the appropriate page.
+  **Media overlay (SMIL) playback** with `playMediaOverlay()` / `pauseMediaOverlay()` /
+  `stopMediaOverlay()`; the narrated passage gets `media:active-class` and the reader
+  follows it to the right page.
 
 - **リフローレンダラー** `EPUBReaderView`(AppKit / WKWebView):
+  標準 CSS multicol によるページ分割。縦組みは「縦積みカラム + 無アニメーションジャンプ」
+  方式(Bibi / Readium CSS と同じモデル。行が途中で割れない)。ウインドウ幅で単ページ⇔
+  見開きを自動切替(`columnMode` で固定も可)、縦書きの見開きは半幅ページボックスで右綴じの
+  正順、中央にノドと下部中央のノンブル(`showsPageFurniture`)、画像単独ページは中央フィット。
+  ライト/ダークテーマ(`EPUBReaderTheme`、`color-scheme` 注入、`invertsGlyphImagesInDark`
+  による外字画像の反転)。電書連(DPFJ)EPUB 3 制作ガイド ver.1.1.4 の抽象フォント名
+  (`serif-ja` 等)をヒラギノへ結ぶ `@font-face` ポリフィル。
+  `WKURLSchemeHandler` によるコンテナ内配信(MIME / CSP / Range)、外部ネットワーク遮断、
+  本の JavaScript は既定で無効(有効化時も WebRTC コンストラクタを使用不能にする)
 
-  **Reflowable renderer** `EPUBReaderView` (AppKit / WKWebView):
+  **Reflowable renderer** `EPUBReaderView` (AppKit / WKWebView): pagination with standard
+  CSS multicol; vertical writing uses stacked columns and non-animated jumps (the Bibi /
+  Readium CSS model, no split lines). Single page or two-page spread switches with window
+  width (`columnMode` fixes it); vertical spreads use half-width page boxes in right-bound
+  order with a center gutter and a folio at the bottom (`showsPageFurniture`); single-image
+  pages stay centered. Light and dark themes (`EPUBReaderTheme`, injected `color-scheme`,
+  `invertsGlyphImagesInDark` for glyph images). An `@font-face` polyfill maps the DPFJ
+  EPUB 3 guide (ver. 1.1.4) abstract font names such as `serif-ja` to Hiragino.
+  Container resources are served through `WKURLSchemeHandler` (MIME / CSP / Range);
+  external network access is blocked; book JavaScript is off by default and, when
+  enabled, WebRTC constructors are disabled.
 
-  - 標準 CSS multicol によるページ分割。縦組みは「縦積みカラム + 無アニメーション
-    ジャンプ」方式(Bibi / Readium CSS と同じ、実運用で実証済みのモデル。
-    行が途中で割れない)
+- **設定・位置・履歴**: `EPUBReaderSettings` でフォント倍率・行間・横組み字間・段落間隔・
+  著者フォント上書き・ルビ表示・配色・余白・ユーザー CSS。`EPUBLocator`(spine index +
+  進行率)で位置を保存/復元。`effectiveReadingDirection` は `page-progression-direction`、
+  `primary-writing-mode`、冒頭の XHTML / CSS、RTL 言語の順で決定。`canGoBack` / `goBack()`
+  はジャンプ元を最大 50 件保持し、履歴の変化を delegate へ通知
 
-    Pagination with standard CSS multicol. Vertical writing uses vertically
-    stacked columns and jumps without animation, the same proven model used
-    by Bibi / Readium CSS, keeping lines from splitting midway.
+  **Settings, positions, history**: `EPUBReaderSettings` covers font scale, line height,
+  horizontal letter spacing, paragraph spacing, font overrides, ruby visibility, colors,
+  insets, and user CSS. `EPUBLocator` (spine index + progression) saves and restores
+  positions. `effectiveReadingDirection` is derived from `page-progression-direction`,
+  `primary-writing-mode`, initial XHTML / CSS, then RTL language. `canGoBack` / `goBack()`
+  keep up to 50 jump origins and notify the delegate when history availability changes.
 
-  - **Apple Books 風の版面**: ウインドウ幅で単ページ⇔**見開き 2 ページ**を
-    自動切替(`columnMode` で固定も可)。縦書きの見開きは
-    `-webkit-column-axis: horizontal` の半幅ページボックス(WKWebView 専用・
-    実測検証済み)で右綴じの正順(先のページが右)。中央にノド、
-    **各ページの下部中央に素のノンブル**(`showsPageFurniture` で OFF 可)。
-    表紙などの画像単独ページは見開き時も単独の中央フィット
+- **リンク・脚注・選択・page-list**: `EPUBInternalLink` と `shouldFollowInternalLink` で遷移前に
+  判定し、脚注は `noteContent(for:)` で抽出、`hidesFootnoteAsides` でページ割りから除外、
+  `follow(_:)` で delegate を通さず遷移。選択 API(`currentSelection` / `clearSelection()` /
+  `rects(forTextRange:inSpineIndex:)`)は正規化 UTF-16 範囲と reader-view 座標を結ぶ。
+  EPUB page-list(`printPageLabels` / `go(toPrintPage:)` / `currentPrintPage`)は本文の
+  pagebreak marker とノンブルにも連動
 
-    **Apple Books-style page layout**: automatically switches between a
-    single page and a **two-page spread** based on window width (or fixes the
-    mode with `columnMode`). Vertical spreads use half-width page boxes with
-    `-webkit-column-axis: horizontal` (WKWebView-specific and verified by
-    measurement), in right-bound reading order with the earlier page on the
-    right. A center gutter separates the pages, and a **plain folio (page
-    number) is centered at the bottom of each page** (disable with
-    `showsPageFurniture`). Single-image pages such as covers remain centered
-    and fitted individually, even in spread mode.
+  **Links, footnotes, selection, page-list**: inspect links before navigation with
+  `EPUBInternalLink` and `shouldFollowInternalLink`; extract notes with `noteContent(for:)`,
+  exclude asides with `hidesFootnoteAsides`, and navigate without the delegate via
+  `follow(_:)`. Selection APIs (`currentSelection` / `clearSelection()` /
+  `rects(forTextRange:inSpineIndex:)`) map normalized UTF-16 ranges to view coordinates.
+  EPUB page-list support (`printPageLabels` / `go(toPrintPage:)` / `currentPrintPage`)
+  integrates with pagebreak markers and the folio.
 
-  - **ライト/ダークテーマ**: 既定でシステム外観に追従(`EPUBReaderTheme` で
-    固定も可)。ダークは Apple Books 系のほぼ黒 + 明灰文字で、
-    `color-scheme` も注入する。`invertsGlyphImagesInDark` は小さなインライン
-    外字画像をヒューリスティックに反転し、無指定 fill のインライン SVG と
-    黒 stroke は `currentColor` で描画する
+- **アクセシビリティと census**: VoiceOver への確定ページ通知と accessibility label/value、
+  システムのコントラスト増加・色以外での区別へ追従。全文ページ数の census は、欠落や決定的に
+  読めない spine 項目を 1 ページとして計測を続け、部分的な結果も利用可能
 
-    **Light and dark themes**: follows the system appearance by default
-    (or selects a fixed theme with `EPUBReaderTheme`). The dark theme uses
-    near-black backgrounds and light-gray text in the style of Apple Books,
-    and injects `color-scheme`. `invertsGlyphImagesInDark` heuristically
-    inverts small inline glyph images; inline SVG with unspecified fill and
-    black strokes is rendered with `currentColor`.
+  **Accessibility and census**: announces settled pages to VoiceOver, provides labels and
+  values, and follows Increase Contrast and Differentiate Without Color. The whole-book
+  census counts a missing or deterministically unloadable spine item as one page and
+  keeps measuring, so partial results stay usable.
 
-  - 電書連(DPFJ)EPUB 3 制作ガイド ver.1.1.4(2025-10、旧電書協 1.1.3 と
-    CSS 互換)のテンプレートが使う抽象フォント名(`serif-ja` 等)を
-    ヒラギノ明朝 ProN / ヒラギノ角ゴシックへ結び付ける `@font-face` ポリフィル
+- **ピンチでフォント倍率**(0.5〜3.0 倍): ジェスチャ中は `WKWebView.magnification` で追従し、
+  指を離すと進行率を保って再ページ割り。`adjustFontScale(by:)` で段階調整、変更は delegate へ通知
 
-    An `@font-face` polyfill maps abstract font names such as `serif-ja` in
-    the DPFJ EPUB 3 production guide templates (ver. 1.1.4, October 2025;
-    CSS-compatible with the former EBPAJ 1.1.3 templates) to Hiragino Mincho
-    ProN / Hiragino Kaku Gothic.
+  **Pinch to adjust font scale** (0.5–3.0×): `WKWebView.magnification` follows the gesture;
+  on release the content repaginates preserving progression. `adjustFontScale(by:)` steps
+  the scale; changes are reported to the delegate.
 
-  - `WKURLSchemeHandler` によるコンテナ内配信(正しい MIME / CSP /
-    Range 対応)。外部ネットワークはコンテンツルールで遮断、
-    本の JavaScript は既定で無効。有効化した場合も PAGE world の
-    document-start script で WebRTC コンストラクタを使用不能にし、
-    CSP だけでは遮断できない STUN / UDP 経路を閉じる
+- **ホスト統合**: キー/クリック/ファイルドロップの delegate 転送、`EPUBContextMenuPolicy` と
+  表示直前 delegate によるコンテキストメニュー制御、既定では左右端タップでページ送り。
+  `forwardsKeyEventsNatively` でネイティブ `NSEvent` を横取り転送でき、WKWebView にキーを
+  食われない(ホスト独自バインドの推奨経路)
 
-    Serves container resources through `WKURLSchemeHandler` with correct
-    MIME types, CSP, and Range support. Content rules block external network
-    access, and the book's JavaScript is disabled by default. Even when
-    enabled, a document-start script in the page world disables WebRTC
-    constructors, closing STUN / UDP paths that CSP alone cannot block.
+  **Host integration**: forwards key, click, and file-drop events to delegates; controls
+  context menus with `EPUBContextMenuPolicy` and a pre-presentation delegate; tapping the
+  left or right edge turns pages by default. `forwardsKeyEventsNatively` intercepts native
+  `NSEvent` keys so WKWebView cannot consume them (the recommended path for host bindings).
 
-  - `EPUBReaderSettings` でフォント倍率・行間・横組み字間・段落間隔・
-    著者フォントの上書き・ルビの表示/非表示、型付き配色・余白・
-    ユーザー CSS を指定。`EPUBLocator`(spine index + 進行率)で位置を保存/復元
+- **固定レイアウト**: viewport 解析、`page-spread-left/right/center`、「画像 1 枚だけのページ」の
+  検出(WebKit を介さず画像を直接取り出せる。日本の漫画 EPUB の大多数がこの形)、複雑ページの
+  オフスクリーンラスタライズ(`EPUBPageRasterizer`)。`device-width` / `device-height` の
+  viewport はライブ表示に追従し、ラスタライズ時は `deviceViewportSize` で寸法を渡す
+  (`FixedLayoutPageInfo.viewportIsDeviceSized` で判別)。文書全体と itemref ごとの
+  `rendition:spread-*` を文書順に解決し、表示と census の見開き計画へ反映
 
-    `EPUBReaderSettings` configures font scale, line height, horizontal
-    letter spacing, paragraph spacing, authored font overrides, ruby
-    visibility, typed colors, insets, and user CSS. Save and restore reading
-    positions with `EPUBLocator` (spine index + progression).
-
-  - 宣言された `page-progression-direction`、`primary-writing-mode`、冒頭の
-    XHTML / CSS、RTL 言語の順で `effectiveReadingDirection` を決め、
-    表示層もその実効値を使用
-
-    Determines `effectiveReadingDirection` from the declared page progression
-    (`page-progression-direction`), `primary-writing-mode`, initial
-    XHTML / CSS, and RTL language, in that order. The rendering layer uses
-    this effective direction as well.
-
-  - 内部リンク・目次・locator・UTF-16 範囲へのジャンプ元を最大 50 件保持する
-    `canGoBack` / `goBack()` と、履歴の利用可否が変わったときの delegate 通知
-
-    `canGoBack` / `goBack()` retain up to 50 source positions for jumps via
-    internal links, the table of contents, locators, and UTF-16 ranges, with
-    delegate notifications when navigation history availability changes.
-
-  - `EPUBInternalLink` と `shouldFollowInternalLink` delegate で内部リンクを
-    遷移前に判定。同一文書／別文書の脚注は `noteContent(for:)` で抽出でき、
-    `hidesFootnoteAsides` で本文のページ割りから脚注 aside を除外できる。
-    抑止後に `follow(_:)` を呼べば delegate を再度通さず、履歴を記録して遷移する
-
-    Inspect internal links before navigation with `EPUBInternalLink` and the
-    `shouldFollowInternalLink` delegate. Extract footnotes in the same or
-    another document with `noteContent(for:)`, and exclude footnote asides
-    from body pagination with `hidesFootnoteAsides`. After intercepting a
-    link, call `follow(_:)` to navigate and record history without invoking
-    the delegate again.
-
-  - 正規化 UTF-16 範囲と reader-view 座標を結ぶ選択 API
-    (`currentSelection` / `clearSelection()` /
-    `rects(forTextRange:inSpineIndex:)`)と選択変更 delegate
-
-    Selection APIs (`currentSelection` / `clearSelection()` /
-    `rects(forTextRange:inSpineIndex:)`) map normalized UTF-16 ranges to
-    reader-view coordinates, with a delegate for selection changes.
-
-  - EPUB page-list のラベル一覧・移動・現在位置
-    (`printPageLabels` / `go(toPrintPage:)` / `currentPrintPage`)に対応し、
-    本文の pagebreak marker とノンブル表示にも連動
-
-    EPUB page-list support includes labels, navigation, and the current
-    position (`printPageLabels` / `go(toPrintPage:)` / `currentPrintPage`),
-    integrated with pagebreak markers in the body and folio display.
-
-  - VoiceOver への確定ページ通知と accessibility label/value、システムの
-    コントラスト増加・色以外での区別へ追従
-
-    Announces settled pages to VoiceOver, provides accessibility labels and
-    values, and follows the system's Increase Contrast and Differentiate
-    Without Color settings.
-
-  - 全文ページ数の census は、欠落または決定的に読み込めない spine 項目を
-    1 ページとして残りの計測を続け、部分的な結果も利用可能にする
-
-    The whole-book page-count census treats a missing spine item or one with
-    a deterministic load failure as one page and continues measuring the
-    rest, making partial results available.
-
-  - **ピンチでフォント倍率**(0.5〜3.0 倍): ジェスチャ中は
-    `WKWebView.magnification` で滑らかに視覚追従し、指を離すと倍率を確定して
-    進行率を保ったまま再ページ割り(テキストは再流し込みでシャープなまま)。
-    `adjustFontScale(by:)` で段階調整も可、変更は delegate へ通知
-
-    **Pinch to adjust font scale** (0.5–3.0×): `WKWebView.magnification`
-    provides smooth visual feedback during the gesture. On release, the
-    scale is committed and the content is repaginated while preserving
-    progression; reflow keeps the text sharp. `adjustFontScale(by:)` also
-    supports incremental adjustments, with changes reported to the delegate.
-
-  - ホスト統合: キー/クリック/ファイルドロップの delegate 転送と、
-    `EPUBContextMenuPolicy` / 表示直前 delegate によるコンテキストメニュー制御
-    (アプリ独自のキーバインドやページ送りに接続できる。既定では
-    左右端タップでページ送り)。キーは `forwardsKeyEventsNatively` で
-    ネイティブ `NSEvent` を横取り転送でき、WKWebView にキーを食われる
-    問題を避けられる(ホスト独自バインド向けの推奨経路)
-
-    Host integration: forwards key, click, and file-drop events to delegates,
-    and controls context menus with `EPUBContextMenuPolicy` and a delegate
-    called just before presentation. Connect these to app-specific key
-    bindings or page turning; tapping the left or right edge turns pages by
-    default. `forwardsKeyEventsNatively` intercepts and forwards native
-    `NSEvent` key events so WKWebView does not consume them, the recommended
-    path for host-specific bindings.
-
-- **固定レイアウト**: viewport 解析、`page-spread-left/right/center`、
-  「画像 1 枚だけのページ」の検出(WebKit を介さず画像を直接取り出せる —
-  日本の漫画 EPUB の大多数がこの形)、複雑ページの
-  オフスクリーンラスタライズ(`EPUBPageRasterizer`)。`device-width` /
-  `device-height` の viewport はライブ表示の領域へ追従し、ラスタライズ時は
-  `deviceViewportSize` で描画先寸法を渡せる。
-  `FixedLayoutPageInfo.viewportIsDeviceSized` で該当ページを判別できる
-
-  **Fixed-layout**: viewport parsing, `page-spread-left/right/center`,
-  detection of single-image pages (extract images directly without WebKit;
-  most Japanese manga EPUBs use this form), and offscreen rasterization of
-  complex pages (`EPUBPageRasterizer`). A `device-width` / `device-height`
-  viewport follows the live display area; for rasterization, pass the target
-  dimensions with `deviceViewportSize`. Identify these pages with
-  `FixedLayoutPageInfo.viewportIsDeviceSized`.
-
-- 文書全体に加えて itemref ごとの `rendition:spread-*` も文書順に解決し、
-  現在項目の表示と項目別 census の単ページ／見開き計画へ反映
-
-  Resolves per-itemref `rendition:spread-*` in document order in addition to
-  publication-wide settings, and applies them to the current item's display
-  and the single-page / spread plan for each spine item's census.
+  **Fixed-layout**: viewport parsing, `page-spread-left/right/center`, single-image page
+  detection (extract the image without WebKit; most Japanese manga EPUBs use this form), and
+  offscreen rasterization of complex pages (`EPUBPageRasterizer`). A `device-width` /
+  `device-height` viewport follows the live display area; pass `deviceViewportSize` when
+  rasterizing (`FixedLayoutPageInfo.viewportIsDeviceSized` identifies such pages).
+  Per-itemref `rendition:spread-*` is resolved in document order and applied to display
+  and to the census spread plan.
 
 ## 導入 / Installation
 
-SwiftPM で依存に追加する:
+通常利用するプロダクトは 2 つ。**`WashiCore`** は解析層のみで、AppKit / WebKit を引かないので
+GUI セッションのない**ヘッドレス利用**(CLI・索引・サーバ・変換ツール)に向く。**`Washi`** は
+表示層込みで `WashiCore` を再輸出するため、**`import Washi` だけで両層の公開 API が見える**。
+`WashiDynamic` は両ターゲットを 1 本の動的ライブラリにまとめたいホスト(フレームワーク同梱)
+向けで、通常の SwiftPM 導入では使わない。Xcode と `Package.swift` それぞれの手順は
+[導入と最初の表示](Sources/Washi/Washi.docc/Installation.md) を参照。
 
-Add Washi as a SwiftPM dependency:
-
-```swift
-// Package.swift
-.package(url: "https://github.com/shunnag/Washi.git", from: "1.22.0")
-```
-
-通常利用するプロダクトは 2 つ:
-
-Two products cover typical use cases:
-
-- **`WashiCore`** — 解析層のみ(Foundation / CoreFoundation / Compression /
-  CryptoKit / CoreGraphics / ImageIO)。AppKit/WebKit を引かないので、GUI セッションの
-  ない**ヘッドレス利用**(CLI・索引・サーバ・変換ツール)で使える。
-  OCF/OPF/nav 解析・メタデータ・本文抽出/検索・表紙デコードまで。
-
-  **`WashiCore`** — the parsing layer only (Foundation / CoreFoundation /
-  Compression / CryptoKit / CoreGraphics / ImageIO). It does not link AppKit
-  or WebKit, so it supports **headless use** without a GUI session: CLI tools,
-  indexing, servers, and converters. Includes OCF/OPF/nav parsing, metadata,
-  text extraction and search, and cover decoding.
-
-- **`Washi`** — 表示層込み(AppKit / WebKit を追加。リーダービュー・
-  ページ census・サムネイル)。`WashiCore` を再輸出するので、
-  **`import Washi` だけで両層の公開 API が見える**(従来どおり)。
-
-  **`Washi`** — includes the rendering layer (adds AppKit / WebKit for the
-  reader view, page census, and thumbnails). It re-exports `WashiCore`, so
-  **`import Washi` exposes the public APIs of both layers**, as before.
-
-```swift
-// ヘッドレス: 解析・メタデータ・検索のみ
-// Headless: parsing, metadata, and search only.
-import WashiCore
-let book = try EPUBPublication(url: url)
-print(book.metadata.mainTitle ?? "", book.search("keyword").count)
-```
-
-このほか、`WashiDynamic` は動的ライブラリとして 1 本にまとめたいホスト
-(フレームワーク同梱など)向けで、両ターゲットを含む。
-
-`WashiDynamic` includes both targets for hosts that want a single dynamic
-library, for example when bundling a framework.
+Two products cover typical use. **`WashiCore`** is the parsing layer only; it does not
+link AppKit / WebKit, so it suits **headless use** without a GUI session (CLI tools,
+indexing, servers, converters). **`Washi`** adds the rendering layer and re-exports
+`WashiCore`, so **`import Washi` exposes both layers**. `WashiDynamic` bundles both targets
+into one dynamic library for hosts assembling a framework; ordinary SwiftPM integration
+does not use it. See [Installation](Sources/Washi/Washi.docc/Installation.md) for the
+Xcode and `Package.swift` steps.
 
 ## 使い方 / Usage
 
+解析は main actor の外で行い、表示は `EPUBReaderView` に読み込む。`at:` に `EPUBLocator` を
+渡せば位置を復元できる。
+
+Parse off the main actor, then load the publication into an `EPUBReaderView`. Pass an
+`EPUBLocator` to `at:` to restore a position.
+
 ```swift
-import Foundation
+import AppKit
 import Washi
 
-// 解析(UI からは非同期の open を推奨。重い解析をメインで走らせない)
-// Parse (prefer async open from UI code to keep heavy parsing off the main
-// thread).
-let publication = try await EPUBPublication.open(url: epubURL)
-print(publication.metadata.mainTitle ?? "")
-// 常に .ltr または .rtl
-// Always .ltr or .rtl.
-print(publication.effectiveReadingDirection)
-// 判定に使った出典
-// The source used to determine the direction.
-print(publication.effectiveReadingDirectionSource)
-for item in publication.navigation.toc { print(item.title) }
+@MainActor
+func open(_ url: URL, in reader: EPUBReaderView, restoring locator: EPUBLocator? = nil) async throws {
+    // 解析(重い処理は detached task で走る) / Parse; heavy work runs in a detached task.
+    let publication = try await EPUBPublication.open(url: url)
+    // 常に .ltr または .rtl と、その出典 / Always .ltr or .rtl, plus its source.
+    print(publication.metadata.mainTitle ?? "",
+          publication.effectiveReadingDirection, publication.effectiveReadingDirectionSource)
+    for item in publication.navigation.toc { print(item.title) }
 
-// 表示(AppKit)
-// Display (AppKit).
-let reader = EPUBReaderView()
-reader.delegate = self
-// at: EPUBLocator で位置復元
-// Restore a position by passing an EPUBLocator to at:.
-reader.load(publication: publication)
-// 読書順で次ページ
-// Next page in reading order.
-reader.goForward()
-// 物理方向(右綴じなら「進む」)
-// Physical direction (forward for a right-bound book).
-reader.turnPageLeft()
-
-// 表紙(ライブラリ一覧用。宣言がない本もフォールバック連鎖で解決)
-// Cover (for library listings; a fallback chain handles books without a
-// cover declaration).
-let cover = publication.coverImage(maxPixelSize: 480)   // CGImage?
-
-// 本文抽出・全文検索(WebKit 不要。索引・検索・引用に)
-// Text extraction and full-text search (no WebKit; for indexing, searching,
-// and quoting).
-let plain = try publication.extractText(forSpineIndex: 0)
-// 大小・全半角無視
-// Case- and character-width-insensitive.
-for hit in publication.search("吾輩") {
-    print(hit.spineIndex, hit.characterOffset, hit.snippet)
-}
-
-// 固定レイアウトの画像直取り
-// Extract a fixed-layout image directly.
-let info = try publication.fixedLayoutInfo(forSpineIndex: 0)
-if let path = info.simpleImagePath {
-    // PNG/JPEG そのもの
-    // The original PNG/JPEG data.
-    let (data, _) = try publication.resource(at: path)
+    // 表示(AppKit) / Display (AppKit).
+    reader.load(publication: publication, at: locator)
+    // 読書順で次ページ。turnPageLeft() / turnPageRight() は物理方向
+    // Next page in reading order; turnPageLeft() / turnPageRight() are physical directions.
+    reader.goForward()
 }
 ```
 
-ジャンプ履歴の利用可否は delegate で UI へ同期できる。通常のページ送りは
-この履歴に入らない。
+そのほかの API はガイドを参照する。コード例はすべて CI で型検査される。
 
-Use the delegate to keep the UI in sync with navigation history availability.
-Normal page turns are not added to this history.
+See the guides for the remaining APIs. Every code example is typechecked in CI.
 
-```swift
-func readerViewNavigationHistoryDidChange(_ view: EPUBReaderView) {
-    print("戻る操作:", view.canGoBack ? "有効" : "無効")
-}
-
-if reader.canGoBack {
-    reader.goBack()
-}
-```
-
-`noteref` は既定遷移を止め、ホストのポップオーバーへ表示できる。
-`presentFootnote(_:anchor:)` はホスト側の表示処理とする。
-
-Intercept the default navigation for a `noteref` and show the note in a host
-popover. `presentFootnote(_:anchor:)` represents the host's presentation code.
-
-```swift
-func readerView(
-    _ view: EPUBReaderView,
-    shouldFollowInternalLink link: EPUBInternalLink
-) -> Bool {
-    guard link.isNoteReference else { return true }
-    Task { @MainActor in
-        if let note = await view.noteContent(for: link) {
-            presentFootnote(note, anchor: link.anchorRect)
-        }
-    }
-    return false
-}
-
-var footnoteSettings = reader.settings
-footnoteSettings.hidesFootnoteAsides = true
-reader.settings = footnoteSettings
-
-// ポップオーバーの「本文で開く」操作などから呼ぶ
-// Call from an action such as "Open in text" in the popover.
-func openFootnoteInReader(_ link: EPUBInternalLink) {
-    reader.follow(link)
-}
-```
-
-文字組み設定はまとめて代入すると、1 回の再ページ割りで反映できる。
-`letterSpacingEm` は CJK の縦組みには適用されない。
-
-Assign typography settings together to apply them in a single repagination.
-`letterSpacingEm` is not applied to vertical CJK text.
-
-```swift
-var typography = reader.settings
-typography.lineHeightScale = 1.1
-typography.letterSpacingEm = 0.03
-typography.paragraphSpacingEm = 0.8
-typography.fontFamilyOverride = "Hiragino Mincho ProN"
-typography.hidesRuby = false
-reader.settings = typography
-```
-
-選択範囲は正規化済み UTF-16 オフセットと reader-view 座標で通知される。
-
-Selections are reported as normalized UTF-16 offsets and reader-view
-coordinates.
-
-```swift
-func readerView(
-    _ view: EPUBReaderView,
-    selectionDidChange selection: EPUBTextSelection?
-) {
-    guard let selection else { return }
-    print(selection.spineIndex, selection.text,
-          selection.utf16Range, selection.rects)
-}
-```
-
-census は `load(publication:)` の後に復元する。`metricsKey` には
-`EPUBScreenMetrics.paginationVersion` が含まれ、古いページ割り方式の記録は
-`importCensus(_:)` が自動的に拒否する。現在と異なる表示メトリクスの記録は、
-同じ本・同じ世代なら受け入れられ、メトリクスが一致した時点で使われる。
-
-Restore the census after `load(publication:)`. The `metricsKey` includes
-`EPUBScreenMetrics.paginationVersion`, so `importCensus(_:)` automatically
-rejects records from older pagination algorithms. Records with different
-display metrics are accepted for the same book and pagination version, and
-are used once the metrics match.
-
-```swift
-reader.load(publication: publication)
-if let savedRecord = try? JSONDecoder().decode(
-    EPUBCensusRecord.self, from: savedCensusData
-) {
-    let accepted = reader.importCensus(savedRecord)
-    print("census 復元:", accepted)
-}
-
-if let currentRecord = reader.exportCensus() {
-    let dataToPersist = try JSONEncoder().encode(currentRecord)
-    // dataToPersist をホスト側で保存する
-    // Persist dataToPersist in the host.
-}
-```
-
-キーを扱うホスト側のデリゲートは、公開初期化子で生成した `EPUBKeyEvent` を
-使って単体テストできる。`key` と `code` を指定し、`shift` / `option` /
-`control` / `command` は省略すると `false` になる。
-
-Host key-handling delegates can be unit-tested with an `EPUBKeyEvent` created
-through its public initializer. Supply `key` and `code`; `shift`, `option`,
-`control`, and `command` default to `false`.
-
-```swift
-import Washi
-
-let event = EPUBKeyEvent(key: " ", code: "Space", shift: true)
-hostDelegate.readerView(reader, didReceiveKey: event)
-let consumed = hostDelegate.readerView(reader, shouldConsumeKey: event)
-```
-
-`hostDelegate` は利用側が実装する `EPUBReaderViewDelegate` とする。
-初期化子はイベントの値を生成し、上の例ではデリゲートを直接呼び出している。
-
-`hostDelegate` is the host's implementation of `EPUBReaderViewDelegate`.
-The initializer creates an event value; the example invokes the delegate directly.
+- [Washi 入門 / Getting started](Sources/Washi/Washi.docc/GettingStarted.md): AppKit のコントローラー、位置と census の保存・復元 / AppKit controller, saving positions and census
+- [脚注 / Footnotes](Sources/Washi/Washi.docc/Footnotes.md): 内部リンクの捕捉と `noteContent(for:)` / Intercepting links and note extraction
+- [ページ割り / Pagination](Sources/Washi/Washi.docc/Pagination.md): メトリクス、`exportCensus()` / `importCensus(_:)`、オフスクリーン API の優先度と解放 / Metrics, census records, offscreen rules
+- [読み込みと終了 / Loading and lifetime](Sources/Washi/Washi.docc/ReaderLifecycle.md): タスクの所有、`unload()`、キーボード転送、実行環境 / Task ownership, unload, key routing, environment
+- [検索・表紙・サムネイル / Search, covers, thumbnails](Sources/Washi/Washi.docc/SearchAndRendering.md): `search`、`coverImage(maxPixelSize:)`、`EPUBScreenAtlas` / Search, covers, atlas
+- [スクロール表示 / Scrolling](Sources/Washi/Washi.docc/Scrolling.md)、[SwiftUI](Sources/Washi/Washi.docc/SwiftUIIntegration.md)、[ファイルアクセス / File access](Sources/Washi/Washi.docc/FileAccess.md)
+- [WashiCore](Sources/WashiCore/WashiCore.docc/WashiCore.md): ヘッドレスの解析・検索の例 / Headless parsing and search
 
 ## 対応状況(EPUB 3.3 RS チェックリスト抜粋) / Support Status (EPUB 3.3 RS Checklist Excerpt)
 
-主な EPUB 3.3 RS 要件の対応状況を以下に示す。✅ は対応済みを示す。
-
-The table below summarizes support for selected EPUB 3.3 RS requirements.
-✅ indicates support.
-
-| 領域 | 状態 |
+| 領域 / Area | 状態 / Status(✅ = 対応済み / supported) |
 |---|---|
 | OCF(ZIP / zip64 / mimetype / container.xml / encryption.xml) | ✅ |
 | パッケージ文書(metadata refines / spine / rendition / fallback) | ✅ |
@@ -577,203 +307,114 @@ The table below summarizes support for selected EPUB 3.3 RS requirements.
 | 本文テキスト抽出・全文検索(ルビ除去・大小/全半角無視) | ✅(解析層のみ) |
 | メタデータ(著者/シリーズ/アクセシビリティの型付きサーフェス) | ✅ |
 | scripted コンテンツ | 任意(既定オフ。CSP / 外部通信ルール / WebRTC 無効化込みで有効化可) |
-| メディアオーバーレイ(SMIL) | パース+項目取得(`mediaOverlay`)。1.8.0 から `playMediaOverlay()` / `pauseMediaOverlay()` / `stopMediaOverlay()` で再生し、active-class ハイライトと自動ページ追従に対応 |
+| メディアオーバーレイ(SMIL) | パース+項目取得(`mediaOverlay`)。1.8.0 から再生・active-class ハイライト・自動ページ追従 |
 | DRM(ADEPT / LCP / FairPlay) | 非対応(検出して報告) |
 | リフロー見開き(横組み / 縦組み) | ✅ |
-| FXL 見開き合成 | 未実装(ホスト側で合成可) |
-
-scripted コンテンツは任意で有効化できる(既定オフ)。メディアオーバーレイは
-解析・項目取得に加え、1.8.0 から再生・ハイライト・自動ページ追従に対応する。
-DRM は検出・報告のみで、FXL 見開き合成はホスト側で行う必要がある。
-
-Scripted content can be enabled optionally and is off by default. Media
-overlays support parsing and clip retrieval, with playback, highlighting,
-and automatic page following since 1.8.0. DRM is only detected and reported;
-FXL spread composition must be handled by the host.
+| FXL 見開き合成 | 未実装(ホスト側で合成可)/ Not implemented; compose in the host |
 
 ## 既知の制限 / Known Limitations
 
-- `text-spacing-trim` は WebKit に未実装のため、指定しても反映されない。
+- `text-spacing-trim` と `hanging-punctuation: force-end` は WebKit に未実装のため反映されない。
 
-  `text-spacing-trim` has no effect because WebKit does not implement it.
+  `text-spacing-trim` and `hanging-punctuation: force-end` have no effect because WebKit
+  does not implement them.
 
-- `hanging-punctuation: force-end` は WebKit では効果がない。
+- EPUB 3.4 で outdated とされた機能のうち、`rendition:spread` / `rendition:flow` /
+  `rendition:orientation` は legacy hint として保持し、フォント難読化・NCX・OPF 2 の `meta`
+  は互換性のため引き続き対応する。`collection` 要素には未対応。
 
-  `hanging-punctuation: force-end` has no effect in WebKit.
+  Among the features marked outdated in EPUB 3.4, `rendition:spread`, `rendition:flow`,
+  and `rendition:orientation` are retained as legacy hints. Font obfuscation, NCX, and
+  OPF 2 `meta` remain supported. The `collection` element is not supported.
 
-- EPUB 3.4 で outdated とされた機能のうち、`rendition:spread` /
-  `rendition:flow` / `rendition:orientation` は legacy hint として保持し、
-  フォント難読化・NCX・OPF 2 の `meta` は互換性のため引き続き対応する。
-  `collection` 要素には未対応。
-
-  Among the features marked outdated in EPUB 3.4, `rendition:spread`,
-  `rendition:flow`, and `rendition:orientation` are retained as legacy hints.
-  Font obfuscation, NCX, and OPF 2 `meta` remain supported for compatibility.
-  The `collection` element is not supported.
-
-- `scrolled-doc` は章単位、`scrolled-continuous` は連続する章をつないで表示する。
-  `roll` と旧 `pre-paginated` + `scrolled-continuous` は、幅を合わせて隙間なく並べる。
-  スクロール中のページ番号は画面サイズに基づく区切りで、印刷ページ番号とは異なる。
-  詳細は [スクロール表示](Sources/Washi/Washi.docc/Scrolling.md) を参照。
+- `scrolled-doc` は章単位、`scrolled-continuous` は連続する章をつないで表示する。`roll` と旧
+  `pre-paginated` + `scrolled-continuous` は幅を合わせて隙間なく並べる。スクロール中のページ番号は
+  画面サイズに基づく区切りで、印刷ページ番号とは異なる。詳細は
+  [スクロール表示](Sources/Washi/Washi.docc/Scrolling.md) を参照。
 
   `scrolled-doc` scrolls each chapter; `scrolled-continuous` joins consecutive chapters.
-  Roll and legacy fixed continuous content fit the viewport width without gaps.
-  Screen numbers in these modes describe viewport-sized steps, not printed pages.
+  Roll and legacy fixed continuous content fit the viewport width without gaps. Screen
+  numbers in these modes describe viewport-sized steps, not printed pages.
 
-- `text/html` 宣言の非準拠 spine は、ヘッドレスの本文抽出・検索では可能な範囲で
-  読むが、表示には XHTML 等の対応形式への fallback が必要。表示できない項目の
-  正確な検索位置・選択矩形・テキストアンカーは返さない。
+- `text/html` 宣言の非準拠 spine は、ヘッドレスの本文抽出・検索では可能な範囲で読むが、表示には
+  XHTML 等の対応形式への fallback が必要。表示できない項目の正確な検索位置・選択矩形・
+  テキストアンカーは返さない。
 
   Nonconforming text/html spine items remain available for best-effort headless
   extraction/search, but rendering requires a supported fallback such as XHTML.
   Unrenderable items do not return exact text positions, range rectangles, or text anchors.
 
-- `defersTapsForDoubleClick = true` は、ダブルクリックによる単語選択より先に
-  ページ送りが起きるのを防ぐ代わりに、primary click の通知をシステムの
-  ダブルクリック間隔だけ遅らせる。既定の `false` はクリックを即時通知する。
+- `defersTapsForDoubleClick = true` は、ダブルクリックの単語選択より先にページ送りが起きるのを
+  防ぐ代わりに、primary click の通知をシステムのダブルクリック間隔だけ遅らせる(既定は `false`)。
+  `invertsGlyphImagesInDark` の外字判定はクラス名と表示寸法に基づくため、小さな挿絵を誤判定する
+  ことがある(原色が必要な本では `false`)。WebRTC の無効化は `allowsScriptedContent = true` の
+  EPUB コンテンツだけが対象で、ホストアプリや別の WebView への一般的な制御ではない。
 
-  `defersTapsForDoubleClick = true` prevents a page turn from occurring before
-  double-click word selection, but delays primary-click notifications by the
-  system double-click interval. The default, `false`, reports clicks
-  immediately.
-
-- `invertsGlyphImagesInDark` の外字判定はクラス名と表示寸法に基づくため、
-  小さな挿絵を外字と誤判定する場合がある。原色が必要な本では `false` にする。
-
-  `invertsGlyphImagesInDark` identifies glyph images by class names and
-  rendered dimensions, so it may misclassify small illustrations. Set it to
-  `false` for books that need their original image colors.
-
-- WebRTC コンストラクタの無効化は `allowsScriptedContent = true` で著者
-  JavaScript を許可した EPUB コンテンツだけが対象で、ホストアプリや別の
-  WebView に対する一般的な WebRTC 制御ではない。
-
-  WebRTC constructors are disabled only in EPUB content where authored
-  JavaScript is allowed with `allowsScriptedContent = true`. This is not a
-  general WebRTC control for the host app or other WebViews.
+  `defersTapsForDoubleClick = true` prevents a page turn before double-click word selection
+  but delays primary-click notifications by the system double-click interval (default
+  `false`). `invertsGlyphImagesInDark` identifies glyph images by class names and rendered
+  dimensions and may misclassify small illustrations (set it to `false` for books that need
+  original colors). WebRTC is disabled only in EPUB content with
+  `allowsScriptedContent = true`, not for the host app or other WebViews.
 
 ## 開発 / Development
 
-- 公開コーパスのヘッドレススモークテストは、`WASHI_CORPUS_DIR` に EPUB
-  コーパスのディレクトリを指定して `swift test --filter CorpusSmokeTests` を
-  実行する。未設定またはディレクトリが存在しない場合はスキップされる。
+- 公開 EPUB コーパス(IDPF サンプルと W3C テスト、251 冊)に対するヘッドレスのスモークテスト。
+  出典・ライセンス・照合規則は [Tests/Corpus/README.md](Tests/Corpus/README.md)(英語)を参照。
+  `WASHI_CORPUS_DIR` が未設定かディレクトリが無ければスキップされる。
 
-  To run headless smoke tests against a public corpus, set `WASHI_CORPUS_DIR`
-  to the EPUB corpus directory and run `swift test --filter CorpusSmokeTests`.
-  The tests are skipped if the variable is unset or the directory does not
-  exist.
-
-- cooViewer の `Scripts/make-jp-epub-fixtures.py` で、日本語 EPUB の
-  合成フィクスチャを生成できる。このスクリプトは Washi には含まれない。
-  cooViewer リポジトリのルートで、第三者パッケージ不要の次のコマンドを実行する。
-
-  cooViewer's `Scripts/make-jp-epub-fixtures.py` generates synthetic Japanese
-  EPUB fixtures. This script is not included in Washi. Run the following
-  command from the cooViewer repository root; no third-party packages are
-  required.
+  Headless smoke tests over the public EPUB corpus (IDPF samples and W3C tests, 251 books).
+  Provenance, licensing, and verification rules are in
+  [Tests/Corpus/README.md](Tests/Corpus/README.md). The tests are skipped when
+  `WASHI_CORPUS_DIR` is unset or missing.
 
   ```sh
-  python3 Scripts/make-jp-epub-fixtures.py <outdir> [--big]
+  python3 Scripts/fetch-epub-corpus.py
+  WASHI_CORPUS_DIR="$PWD/.build/epub-corpus" swift test --filter CorpusSmokeTests
   ```
 
-## 動作環境 / Requirements
+- `Scripts/` の Python スクリプトはどのカレントディレクトリからでも動き、
+  `python3 -m unittest discover -s Tests/Scripts -p 'test_*.py'` で検証する。
+  `HTMLEntities.swift` は `Scripts/generate-html-entities.py` で生成し、`--check` で最新か確かめる。
 
-macOS 14+ / Swift 6(strict concurrency)/ Apple Silicon・Intel 両対応の
-ソースだが、cooViewer 同梱ビルドは arm64 のみ。
+  The Python scripts work from any current directory; verify them with the `unittest`
+  command above. `HTMLEntities.swift` is generated by `Scripts/generate-html-entities.py`;
+  `--check` verifies the table is current.
 
-The source supports macOS 14+, Swift 6 with strict concurrency, and both
-Apple Silicon and Intel. The build bundled with cooViewer is arm64-only.
+- 日本語 EPUB の合成フィクスチャは cooViewer の `Scripts/make-jp-epub-fixtures.py <outdir> [--big]`
+  で生成できる(Washi には含まれない)。 / Synthetic Japanese EPUB fixtures come from
+  cooViewer's `Scripts/make-jp-epub-fixtures.py` (not included in Washi).
 
-## 組み込みの注意(オフスクリーン WebKit) / Integration Notes (Offscreen WebKit)
-
-- 消費者が保持するオフスクリーン型 `EPUBScreenAtlas`(census と
-  サムネイルを内部に持つ)と `EPUBPageRasterizer` は、それぞれ不可視の
-  NSWindow + WebContent プロセスを抱える。アトラス内部の census／サムネイルは
-  完了後 20 秒のアイドルで WebKit を自動解放し、次回要求で再構築するが、
-  **使い終えたオフスクリーン型には `invalidate()` を呼ぶ**(アトラスを
-  キャッシュから追い出すときも)。`EPUBReaderView` は
-  ウインドウから外れた時点で自分のオフスクリーン(内部の census・
-  サムネイルレンダラ含む)を自動で畳むので、明示呼び出しは不要
-
-  The offscreen types retained by the caller, `EPUBScreenAtlas` (which holds
-  the census and thumbnails) and `EPUBPageRasterizer`, each own an invisible
-  NSWindow and WebContent processes. The atlas's internal census and thumbnail
-  components automatically release WebKit after 20 seconds of idle time
-  following completion and rebuild it on the next request. Even so, **call
-  `invalidate()` when finished with an offscreen type**, including when
-  evicting an atlas from a cache. `EPUBReaderView` automatically tears down
-  its offscreen resources, including its internal census and thumbnail
-  renderers, when removed from a window; no explicit call is needed.
-
-- オフスクリーン系 API は **`.userInitiated` 以上の優先度で呼ぶ**こと。
-  低 QoS(`.utility` 等)を継いだまま最初の JS 実行を発行すると、WebKit の
-  応答が返らず永久待ちになる(実測)
-
-  **Call offscreen APIs at `.userInitiated` priority or higher.** Issuing the
-  first JavaScript execution while inheriting a low QoS such as `.utility`
-  can leave WebKit unresponsive and cause an indefinite wait, as observed in
-  testing.
-
-- 表示・計測系(Reader/・WebContent/・Pagination/・Offscreen/・MediaOverlay/)は
-  全て `@MainActor`。GUI セッションのないデーモンからは解析層
-  (`EPUBPublication` ほか)だけを使う
-
-  All rendering and measurement APIs (Reader/, WebContent/, Pagination/,
-  Offscreen/, MediaOverlay/) are `@MainActor`. Daemons without a GUI session
-  should use only the parsing layer (`EPUBPublication` and related types).
-
-- 全文ページ数の実測(census)はオフスクリーン WebKit で数秒かかることが
-  ある。`EPUBReaderView.exportCensus()` の結果を保存し、再オープン時に
-  `importCensus(_:)` で注入すると再実測を省ける。同一版かつ現行の
-  `paginationVersion` の記録だけを受け入れ、メトリクスも一致すれば
-  ページ番号／バーへ即時反映する
-
-  Measuring the whole-book page count (census) with offscreen WebKit can take
-  several seconds. Persist the result of `EPUBReaderView.exportCensus()` and
-  inject it with `importCensus(_:)` when reopening to skip remeasurement.
-  Only records for the same edition and the current `paginationVersion` are
-  accepted. If the metrics also match, the page number and page bar update
-  immediately.
+- 2026 年 9 月の堅牢化監査の記録は [Documentation/EPUB-Audit-2026-09.md](Documentation/EPUB-Audit-2026-09.md)
+  にある(修正は 1.18.0 で公開済み)。 The September 2026 hardening audit is recorded in
+  [Documentation/EPUB-Audit-2026-09.md](Documentation/EPUB-Audit-2026-09.md); its repairs
+  shipped in 1.18.0.
 
 ## ドキュメント / Documentation
 
-[公開 DocC / Online DocC](https://shunnag.github.io/Washi/) から Washi と
-WashiCore の両方を参照できる。main 更新時にガイドのコード例とサンプルを検証して公開する。
+[公開 DocC / Online DocC](https://shunnag.github.io/Washi/) から Washi と WashiCore の両方を
+参照できる。main 更新時にガイドのコード例とサンプルを検証して公開する。
 
 Browse both modules in the [online DocC documentation](https://shunnag.github.io/Washi/).
 Guides and samples are checked before documentation is published from main.
 
-公開 API の doc コメントと DocC カタログ記事は、日本語を正(ベース)として
-英語を併記する方針で、後続の文書整備で順次対応する。DocC では両者を合わせて
-ドキュメントを生成できる。
+公開 API の doc コメントと DocC カタログ記事は、日本語を正(ベース)として英語を併記する。
+内部コメントは日本語で書く。
 
-Public API doc comments and DocC catalog articles will use Japanese as the
-authoritative base, with English alongside it. This policy will be applied
-in subsequent documentation updates. DocC can generate documentation from
-both the comments and the articles.
+Public API doc comments and DocC catalog articles use Japanese as the authoritative base,
+with English alongside it. Internal comments are written in Japanese.
 
-Swift Package Index 用の設定(`.spi.yml`)では、Washi / WashiCore の両ターゲットを
-ドキュメント生成対象に指定している。公開時の
-[パッケージ登録](https://swiftpackageindex.com/add-a-package)もここから行える。
+Swift Package Index 用の設定(`.spi.yml`)は Washi / WashiCore の両ターゲットを生成対象にする。
+/ `.spi.yml` enables Swift Package Index documentation for both targets.
 
-The Swift Package Index configuration (`.spi.yml`) enables documentation
-generation for both Washi and WashiCore. When publishing, use the
-[package registration page](https://swiftpackageindex.com/add-a-package)
-to register the package.
+ローカルでは `xcodebuild docbuild -scheme Washi -destination 'platform=macOS'` で DocC を
+ビルドできる。ガイドと README の全 Swift コード例の型検査と静的サイトの生成は次のコマンドで
+行う(出力先には空のディレクトリを指定)。サンプルの検証は `swift test --package-path Samples`。
 
-Washi パッケージのルートで、ローカルの DocC を次のコマンドでビルドできる。
-
-Build DocC documentation locally from the Washi package root with:
-
-```sh
-xcodebuild docbuild -scheme Washi -destination 'platform=macOS'
-```
-
-ガイド内の全 Swift コード例の型検査と静的サイトの生成も実行できる。出力先には
-空のディレクトリを指定する。サンプルの実行検証は `swift test --package-path Samples`。
-
-To typecheck all Swift examples in the guides and generate the static site, use an
-empty output directory. Run sample integration tests with `swift test --package-path Samples`.
+Build DocC locally with `xcodebuild docbuild -scheme Washi -destination 'platform=macOS'`.
+The command below typechecks every Swift example in the guides and README and generates
+the static site (use an empty output directory). Verify the samples with
+`swift test --package-path Samples`.
 
 ```sh
 python3 Scripts/build-documentation.py --output-dir .build/docs-site --derived-data .build/docs-derived
@@ -781,82 +422,75 @@ python3 Scripts/build-documentation.py --output-dir .build/docs-site --derived-d
 
 ## 開発体制 / Project Organization
 
-このリポジトリが Washi の正リポジトリであり、開発もここで行う。
-Issue / PR はこのリポジトリで受け付ける。
-[cooViewer](https://github.com/shunnag/cooViewer) は、このパッケージの利用者のひとつ。
+このリポジトリが Washi の正リポジトリであり、開発もここで行う。Issue / PR はこのリポジトリで
+受け付ける。開発課題は beads で管理する(初回は `bd bootstrap --yes`、作業の確認は `bd ready`。
+cooViewer から移した課題は旧 ID を維持。詳細は [.beads/README.md](.beads/README.md))。
+AI エージェント向けの作業規則は [AGENTS.md](AGENTS.md) にある。
 
-This is Washi's canonical repository, where development takes place and
-issues and pull requests are accepted.
-[cooViewer](https://github.com/shunnag/cooViewer) is one of the applications
-that uses this package.
+This is Washi's canonical repository, where development takes place and issues and pull
+requests are accepted. Tasks are tracked in Beads (`bd bootstrap --yes` on a new checkout,
+`bd ready` to find work; issues migrated from cooViewer keep their original IDs; see
+[.beads/README.md](.beads/README.md)). Working rules for AI agents are in [AGENTS.md](AGENTS.md).
 
-開発課題はこのリポジトリの beads で管理する。初回は `bd bootstrap --yes`、
-作業の確認は `bd ready` を使う。cooViewer から移した課題は旧 ID を維持している。
-詳しい手順は [.beads/README.md](.beads/README.md) を参照する。
+### 利用側 / Consumers
 
-Development tasks are tracked in this repository's Beads database. Run
-`bd bootstrap --yes` on a new checkout and `bd ready` to find available work.
-Issues migrated from cooViewer retain their original IDs.
+ソースは macOS 14+ / Swift 6(strict concurrency)で Apple Silicon・Intel の両方に対応する。
+[cooViewer](https://github.com/shunnag/cooViewer) はこのパッケージの利用者のひとつで、
+`WashiDynamic` から Washi.framework を手組みして同梱する(arm64 のみ)。その前提は
+`Package.swift` の WashiDynamic のコメントに記す。
+
+The source supports macOS 14+, Swift 6 with strict concurrency, and both Apple Silicon and
+Intel. [cooViewer](https://github.com/shunnag/cooViewer) is one consumer; it assembles
+Washi.framework from `WashiDynamic` and bundles it (arm64 only). The assumptions it relies
+on are documented in the WashiDynamic comment in `Package.swift`.
 
 ## リリース前検証 / Release Preflight
 
 公開予定の版を CHANGELOG に `## [X.Y.Z] - YYYY-MM-DD` と空でない本文で記録し、
 `EPUBReadingSystem.version` も同じ版に更新する。変更をコミットしてから次を実行する。
-作業ツリー（未追跡ファイルを含む）がクリーンで、
-公開先の最新確定版タグより新しい版であることも検証する。
+作業ツリー(未追跡ファイルを含む)がクリーンで、公開先の最新確定版タグより新しい版で
+あることも検証する。
 
 Record the planned version in CHANGELOG as `## [X.Y.Z] - YYYY-MM-DD` with nonempty
 release notes, and set `EPUBReadingSystem.version` to that version. Commit the changes
-and run the command below. It also requires a clean working tree,
-including untracked files, and a version newer than the latest stable tag on
-the public remote.
+and run the command below. It also requires a clean working tree, including untracked
+files, and a version newer than the latest stable tag on the public remote.
 
 ```sh
 Scripts/release.sh X.Y.Z
-# 公開先を切り替える場合
+# 公開先を切り替える場合 / Use another remote
 Scripts/release.sh X.Y.Z --remote origin
 ```
 
-このスクリプトは検証のみを行う。対象コミットの CI が成功したことを確認してから、
-タグの作成・公開を別途行う。Python 3.9 以降と Git が必要で、cooViewer には依存しない。
-スクリプトの検証は `python3 -m unittest discover -s Tests/Scripts -p 'test_*.py'` で実行する。
+このスクリプトは検証のみを行う(Python 3.9 以降と Git が必要)。対象コミットの CI が成功したことを
+確認してから、タグの作成・push を別途行う。タグは CI 完了前にも SwiftPM から利用できるため、
+タグ作成前の確認が必要になる。タグを push すると、テスト・配布構成ビルド・公開 EPUB コーパス検証が
+すべて成功した後、CI(`Scripts/publish-github-release.py`)がそのタグの CHANGELOG から
+GitHub Release を自動作成する。確定版タグ(`X.Y.Z` または `vX.Y.Z`)と日付付きの変更履歴が必要。
 
-The script performs validation only. Create and publish the tag separately,
-after the target commit's CI has passed. It requires Python 3.9 or later and
-Git, and works independently of cooViewer.
+The script performs validation only (Python 3.9+ and Git required). Create and push the
+tag separately, after the target commit's CI has passed; SwiftPM can resolve the tag before
+CI finishes, so the pre-tag check matters. After the push, CI
+(`Scripts/publish-github-release.py`) creates the GitHub Release from the tagged CHANGELOG
+once all tests, release artifact builds, and public corpus checks pass. This requires a
+stable tag (`X.Y.Z` or `vX.Y.Z`) and a dated changelog entry.
 
-タグを push すると、テスト・配布構成ビルド・公開 EPUB コーパス検証がすべて
-成功した後、CI がそのタグの CHANGELOG から GitHub Release を自動作成する。
-確定版タグ (`X.Y.Z` または `vX.Y.Z`) と日付付きの変更履歴が必要。
-タグは CI 完了前にも SwiftPM から利用できるため、タグ作成前の確認も必要になる。
+公開処理だけが失敗した場合は、そのタグの CI で失敗したジョブを再実行する。公開済みの Release は
+上書きせず、同じタグの下書きがあると自動公開は止まる(確認して手動公開するか、整理して再実行)。
+旧タグを手動で補う場合は、ノートを確認した上で
+`gh release create X.Y.Z --verify-tag --notes-file notes.md --latest=false` を使う。自動公開は
+公開先の最新確定版タグだけを Latest にし、旧版の再実行による巻き戻りを防ぐ。
 
-After a tag is pushed, CI creates its GitHub Release from the tagged CHANGELOG
-only after all tests, release artifact builds, and public EPUB corpus checks pass.
-This requires a stable tag (`X.Y.Z` or `vX.Y.Z`) and a dated changelog entry.
-SwiftPM can resolve the tag before CI finishes, so the pre-tag check still matters.
-
-公開処理だけが失敗した場合は、そのタグの CI で失敗したジョブを再実行する。
-公開済みの Release は上書きせず、同じタグの下書きがある場合は自動公開を止める。
-下書きの内容を確認して手動公開するか、下書きを整理してから再実行する。
-旧タグの公開漏れを手動で補う場合も、ノートを確認した上で
-`gh release create X.Y.Z --verify-tag --notes-file notes.md --latest=false` を使う。
-自動公開では公開先の最新確定版タグだけを Latest にし、過去の版の再実行による
-巻き戻りを防ぐ。GitHub CLI (`gh`) が必要で、CI の認証には `GITHUB_TOKEN` を使う。
-
-If only publication fails, rerun the failed jobs in that tag's CI run. Published
-Releases are preserved; an existing draft stops automatic publication so its
-content can be reviewed and published manually, or the draft resolved before retrying.
-For historical tags, review the notes and use
-`gh release create X.Y.Z --verify-tag --notes-file notes.md --latest=false`.
-Automatic publication marks only the newest stable remote tag as Latest, so
-retries for older versions cannot move it backwards. The publisher uses GitHub
-CLI (`gh`) and authenticates in CI with `GITHUB_TOKEN`.
+If only publication fails, rerun the failed jobs in that tag's CI run. Published Releases
+are preserved, and an existing draft stops automatic publication (review and publish it
+manually, or resolve it and retry). For historical tags, review the notes and use
+`gh release create X.Y.Z --verify-tag --notes-file notes.md --latest=false`. Only the
+newest stable remote tag becomes Latest, so retries for older versions cannot move it back.
 
 ## ライセンス / License
 
-MIT License(LICENSE を参照)。依存パッケージはない。
-設計にあたり Readium CSS・Bibi(いずれも実装は独立)の公開知見を参考にした。
+MIT License(LICENSE を参照)。依存パッケージはない。設計にあたり Readium CSS・Bibi
+(いずれも実装は独立)の公開知見を参考にした。
 
-MIT License (see LICENSE). There are no package dependencies. The design
-draws on publicly shared findings from Readium CSS and Bibi; Washi's
-implementation is independent of both.
+MIT License (see LICENSE). There are no package dependencies. The design draws on publicly
+shared findings from Readium CSS and Bibi; Washi's implementation is independent of both.

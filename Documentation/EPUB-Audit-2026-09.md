@@ -1,9 +1,9 @@
 # EPUB audit — September 2026
 
-Status: in progress; sanitizer, consumer compatibility, and memory measurement
-gates have been run. Release remains pending.
-The release gate includes the rendering/lifetime audit,
-consumer compatibility, sanitizer/stress results, and a published Washi release.
+Status: completed. The repairs below were released in Washi 1.18.0
+(see [CHANGELOG](../CHANGELOG.md)); the sections that follow are the audit record.
+The release gate included the rendering/lifetime audit, consumer compatibility,
+sanitizer/stress results, and a published Washi release.
 
 ## Baseline and reproducibility
 
