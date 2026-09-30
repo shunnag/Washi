@@ -1,7 +1,7 @@
 import AppKit
 
 /// EPUBReaderView の内部リンク: JS から届いた link 通知の解決と委譲、
-/// 注釈内容の抽出、href からの fragment の切り出し。
+/// 注釈内容の抽出、外部リンクの判定(fragment の切り出しは ContainerPath)。
 extension EPUBReaderView {
     /// 捕捉した EPUB 内部リンクの注釈内容を抽出する。
     ///
@@ -115,16 +115,9 @@ extension EPUBReaderView {
         return { found: true, text: text, html: html };
         """
 
-    /// href からフラグメントを取り出す。split は空要素を落とすため
-    /// "#note1" のような同一文書内リンクで壊れないよう firstIndex で切る
-    static func fragment(of href: String) -> String? {
-        guard let hash = href.firstIndex(of: "#") else { return nil }
-        let encoded = String(href[href.index(after: hash)...])
-        guard !encoded.isEmpty else { return nil }
-        // cooViewer-oxr.32: DOM id は URI fragment の percent decode 後の値で
-        // 照合する。不正な escape は実在本を壊さないよう原文へ fallback する。
-        return encoded.removingPercentEncoding ?? encoded
-    }
+    /// 既定のアプリで開く外部リンクのスキーム(JS の link 通知と WebKit の
+    /// 遷移判定の安全網で共用)
+    static let externalLinkSchemes: Set<String> = ["http", "https", "mailto"]
 
     /// 外部 URL を delegate が拒否しなければ既定のアプリで開く(delegate 未設定は許可)
     func openExternalURLIfAllowed(_ url: URL) {
@@ -139,7 +132,7 @@ extension EPUBReaderView {
               let href = message["href"] as? String else { return }
         // 外部リンク(スキーム付き)
         if let url = URL(string: href), let scheme = url.scheme?.lowercased(),
-           ["http", "https", "mailto"].contains(scheme) {
+           Self.externalLinkSchemes.contains(scheme) {
             openExternalURLIfAllowed(url)
             return
         }
@@ -153,7 +146,7 @@ extension EPUBReaderView {
         let link = EPUBInternalLink(
             href: href,
             containerPath: path,
-            fragment: Self.fragment(of: href),
+            fragment: ContainerPath.fragment(of: href),
             targetSpineIndex: publication.readingOrder.firstIndex {
                 $0.resolvedContainerPath == path || $0.containerPath == path
             },

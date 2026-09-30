@@ -180,6 +180,23 @@ public final class EPUBReaderView: NSView {
         case progression(Double)
         case fragment(String)
         case textRange(utf16Offset: Int, utf16Length: Int, fallbackProgression: Double)
+
+        /// 保存した位置にテキストの錨があれば同じ文へ、無ければ進行率へ戻る。
+        /// 再オープン・go(to:)・読み込み失敗からの復旧が同じアンカーを使う
+        init(restoring locator: EPUBLocator) {
+            if let offset = locator.textOffset {
+                self = .textRange(utf16Offset: offset, utf16Length: 1,
+                                  fallbackProgression: locator.progression)
+            } else {
+                self = .progression(locator.progression)
+            }
+        }
+
+        /// setup 後の exact landing を待つ textRange か
+        var isTextRange: Bool {
+            if case .textRange = self { return true }
+            return false
+        }
     }
     struct PendingTextRangeRequest {
         let id: UUID

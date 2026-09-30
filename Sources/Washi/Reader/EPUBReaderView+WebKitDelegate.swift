@@ -39,7 +39,7 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
             }
         }
         // JS のクリック捕捉をすり抜けたリンク(area 等)の安全網
-        if ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? ""),
+        if Self.externalLinkSchemes.contains(url.scheme?.lowercased() ?? ""),
            navigationAction.navigationType == .linkActivated {
             openExternalURLIfAllowed(url)
         }

@@ -625,10 +625,10 @@ final class HardeningTests: XCTestCase {
     /// 同一文書内リンク(#id)のフラグメント抽出
     @MainActor
     func testFragmentExtraction() {
-        XCTAssertEqual(EPUBReaderView.fragment(of: "#note1"), "note1")
-        XCTAssertEqual(EPUBReaderView.fragment(of: "ch1.xhtml#sec2"), "sec2")
-        XCTAssertNil(EPUBReaderView.fragment(of: "ch1.xhtml"))
-        XCTAssertNil(EPUBReaderView.fragment(of: "ch1.xhtml#"))
+        XCTAssertEqual(ContainerPath.fragment(of: "#note1"), "note1")
+        XCTAssertEqual(ContainerPath.fragment(of: "ch1.xhtml#sec2"), "sec2")
+        XCTAssertNil(ContainerPath.fragment(of: "ch1.xhtml"))
+        XCTAssertNil(ContainerPath.fragment(of: "ch1.xhtml#"))
     }
 
     /// EPUB 2.0 の dc-metadata ラッパー内の DCMES も読める

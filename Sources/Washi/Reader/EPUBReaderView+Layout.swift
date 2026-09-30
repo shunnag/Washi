@@ -100,13 +100,13 @@ extension EPUBReaderView {
     // 見開き判定・ノド幅は EPUBScreenMetrics が単一の正(リーダー外の
     // 一覧展開と式を共有し、ページ割りの一致を保証する)
 
-    /// 現在の表示寸法と flow で、与えた設定と項目の画面計画を立てる
+    /// 現在の表示寸法で、与えた設定と項目(その spread と flow)の画面計画を立てる
     func screenMetrics(for settings: EPUBReaderSettings,
                        spineIndex: Int) -> EPUBScreenMetrics {
         EPUBScreenMetrics(
             viewportSize: bounds.size, settings: settings,
             renditionSpread: effectiveSpread(forSpineIndex: spineIndex))
-            .applyingRenditionFlow(effectiveFlow)
+            .applyingRenditionFlow(publication?.renderingFlow(at: spineIndex) ?? .auto)
     }
 
     /// 現在の表示条件の画面計画(census・サムネイルのオプションもここから)

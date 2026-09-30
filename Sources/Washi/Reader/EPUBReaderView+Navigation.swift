@@ -152,13 +152,7 @@ extension EPUBReaderView {
         // cooViewer-oxr.46 C52: テキストアンカーがあれば、進行率の再量子化で
         // 数ページずれる代わりに、保存したときと同じ文へ厳密に着地させる。
         // 見つからなければ進行率へ落ちる(textRange の fallback がその役目)。
-        let target: PendingTarget
-        if let textOffset = resolved.textOffset {
-            target = .textRange(utf16Offset: textOffset, utf16Length: 1,
-                                fallbackProgression: resolved.progression)
-        } else {
-            target = .progression(resolved.progression)
-        }
+        let target = PendingTarget(restoring: resolved)
         if recordsHistory { recordCurrentLocatorInHistory() }
         guard request == navigationRequestGeneration else { return }
         if resolved.spineIndex == currentSpineIndex {
@@ -176,7 +170,7 @@ extension EPUBReaderView {
               let index = publication.spineIndex(forNavItem: navItem) else { return }
         guard !rejectsUnloadableNavigation(to: index) else { return }
         let request = beginNavigationRequest()
-        let fragment = navItem.href.flatMap(Self.fragment(of:))
+        let fragment = navItem.href.flatMap(ContainerPath.fragment(of:))
         let target: PendingTarget = fragment.map { .fragment($0) } ?? .start
         recordCurrentLocatorInHistory()
         guard request == navigationRequestGeneration else { return }
@@ -313,12 +307,7 @@ extension EPUBReaderView {
     /// cooViewer-oxr.19: spine 読み込み中の同一項目ナビゲーションは旧 DOM へ
     /// 適用せず、進行中の setup が最後の target を一度だけ消費する。
     func applyOrQueueTarget(_ target: PendingTarget) {
-        let isTextRange: Bool
-        if case .textRange = target {
-            isTextRange = true
-        } else {
-            isTextRange = false
-        }
+        let isTextRange = target.isTextRange
         guard spineLoad.isLoadingSpineItem else {
             if isTextRange {
                 // 着地前の保存・戻る履歴にもアンカーを残し、進行率だけへ劣化させない。
