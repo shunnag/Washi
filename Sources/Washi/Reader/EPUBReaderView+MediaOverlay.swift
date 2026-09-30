@@ -217,4 +217,20 @@ extension EPUBReaderView {
     func mediaOverlayDidFinish() {
         delegate?.readerViewMediaOverlayDidFinish(self)
     }
+
+    func mediaOverlayDocumentContext() -> MediaOverlayDocumentContext {
+        MediaOverlayDocumentContext(
+            publication: publication.map { ObjectIdentifier($0) },
+            navigationRequest: navigationRequestGeneration,
+            spineLoad: spineLoadGeneration,
+            spineIndex: currentSpineIndex,
+            pageInItem: pageInItem)
+    }
+
+    /// 読み込み中は旧文書の読み上げハイライトを消さず、最後の要求を保留する。
+    func deferMediaOverlayHighlightIfLoading(fragmentID: String?, cssClass: String) -> Bool {
+        guard isLoadingSpineItem else { return false }
+        pendingMediaOverlayHighlight = (fragmentID, cssClass)
+        return true
+    }
 }
