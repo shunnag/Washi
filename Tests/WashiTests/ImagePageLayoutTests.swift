@@ -18,11 +18,6 @@ final class ReaderScriptTestHarness {
             displayURL: URL(fileURLWithPath: "/tmp/washi-batch3.epub"))
         self.publication = publication
         let size = NSSize(width: 640, height: 400)
-        window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
@@ -34,7 +29,7 @@ final class ReaderScriptTestHarness {
                 forMainFrameOnly: true, in: WashiContentWorld.world))
         }
         webView = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: configuration)
-        window.contentView = webView
+        window = makeOffscreenWindow(containing: webView)
     }
 
     func load() async throws {

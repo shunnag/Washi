@@ -26,17 +26,12 @@ final class EffectiveDirectionReaderTests: XCTestCase {
         view.settings = settings
         let delegate = EffectiveDirectionReaderDelegateSpy()
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer {
-            view.cancelPageCensus()
-            view.delegate = nil
-            window.contentView = nil
-            window.close()
-        }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
 
         view.load(publication: publication)
-        guard await waitUntil({ delegate.moveCount > 0 }) else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+        guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
+            return try skipOrFailIfWebKitUnavailable()
         }
         guard view.pageCountInItem > 1 else {
             XCTFail("縦書き本文が複数ページへ分割されること")
@@ -51,7 +46,7 @@ final class EffectiveDirectionReaderTests: XCTestCase {
 
         view.turnPageLeft()
 
-        let advanced = await waitUntil { view.pageInItem > 0 }
+        let advanced = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) { view.pageInItem > 0 }
         XCTAssertTrue(advanced)
         XCTAssertEqual(view.currentSpineIndex, 0)
         XCTAssertGreaterThan(view.pageInItem, 0)
@@ -102,26 +97,4 @@ final class EffectiveDirectionReaderTests: XCTestCase {
             displayURL: URL(fileURLWithPath: "/tmp/effective-reader-direction.epub"))
     }
 
-    private func makeWindow(containing view: NSView) -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000),
-                                size: view.frame.size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-        window.contentView = view
-        return window
-    }
-
-    private func waitUntil(
-        timeout: Duration = .seconds(5),
-        _ condition: @MainActor () -> Bool
-    ) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return condition()
-    }
 }

@@ -325,23 +325,14 @@ final class MediaOverlaySkippingTests: XCTestCase {
         let book = try bookWithSkippedOverlays(1)
         let reader = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 480, height: 360))
-        let window = NSWindow(
-            contentRect: reader.frame.offsetBy(dx: -20_000, dy: -20_000),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = reader
+        let window = makeOffscreenWindow(containing: reader, ignoresMouseEvents: false)
         let delegate = MediaOverlayNavigationReentryDelegate()
         delegate.redirect = book.locator(forSpineIndex: 0, progression: 0)
         reader.delegate = delegate
-        defer {
-            reader.stopMediaOverlay()
-            window.contentView = nil
-            window.close()
-        }
+        defer { reader.stopMediaOverlay(); closeReader(reader, in: window, teardown: .none) }
 
         reader.load(publication: book)
-        let web = try XCTUnwrap(
-            reader.subviews.first { $0 is WKWebView } as? WKWebView)
+        let web = try reader.firstWebView()
         for _ in 0..<300 where web.alphaValue == 0 {
             try await Task.sleep(for: .milliseconds(20))
         }

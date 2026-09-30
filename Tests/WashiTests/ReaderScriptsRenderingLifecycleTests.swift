@@ -47,12 +47,6 @@ private final class RenderingLifecycleScriptHarness {
             displayURL: URL(fileURLWithPath: "/tmp/washi-rendering-lifecycle.epub"))
 
         let size = NSSize(width: 640, height: 400)
-        window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000), size: size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
@@ -67,7 +61,7 @@ private final class RenderingLifecycleScriptHarness {
         }
         webView = WKWebView(frame: NSRect(origin: .zero, size: size),
                             configuration: configuration)
-        window.contentView = webView
+        window = makeOffscreenWindow(containing: webView)
     }
 
     func load() async throws {

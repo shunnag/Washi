@@ -116,24 +116,6 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    private func makeWindow(containing view: NSView) -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000),
-                                size: view.frame.size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-        window.contentView = view
-        return window
-    }
-
-    private func close(_ window: NSWindow, view: EPUBReaderView) {
-        view.cancelPageCensus()
-        view.delegate = nil
-        window.contentView = nil
-        window.close()
-    }
-
     /// cooViewer-oxr.27: Swift API の既定値と setup JSON の opt-in 配線を検証する。
     func testSetupOptionsPassesTapDeferralPreference() throws {
         var settings = EPUBReaderSettings()
@@ -151,18 +133,6 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         options = try setupOptions(of: view)
         XCTAssertEqual(options["deferTaps"] as? Bool, true)
         XCTAssertGreaterThan(options["doubleClickDelayMS"] as? Double ?? 0, 0)
-    }
-
-    private func waitUntil(
-        timeout: Duration = .seconds(5),
-        _ condition: @MainActor () -> Bool
-    ) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return condition()
     }
 
     /// spreadInsets 適用後の狭い実幅ではなく、基準余白の幅でライブ側も
@@ -229,7 +199,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             publication: publication,
             at: EPUBLocator(spineIndex: 1, progression: 0, idref: "c2"))
 
-        let webView = try XCTUnwrap(view.subviews.first { $0 is WKWebView })
+        let webView = try view.firstWebView()
         XCTAssertEqual(webView.frame.width, 1_160)
         XCTAssertEqual(try setupOptions(of: view)["spread"] as? Bool, false)
     }
@@ -642,8 +612,8 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 900, height: 900))
         let delegate = ReaderViewDelegateSpy()
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
         view.cancelPageCensus()
 
@@ -733,13 +703,13 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         view.settings = settings
         let delegate = ReaderViewDelegateSpy()
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
 
-        let didFinishInitialSetup = await waitUntil { delegate.moveCount > 0 }
+        let didFinishInitialSetup = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) { delegate.moveCount > 0 }
         guard didFinishInitialSetup else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+            return try skipOrFailIfWebKitUnavailable()
         }
         let originalCount = view.pageCountInItem
         var updated = view.settings
@@ -749,7 +719,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             """
         view.settings = updated
 
-        let didRepaginate = await waitUntil { view.pageCountInItem > originalCount }
+        let didRepaginate = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) { view.pageCountInItem > originalCount }
         XCTAssertTrue(didRepaginate)
     }
 
@@ -761,18 +731,18 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         let delegate = ReaderViewDelegateSpy()
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
-        let didFinishInitialSetup = await waitUntil { delegate.moveCount > 0 }
+        let didFinishInitialSetup = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) { delegate.moveCount > 0 }
         guard didFinishInitialSetup else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+            return try skipOrFailIfWebKitUnavailable()
         }
 
         var updated = view.settings
         updated.handlesKeyboardNavigation = false
         view.settings = updated
-        let webView = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let webView = try view.firstWebView()
         let dispatched = try await Task(priority: .userInitiated) { @MainActor in
             let result = try await webView.callAsyncJavaScript(
                 """
@@ -786,7 +756,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         }.value
         XCTAssertTrue(dispatched)
 
-        let didForward = await waitUntil { delegate.keys.count == 1 }
+        let didForward = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) { delegate.keys.count == 1 }
         XCTAssertTrue(didForward)
         XCTAssertEqual(delegate.keys.first?.key, "x")
     }
@@ -820,8 +790,8 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             displayURL: URL(fileURLWithPath: "/tmp/washi-hidden-layout.epub"))
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 900, height: 700))
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
         view.cancelPageCensus()
 
@@ -844,16 +814,16 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         let delegate = ReaderViewDelegateSpy()
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
-        guard await waitUntil({ delegate.moveCount > 0 }) else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+        guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
+            return try skipOrFailIfWebKitUnavailable()
         }
         // 最初の表示は描画フレームを待ってから戻り、その間は setup 中の扱いになる。
         // 表示が戻る(setup が終わる)まで待ってから設定を変える
-        let web = try XCTUnwrap(view.subviews.compactMap { $0 as? WKWebView }.first)
-        let didRestoreDisplay = await waitUntil { web.alphaValue == 1 }
+        let web = try view.firstWebView()
+        let didRestoreDisplay = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) { web.alphaValue == 1 }
         XCTAssertTrue(didRestoreDisplay)
 
         var updated = view.settings
@@ -1112,7 +1082,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         let delegate = ReaderViewDelegateSpy()
         view.delegate = delegate
         view.load(publication: try makePublication())
-        let webView = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let webView = try view.firstWebView()
 
         for _ in 0..<4 {
             view.webViewWebContentProcessDidTerminate(webView)
@@ -1131,12 +1101,12 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         view.load(publication: try makePublication())
-        let webView = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let webView = try view.firstWebView()
         view.webViewWebContentProcessDidTerminate(webView)
         XCTAssertEqual(view.webContentReloadAttemptCount, 0)
 
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         XCTAssertEqual(view.webContentReloadRequestCount, 1)
         XCTAssertEqual(view.webContentReloadAttemptCount, 1)
     }
@@ -1146,8 +1116,8 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
     func testSpineNavigationCancelsDelayedWebContentReload() throws {
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         let publication = try makePublication()
         view.load(publication: publication)
         let now = Date(timeIntervalSinceReferenceDate: 4_000)

@@ -50,21 +50,15 @@ final class ScrollReaderHarness: EPUBReaderViewDelegate {
     var edges: [Bool] = []
 
     init() {
-        window = NSWindow(contentRect: reader.frame.offsetBy(dx: -20_000, dy: -20_000),
-                          styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
         reader.settings.insets = .zero
         reader.settings.columnMode = .double
         reader.settings.pageTurnStyle = .none
+        window = makeOffscreenWindow(containing: reader, ignoresMouseEvents: false)
         reader.delegate = self
-        window.contentView = reader
     }
 
     func close() {
-        reader.unload()
-        reader.delegate = nil
-        window.contentView = nil
-        window.close()
+        closeReader(reader, in: window, teardown: .unload, clearsDelegate: true)
     }
 
     func load(_ book: EPUBPublication, at locator: EPUBLocator? = nil) async throws {
@@ -325,7 +319,7 @@ final class EPUBScrollLayoutTests: XCTestCase {
         defer { harness.close() }
         try await harness.load(book)
         let reader = harness.reader
-        let webView = try XCTUnwrap(reader.subviews.first { $0 is WKWebView })
+        let webView = try reader.firstWebView()
         let initial = try await harness.metrics()
         let items = try XCTUnwrap(initial["items"] as? [[String: Any]])
         XCTAssertEqual(items.count, 2)

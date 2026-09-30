@@ -184,12 +184,8 @@ final class MediaOverlayUXTests: XCTestCase {
             data: ZipBuilder.build(
                 EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
             displayURL: URL(fileURLWithPath: "/tmp/washi-from-page.epub"))
-        let window = NSWindow(
-            contentRect: NSRect(x: -20_000, y: -20_000, width: 480, height: 360),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 480, height: 360))
-        window.contentView = view
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         window.makeKeyAndOrderFront(nil)
         defer { window.contentView = nil; window.orderOut(nil) }
 
@@ -214,12 +210,8 @@ final class MediaOverlayUXTests: XCTestCase {
             data: ZipBuilder.build(
                 EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
             displayURL: URL(fileURLWithPath: "/tmp/washi-shared-current-page.epub"))
-        let window = NSWindow(
-            contentRect: NSRect(x: -20_000, y: -20_000, width: 480, height: 360),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 480, height: 360))
-        window.contentView = view
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         window.makeKeyAndOrderFront(nil)
         defer {
             view.stopMediaOverlay()
@@ -228,7 +220,7 @@ final class MediaOverlayUXTests: XCTestCase {
         }
 
         view.load(publication: book)
-        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let web = try view.firstWebView()
         for _ in 0..<300 where web.alphaValue == 0 {
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -250,12 +242,8 @@ final class MediaOverlayUXTests: XCTestCase {
             data: ZipBuilder.build(
                 EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
             displayURL: URL(fileURLWithPath: "/tmp/washi-delayed-current-page.epub"))
-        let window = NSWindow(
-            contentRect: NSRect(x: -20_000, y: -20_000, width: 480, height: 360),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 480, height: 360))
-        window.contentView = view
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         window.makeKeyAndOrderFront(nil)
         defer {
             view.stopMediaOverlay()
@@ -264,7 +252,7 @@ final class MediaOverlayUXTests: XCTestCase {
         }
 
         view.load(publication: book)
-        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let web = try view.firstWebView()
         for _ in 0..<300 where web.alphaValue == 0 {
             try await Task.sleep(for: .milliseconds(20))
         }

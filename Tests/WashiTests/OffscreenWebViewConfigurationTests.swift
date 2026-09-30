@@ -74,16 +74,10 @@ final class OffscreenWebViewConfigurationTests: XCTestCase {
             handler, forURLScheme: EPUBSchemeHandler.scheme)
 
         let size = NSSize(width: 480, height: 320)
-        let window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000),
-                                size: size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
         let webView = WKWebView(
             frame: NSRect(origin: .zero, size: size),
             configuration: configuration)
-        window.contentView = webView
+        let window = makeOffscreenWindow(containing: webView)
         defer {
             webView.stopLoading()
             webView.navigationDelegate = nil
@@ -99,7 +93,7 @@ final class OffscreenWebViewConfigurationTests: XCTestCase {
         do {
             try await waiter.wait(timeout: .seconds(15))
         } catch {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+            return try skipOrFailIfWebKitUnavailable()
         }
 
         let expected = Array(repeating: "undefined", count: 6).joined(separator: ",")

@@ -30,11 +30,8 @@ final class UnsupportedHTMLSpineTests: XCTestCase {
         view.settings.pageTurnStyle = .none
         let delegate = UnsupportedHTMLDelegate()
         view.delegate = delegate
-        let window = NSWindow(contentRect: view.frame.offsetBy(dx: -20_000, dy: -20_000),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = view
-        defer { view.unload(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .unload) }
         view.load(publication: book)
         let deadline = ContinuousClock.now + .seconds(10)
         while delegate.moves == 0 && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }

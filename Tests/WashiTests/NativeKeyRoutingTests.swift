@@ -27,12 +27,9 @@ private final class NativeKeyDelegateSpy: NSResponder, EPUBReaderViewDelegate {
 @MainActor
 final class NativeKeyRoutingTests: XCTestCase {
     private func window() -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(x: -20_000, y: -20_000, width: 640, height: 400),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        return window
+        makeOffscreenWindow(
+            containing: NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 400)),
+            ignoresMouseEvents: false)
     }
 
     private func reader(in window: NSWindow, delegate: NativeKeyDelegateSpy) -> EPUBReaderView {
@@ -153,7 +150,7 @@ final class NativeKeyRoutingTests: XCTestCase {
         view.load(publication: try EPUBPublication(
             data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
             displayURL: URL(fileURLWithPath: "/tmp/native-key-focus.epub")))
-        let webView = try XCTUnwrap(view.subviews.first { $0 is WKWebView })
+        let webView = try view.firstWebView()
         XCTAssertTrue(window.makeFirstResponder(webView))
         let key = try event(in: window)
         XCTAssertTrue(view.handleNativeKeyEvent(key) === key)

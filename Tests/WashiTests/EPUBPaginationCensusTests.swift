@@ -19,7 +19,7 @@ final class EPUBPaginationCensusTests: XCTestCase {
         guard let first = await census.measure(
             publication: publication, optionsJSON: metrics.censusOptionsJSON,
             contentSize: metrics.contentSize) else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+            return try skipOrFailIfWebKitUnavailable()
         }
 
         XCTAssertTrue(census.hasLiveWebView)
@@ -48,7 +48,7 @@ final class EPUBPaginationCensusTests: XCTestCase {
         guard let first = await census.measure(
             publication: publication, optionsJSON: metrics.censusOptionsJSON,
             contentSize: metrics.contentSize) else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+            return try skipOrFailIfWebKitUnavailable()
         }
         let staleIdle = try XCTUnwrap(scheduler.lastActiveEntry)
 

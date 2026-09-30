@@ -84,42 +84,15 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         return publication
     }
 
-    private func makeWindow(containing view: NSView) -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000),
-                                size: view.frame.size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-        window.contentView = view
-        return window
-    }
-
-    private func webView(of view: EPUBReaderView) throws -> WKWebView {
-        try XCTUnwrap(view.subviews.compactMap { $0 as? WKWebView }.first)
-    }
-
-    private func waitUntil(
-        timeout: Duration = .seconds(8), _ condition: @MainActor () -> Bool
-    ) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        return condition()
-    }
-
     /// 本を開き、最初の表示が戻るまで待つ。WebKit が使えなければ skip する
     private func openAndSettle(_ view: EPUBReaderView, _ publication: EPUBPublication,
                                delegate: MoveCountingDelegate) async throws {
         view.delegate = delegate
         view.load(publication: publication)
-        guard await waitUntil({ delegate.moves > 0 }) else {
-            return try failOrSkipWebKitTest(
-                "WKWebView navigation is unavailable in this sandbox")
+        guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(5), { delegate.moves > 0 }) else {
+            return try skipOrFailIfWebKitUnavailable()
         }
-        let shown = await waitUntil { (try? self.webView(of: view).alphaValue) == 1 }
+        let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { (try? view.firstWebView().alphaValue) == 1 }
         XCTAssertTrue(shown)
     }
 
@@ -149,7 +122,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.animationFrameWait = {
             await EPUBReaderView.waitForWashiScript("return true;", in: $0)
         }
-        return (view, makeWindow(containing: view))
+        return (view, makeOffscreenWindow(containing: view))
     }
 
     /// 控えの引き継ぎを確かめるリーダー。画面外扱いに固定して撮影を止め、控えは
@@ -164,14 +137,14 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.accessibilityIncreaseContrastOverride = false
         view.accessibilityDifferentiateWithoutColorOverride = false
         view.isWindowOnScreenOverride = false
-        return (view, makeWindow(containing: view))
+        return (view, makeOffscreenWindow(containing: view))
     }
 
     private func waitForCover(
         _ view: EPUBReaderView, replacing old: NSImage? = nil,
         message: String? = nil, file: StaticString = #filePath, line: UInt = #line
     ) async throws -> EPUBReaderView.PrefetchedPageCover {
-        let ready = await waitUntil {
+        let ready = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             guard let cover = view.prefetchedPageCover else { return false }
             return cover.image !== old
         }
@@ -190,7 +163,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         var current = try await waitForCover(view)
         var moves = delegate.moves
         var stableSince = ContinuousClock.now
-        let settled = await waitUntil {
+        let settled = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             guard let cover = view.prefetchedPageCover else {
                 stableSince = .now
                 return false
@@ -269,10 +242,10 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         let views = NSHashTable<WKWebView>.weakObjects()
         do {
             let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-            let window = makeWindow(containing: view)
-            defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+            let window = makeOffscreenWindow(containing: view)
+            defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
             try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
-            let web = try webView(of: view)
+            let web = try view.firstWebView()
             views.add(web)
             let completed = await TimeoutRace.run({
                 await EPUBReaderView.waitForWashiScript(
@@ -291,8 +264,8 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     /// 描画フレームが進まなくても、表示は打ち切り時間の後に必ず戻る
     func testAlphaIsRestoredWhenAnimationFramesNeverArrive() async throws {
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        let window = makeWindow(containing: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         view.animationFrameWait = { _ in try? await Task.sleep(for: .seconds(30)) }
         view.animationFrameWaitTimeout = .milliseconds(100)
         try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
@@ -304,12 +277,12 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     func testLoadingTheNextItemDoesNotHideThePreviousPage() async throws {
         let publication = try makePublication()
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        let window = makeWindow(containing: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, publication, delegate: MoveCountingDelegate())
         XCTAssertGreaterThan(publication.readingOrder.count, 1)
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertEqual(try webView(of: view).alphaValue, 1)
+        XCTAssertEqual(try view.firstWebView().alphaValue, 1)
     }
 
     /// 置き換えた読み込みのコミットでも、ページ割り前の文書を隠す(Washi-7ct)
@@ -317,12 +290,12 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         let publication = try makePublication()
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         view.accessibilityReduceMotionOverride = false
-        let window = makeWindow(containing: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
         XCTAssertGreaterThan(publication.readingOrder.count, 2)
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         view.setPrefetchedPageCoverForTesting(nil)
         let moves = delegate.moves
 
@@ -335,7 +308,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.webView(web, didCommit: superseded)
         XCTAssertEqual(web.alphaValue, 0, "ページ割り前の文書を見せない")
 
-        let restored = await waitUntil {
+        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             delegate.moves > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored, "次の読み込みのコミットと setup の後に表示が戻る")
@@ -349,16 +322,16 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         let publication = try makePublication()
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         view.accessibilityReduceMotionOverride = false
-        let window = makeWindow(containing: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         let initial = try XCTUnwrap(view.currentNavigation)
 
         let m = delegate.moves
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        let settled = await waitUntil { delegate.moves > m && web.alphaValue == 1 }
+        let settled = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { delegate.moves > m && web.alphaValue == 1 }
         XCTAssertTrue(settled)
         let frame = web.frame
 
@@ -371,8 +344,8 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     func testPageNumbersAreHiddenUntilTheNextItemCommits() async throws {
         let publication = try makePublication()
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        let window = makeWindow(containing: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, publication, delegate: MoveCountingDelegate())
         let labels = view.subviews.compactMap { $0 as? NSTextField }
         XCTAssertTrue(labels.contains { !$0.isHidden }, "ノンブルが見えている前提")
@@ -384,7 +357,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     func testPageNumbersReturnWhenTheNextItemCannotBeDisplayed() async throws {
         let publication = try makePublicationWithUnrenderableSecondItem()
         let (view, window) = makeChainReader()
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
         let labels = view.subviews.compactMap { $0 as? NSTextField }
@@ -392,7 +365,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         let previousLabels = labels.filter { !$0.isHidden }.map(\.stringValue)
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
         XCTAssertEqual(delegate.failures.count, 1)
-        XCTAssertEqual(try webView(of: view).alphaValue, 1)
+        XCTAssertEqual(try view.firstWebView().alphaValue, 1)
         // 拒否では位置もノンブルも移動前のまま保つ。
         XCTAssertEqual(view.currentSpineIndex, 0)
         XCTAssertEqual(labels.filter { !$0.isHidden }.map(\.stringValue), previousLabels)
@@ -402,7 +375,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     func testPageNumbersReturnWhenLoadingTheNextItemFails() async throws {
         let publication = try makePublication()
         let (view, window) = makeChainReader()
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
         let labels = view.subviews.compactMap { $0 as? NSTextField }
@@ -417,8 +390,8 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertEqual(delegate.failures.count, 1)
         XCTAssertEqual(view.currentSpineIndex, 0)
         XCTAssertTrue(labels.allSatisfy(\.isHidden), "読み込み直しの間は隠す")
-        let restored = await waitUntil {
-            delegate.moves > previousMoves && (try? self.webView(of: view).alphaValue) == 1
+        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
+            delegate.moves > previousMoves && (try? view.firstWebView().alphaValue) == 1
                 && view.pendingSpineTurn == nil
         }
         XCTAssertTrue(restored)
@@ -429,7 +402,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     func testPageNumbersReturnWhenABoundaryTurnCannotBeDisplayed() async throws {
         let publication = try makePublicationWithUnrenderableSecondItem()
         let (view, window) = makeChainReader()
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
         let labels = view.subviews.compactMap { $0 as? NSTextField }
@@ -442,8 +415,8 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertEqual(view.currentSpineIndex, 2)
         XCTAssertTrue(view.pendingSpineTurn?.cover === cover)
         XCTAssertTrue(labels.allSatisfy(\.isHidden))
-        let restored = await waitUntil {
-            delegate.moves > previousMoves && (try? self.webView(of: view).alphaValue) == 1
+        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
+            delegate.moves > previousMoves && (try? view.firstWebView().alphaValue) == 1
                 && view.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
@@ -455,7 +428,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testThemeChangeRetakesTheCoverInTheNewColors() async throws {
         let (view, window) = makeCoverReader()
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
         let initial = try await waitForCover(view)
         XCTAssertGreaterThan(meanLuminance(initial.image), 0.6, "初回の控えは明るい配色で撮る")
@@ -471,7 +444,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testAppearanceOnlyChangesRetakeTheCover() async throws {
         let (view, window) = makeCoverReader()
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
         var current = try await waitForCover(view)
         let stages: [(name: String, dropsCover: Bool, change: @MainActor () -> Void)] = [
@@ -502,7 +475,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testHighlightOnAnotherItemKeepsTheCoverForTheNextMove() async throws {
         let (view, window) = makeCoverReader()
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
         let a = try await waitForCover(view)
 
@@ -517,7 +490,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testNarrationHighlightRetakesTheCoverWithoutDroppingIt() async throws {
         let (view, window) = makeCoverReader()
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, try makePublication(), delegate: delegate)
         var current = try await settledCover(view, delegate: delegate)
@@ -544,7 +517,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testChapterAdvanceBeforeTheRetakeKeepsThePreviousCover() async throws {
         let (view, window) = makeCoverReader()
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
         let a = try await waitForCover(view)
 
@@ -565,10 +538,10 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             data: ZipBuilder.build(entries, method: 8),
             displayURL: URL(fileURLWithPath: "/tmp/washi-narration-chapter-load.epub"))
         let (view, window) = makeCoverReader()
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         let cssClass = "test-narration-active"
         // 旧文書の準備は JS の完了まで待ち、Swift 側の送信タイミングに依存させない。
         let highlighted = try await view.evaluateForTest("""
@@ -583,7 +556,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         // コントローラと同じく、章送り直後に次の章の最初の区間を強調する。
         view.navigateForMediaOverlay(toSpineIndex: 1)
         view.mediaOverlayHighlight(fragmentID: "sec2", cssClass: cssClass)
-        let held = await waitUntil { gate.isWaiting }
+        let held = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { gate.isWaiting }
         XCTAssertTrue(held, "新文書のコミット前に読み込みを保留する")
         let oldHighlightRemains = try await view.evaluateForTest("""
             return document.getElementById('sec2') === null
@@ -603,7 +576,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testBackingScaleChangeRetakesTheCover() async throws {
         let (view, window) = makeCoverReader()
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
         let a = try await waitForCover(view)
         view.setPrefetchedPageCoverForTesting(EPUBReaderView.PrefetchedPageCover(
@@ -622,7 +595,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testSameBackingScaleKeepsTheCover() async throws {
         let (view, window) = makeCoverReader()
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
         let a = try await waitForCover(view)
 
@@ -632,7 +605,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testNonAppearanceSettingKeepsTheCover() async throws {
         let (view, window) = makeCoverReader()
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
         let a = try await waitForCover(view)
 
@@ -643,7 +616,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testLayoutAndThemeChangeDoesNotUseTheOldCover() async throws {
         let (view, window) = makeCoverReader()
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
         let initial = try await waitForCover(view)
 
@@ -658,7 +631,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testCoverIsRetakenWhenTheWindowIsVisibleAgain() async throws {
         let (view, window) = makeCoverReader()
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
         var current = try await waitForCover(view)
         for notification in [NSWindow.didChangeOcclusionStateNotification,
@@ -685,7 +658,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             data: ZipBuilder.build(EPUBFixtures.fxlComicEntries(), method: 8),
             displayURL: URL(fileURLWithPath: "/tmp/washi-cover-fxl.epub"))
         let (view, window) = makeCoverReader()
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, publication, delegate: MoveCountingDelegate())
         let initial = try await waitForCover(view)
 
@@ -700,13 +673,13 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testSwitchingOffPageTurnAnimationTakesTheCover() async throws {
         let (view, window) = makeCoverReader(pageTurnStyle: .slide)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
         // setup の撮影予約が設定変更後に走ると、修正前でも控えができてしまう。
         // 既存の差し替え口で目印を置き、演出ありの撮影処理が捨てるまで待つ。
         view.setPrefetchedPageCoverForTesting(cover(for: view, rect: view.bounds))
         view.schedulePageCoverPrefetch()
-        let cleared = await waitUntil { view.prefetchedPageCover == nil }
+        let cleared = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { view.prefetchedPageCover == nil }
         XCTAssertTrue(cleared, "演出ありの撮影処理が控えを捨てて完了する")
         XCTAssertNil(view.prefetchedPageCover, "演出ありの送りでは控えを撮らない")
 
@@ -759,8 +732,8 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         var settings = view.settings
         settings.pageTurnStyle = .none
         view.settings = settings
-        let window = makeWindow(containing: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, publication, delegate: MoveCountingDelegate())
         // カバーが見えている間を確実に観測できるよう、表示の復帰を打ち切りまで遅らせる
         view.animationFrameWait = { _ in try? await Task.sleep(for: .seconds(30)) }
@@ -772,17 +745,17 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
         XCTAssertTrue(view.armedSpineCover?.image === prepared.image, "離れるページの控えを取り置く")
-        let installed = await waitUntil {
+        let installed = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             view.pendingSpineTurn?.cover.image === prepared.image
         }
         XCTAssertTrue(installed, "didCommit でカバーとして貼られる")
         let cover = try XCTUnwrap(view.pendingSpineTurn?.cover)
         XCTAssertEqual(cover.frame, rect, "撮った矩形に置く")
         XCTAssertTrue(view.turnOverlays.contains { $0 === cover })
-        XCTAssertEqual(try webView(of: view).alphaValue, 0)
+        XCTAssertEqual(try view.firstWebView().alphaValue, 0)
 
-        let folded = await waitUntil {
-            (try? self.webView(of: view).alphaValue) == 1 && view.turnOverlays.isEmpty
+        let folded = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
+            (try? view.firstWebView().alphaValue) == 1 && view.turnOverlays.isEmpty
         }
         XCTAssertTrue(folded, "表示が戻ったらカバーを畳む")
         XCTAssertNil(view.pendingSpineTurn)
@@ -794,8 +767,8 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         // CI ランナーには視差効果を減らす設定が有効なものがあるので、OS 設定に依存させない
         view.accessibilityReduceMotionOverride = false
-        let window = makeWindow(containing: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, publication, delegate: MoveCountingDelegate())
         XCTAssertEqual(view.settings.pageTurnStyle, .slide)
         view.setPrefetchedPageCoverForTesting(cover(
@@ -810,8 +783,8 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         let publication = try makePublication()
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         view.accessibilityReduceMotionOverride = true
-        let window = makeWindow(containing: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, publication, delegate: MoveCountingDelegate())
         XCTAssertEqual(view.settings.pageTurnStyle, .slide)
         let prepared = cover(for: view, rect: view.bounds,
@@ -846,8 +819,8 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         var settings = view.settings
         settings.pageTurnStyle = .none
         view.settings = settings
-        let window = makeWindow(containing: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, publication, delegate: MoveCountingDelegate())
         XCTAssertGreaterThan(publication.readingOrder.count, 2)
         view.setPrefetchedPageCoverForTesting(nil)
@@ -855,8 +828,8 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
         XCTAssertNil(view.armedSpineCover)
         XCTAssertNil(view.prefetchedPageCover)
-        let restored = await waitUntil {
-            (try? self.webView(of: view).alphaValue) == 1 && view.turnOverlays.isEmpty
+        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
+            (try? view.firstWebView().alphaValue) == 1 && view.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
         XCTAssertNil(view.pendingSpineTurn)
@@ -867,11 +840,11 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     func testChainedMoveBeforeTheCommitKeepsThePreviousPageCover() async throws {
         let publication = try makePublication()
         let (view, window) = makeChainReader()
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
         XCTAssertGreaterThan(publication.readingOrder.count, 2)
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         let rect = NSRect(x: 12, y: 34, width: 200, height: 150)
         let prepared = cover(for: view, rect: rect,
                              spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
@@ -895,7 +868,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertNil(view.armedSpineCover)
         XCTAssertEqual(web.alphaValue, 0)
 
-        let restored = await waitUntil {
+        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             delegate.moves > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored, "最新の項目の表示が戻ったら控えを畳む")
@@ -909,11 +882,11 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             data: ZipBuilder.build(EPUBFixtures.fxlComicEntries(), method: 8),
             displayURL: URL(fileURLWithPath: "/tmp/washi-fxl-chain.epub"))
         let (view, window) = makeChainReader(reduceMotion: true, pageTurnStyle: .slide)
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
         XCTAssertEqual(publication.readingOrder.count, 3)
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         let prepared = cover(for: view, rect: web.frame,
                              spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
         let moves = delegate.moves
@@ -928,7 +901,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertTrue(view.armedSpineCover?.image === prepared.image,
                       "キーの長押しでも前のページの控えを引き継ぐ")
 
-        let restored = await waitUntil {
+        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             delegate.moves > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
@@ -940,13 +913,13 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testThreeChainedMovesUseTheFirstCoverUntilTheLastItemIsShown() async throws {
         let (view, window) = makeChainReader()
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, try makePublication(), delegate: delegate)
         // 実際のコミットで貼ったカバーを観測できるよう、表示の復帰を打ち切りまで遅らせる
         view.animationFrameWait = { _ in try? await Task.sleep(for: .seconds(30)) }
         view.animationFrameWaitTimeout = .milliseconds(400)
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         let prepared = cover(for: view, rect: web.frame,
                              spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
         let moves = delegate.moves
@@ -957,12 +930,12 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             XCTAssertTrue(view.armedSpineCover?.image === prepared.image, "\(index) への移動")
         }
         // 修正前は控えが貼られず、この待ちは 8 秒で時間切れになる
-        let installed = await waitUntil {
+        let installed = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             view.pendingSpineTurn?.cover.image === prepared.image
         }
         XCTAssertTrue(installed, "どの読み込みのコミットが先に届いても控えを貼る")
 
-        let restored = await waitUntil {
+        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             delegate.moves > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
@@ -975,10 +948,10 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         for change in ["pageTurnStyle", "fontScale"] {
             let publication = try makePublication()
             let (view, window) = makeChainReader()
-            defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+            defer { closeReader(view, in: window, teardown: .unload) }
             let delegate = MoveCountingDelegate()
             try await openAndSettle(view, publication, delegate: delegate)
-            let web = try webView(of: view)
+            let web = try view.firstWebView()
             let prepared = cover(for: view, rect: web.frame,
                                  spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
             let moves = delegate.moves
@@ -996,7 +969,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
             XCTAssertNil(view.armedSpineCover, change)
 
-            let restored = await waitUntil {
+            let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
                 delegate.moves > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
             }
             XCTAssertTrue(restored, change)
@@ -1008,10 +981,10 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testJumpAfterTheCommitKeepsThePreviousPageCover() async throws {
         let (view, window) = makeChainReader()
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, try makePublication(), delegate: delegate)
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         let prepared = cover(for: view, rect: web.frame,
                              spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
         let moves = delegate.moves
@@ -1029,7 +1002,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertTrue(installed.superview === view)
         XCTAssertEqual(view.turnOverlays.count, 1)
 
-        let restored = await waitUntil {
+        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             delegate.moves > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored, "最新の項目の表示が戻ったら控えを畳む")
@@ -1042,10 +1015,10 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     func testRebuildingTheWebViewFoldsThePreviousPageCover() async throws {
         for rebuild in ["anotherBook", "reload"] {
             let (view, window) = makeChainReader()
-            defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+            defer { closeReader(view, in: window, teardown: .unload) }
             let delegate = MoveCountingDelegate()
             try await openAndSettle(view, try makePublication(), delegate: delegate)
-            let web = try webView(of: view)
+            let web = try view.firstWebView()
             let prepared = cover(for: view, rect: web.frame,
                                  spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
 
@@ -1068,10 +1041,10 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testFailureInAChainKeepsTheCoverUntilRecoveryFinishes() async throws {
         let (view, window) = makeChainReader()
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, try makePublication(), delegate: delegate)
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         let prepared = cover(for: view, rect: web.frame,
                              spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
         let previousMoves = delegate.moves
@@ -1090,7 +1063,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertEqual(view.currentSpineIndex, 0)
         view.webView(web, didCommit: try XCTUnwrap(view.currentNavigation))
         XCTAssertTrue(view.pendingSpineTurn?.oldPage === prepared.image)
-        let restored = await waitUntil {
+        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             delegate.moves > previousMoves && web.alphaValue == 1 && view.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
@@ -1112,10 +1085,10 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertTrue(EPUBScreenMetrics.isScrolled(publication.renderingFlow(at: 1)))
         XCTAssertFalse(EPUBScreenMetrics.isScrolled(publication.renderingFlow(at: 0)))
         let (view, window) = makeChainReader()
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         let prepared = cover(for: view, rect: web.frame,
                              spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
         let moves = delegate.moves
@@ -1127,7 +1100,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertTrue(view.armedSpineCover?.image === prepared.image,
                       "途中の項目がスクロールでも、見えている前のページの控えを引き継ぐ")
 
-        let restored = await waitUntil {
+        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             delegate.moves > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
@@ -1138,10 +1111,10 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testJumpStillFoldsAnAnimatedTurnCover() async throws {
         let (view, window) = makeChainReader()
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, try makePublication(), delegate: delegate)
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         let moves = delegate.moves
         let cover = NSImageView(image: NSImage(size: view.bounds.size))
 
@@ -1152,7 +1125,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertNil(cover.superview)
         XCTAssertTrue(view.turnOverlays.isEmpty)
 
-        let restored = await waitUntil {
+        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             delegate.moves > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
@@ -1165,11 +1138,11 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             data: ZipBuilder.build(EPUBFixtures.fxlComicEntries(), method: 8),
             displayURL: URL(fileURLWithPath: "/tmp/washi-fxl-chain-end.epub"))
         let (view, window) = makeChainReader(reduceMotion: true, pageTurnStyle: .slide)
-        defer { view.unload(); view.cancelPageCensus(); window.contentView = nil; window.close() }
+        defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = MoveCountingDelegate()
         try await openAndSettle(view, publication, delegate: delegate)
         XCTAssertEqual(publication.readingOrder.count, 3)
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         let prepared = cover(for: view, rect: web.frame,
                              spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
         let moves = delegate.moves
@@ -1196,7 +1169,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertEqual(view.turnOverlays.count, 1)
         XCTAssertEqual(web.alphaValue, 0)
 
-        let restored = await waitUntil {
+        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             delegate.moves > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)

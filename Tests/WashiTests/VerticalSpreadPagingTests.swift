@@ -15,11 +15,6 @@ final class VerticalSpreadPagingTests: XCTestCase {
             data: ZipBuilder.build(EPUBFixtures.singleSpineEntries(bodyHTML: body), method: 8),
             displayURL: URL(fileURLWithPath: "/tmp/washi-vertical-spread.epub"))
         let size = NSSize(width: 640, height: 400)
-        let window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
@@ -34,7 +29,7 @@ final class VerticalSpreadPagingTests: XCTestCase {
             forMainFrameOnly: true, in: WashiContentWorld.world))
         let webView = WKWebView(frame: NSRect(origin: .zero, size: size),
                                 configuration: configuration)
-        window.contentView = webView
+        let window = makeOffscreenWindow(containing: webView)
         defer { webView.navigationDelegate = nil; window.contentView = nil; window.orderOut(nil) }
 
         let entry = publication.readingOrder[0]

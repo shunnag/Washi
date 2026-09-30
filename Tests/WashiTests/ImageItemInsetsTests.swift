@@ -87,10 +87,6 @@ final class ImageItemInsetsTests: XCTestCase {
         return view
     }
 
-    private func webView(of view: EPUBReaderView) throws -> NSView {
-        try XCTUnwrap(view.subviews.first { $0 is WKWebView })
-    }
-
     /// ノンブル(NSTextField)。cooViewer-oxr.35 の既存テストと同じ取り出し方。
     private func pageNumberLabels(of view: EPUBReaderView) -> [NSTextField] {
         view.subviews.compactMap { $0 as? NSTextField }
@@ -101,7 +97,7 @@ final class ImageItemInsetsTests: XCTestCase {
         let view = makeView()
         view.load(publication: try makePublication(),
                   at: EPUBLocator(spineIndex: 0, progression: 0))
-        XCTAssertEqual(try webView(of: view).frame, view.bounds)
+        XCTAssertEqual(try view.firstWebView().frame, view.bounds)
         XCTAssertEqual(view.contentFrame,
                        NSRect(origin: .zero, size: view.bounds.size))
     }
@@ -111,7 +107,7 @@ final class ImageItemInsetsTests: XCTestCase {
         // 先頭 27 項目が挿絵、その後ろが文字の章(makeBook の並び)
         view.load(publication: try makePublication(),
                   at: EPUBLocator(spineIndex: 27, progression: 0))
-        XCTAssertEqual(try webView(of: view).frame,
+        XCTAssertEqual(try view.firstWebView().frame,
                        NSRect(x: 40, y: 20, width: 1_200 - 80, height: 900 - 40))
     }
 
@@ -132,7 +128,7 @@ final class ImageItemInsetsTests: XCTestCase {
         let view = makeView()
         view.load(publication: publication,
                   at: EPUBLocator(spineIndex: 0, progression: 0))
-        XCTAssertEqual(try webView(of: view).frame,
+        XCTAssertEqual(try view.firstWebView().frame,
                        NSRect(x: 40, y: 20, width: 1_200 - 80, height: 900 - 40))
     }
 
@@ -165,16 +161,6 @@ final class ImageItemInsetsTests: XCTestCase {
         }
     }
 
-    private func waitUntil(timeout: Duration = .seconds(8),
-                           _ condition: @MainActor () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return condition()
-    }
-
     /// 文字 → 画像 → 文字: 項目ごとに矩形が変わるが、当てるのはコミット時。
     /// 呼び出し直後は前の矩形のまま、読み込み後に新しい矩形になる。
     func testFrameMovesAtCommitAcrossTextAndImageItems() async throws {
@@ -184,22 +170,17 @@ final class ImageItemInsetsTests: XCTestCase {
         let view = makeView()
         let delegate = LayoutCountingDelegate()
         view.delegate = delegate
-        let window = NSWindow(
-            contentRect: NSRect(x: -20_000, y: -20_000, width: 1_200, height: 900),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = view
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         view.load(publication: publication,
                   at: EPUBLocator(spineIndex: 1, progression: 0))
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         // ページ割りの通知と表示の復帰を待つ(透明なうちは即時に当てる扱いになるため)
         func waitUntilShown(after moves: Int) async throws {
-            guard await waitUntil({ delegate.moves > moves }) else {
-                return try failOrSkipWebKitTest(
-                    "WKWebView navigation is unavailable in this sandbox")
+            guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(10), { delegate.moves > moves }) else {
+                return try skipOrFailIfWebKitUnavailable()
             }
-            let shown = await waitUntil { web.alphaValue == 1 }
+            let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(10)) { web.alphaValue == 1 }
             XCTAssertTrue(shown)
         }
         let inset = NSRect(x: 40, y: 20, width: 1_200 - 80, height: 900 - 40)

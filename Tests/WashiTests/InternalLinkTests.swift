@@ -57,36 +57,6 @@ final class InternalLinkTests: XCTestCase {
             displayURL: URL(fileURLWithPath: "/tmp/\(name).epub"))
     }
 
-    private func makeWindow(containing view: NSView) -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000),
-                                size: view.frame.size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-        window.contentView = view
-        return window
-    }
-
-    private func close(_ window: NSWindow, view: EPUBReaderView) {
-        view.cancelPageCensus()
-        view.delegate = nil
-        window.contentView = nil
-        window.close()
-    }
-
-    private func waitUntil(
-        timeout: Duration = .seconds(8),
-        _ condition: @MainActor () -> Bool
-    ) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return condition()
-    }
-
     private func requireSendable<T: Sendable>(_ value: T) -> T { value }
 
     /// cooViewer-oxr.32: 公開初期化子が全リンク情報を保持し、Sendable である。
@@ -131,8 +101,7 @@ final class InternalLinkTests: XCTestCase {
         let beforeSpine = view.currentSpineIndex
         let beforePage = view.pageInItem
         let beforePageCount = view.pageCountInItem
-        let webView = try XCTUnwrap(
-            view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let webView = try view.firstWebView()
         let raw = CGRect(x: 12, y: 34, width: 56, height: 18)
         let localY = webView.isFlipped
             ? raw.minY : webView.bounds.height - raw.minY - raw.height
@@ -210,11 +179,11 @@ final class InternalLinkTests: XCTestCase {
         let delegate = InternalLinkDelegateSpy()
         delegate.followsLinks = false
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
-        guard await waitUntil({ delegate.moveCount > 0 }) else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+        guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
+            return try skipOrFailIfWebKitUnavailable()
         }
 
         let moveCountBeforeFollowing = delegate.moveCount
@@ -232,7 +201,7 @@ final class InternalLinkTests: XCTestCase {
 
         view.follow(link)
 
-        let didLandOnNote = await waitUntil {
+        let didLandOnNote = await waitUntil(timeout: .seconds(8), poll: .milliseconds(20)) {
             delegate.moveCount > moveCountBeforeFollowing
                 && view.currentSpineIndex == 1
                 && view.pageInItem > 0
@@ -262,11 +231,11 @@ final class InternalLinkTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         let delegate = InternalLinkDelegateSpy()
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
-        guard await waitUntil({ delegate.moveCount > 0 }) else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+        guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
+            return try skipOrFailIfWebKitUnavailable()
         }
         let link = EPUBInternalLink(
             href: "#n1",
@@ -375,11 +344,11 @@ final class InternalLinkTests: XCTestCase {
         view.settings = settings
         let delegate = InternalLinkDelegateSpy()
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
-        guard await waitUntil({ delegate.moveCount > 0 }) else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+        guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
+            return try skipOrFailIfWebKitUnavailable()
         }
         let visiblePageCount = view.pageCountInItem
         XCTAssertGreaterThan(visiblePageCount, 1)
@@ -388,7 +357,7 @@ final class InternalLinkTests: XCTestCase {
         hidden.hidesFootnoteAsides = true
         view.settings = hidden
 
-        let didRepaginate = await waitUntil {
+        let didRepaginate = await waitUntil(timeout: .seconds(8), poll: .milliseconds(20)) {
             view.pageCountInItem < visiblePageCount
         }
         XCTAssertTrue(didRepaginate)

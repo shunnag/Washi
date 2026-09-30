@@ -322,28 +322,16 @@ final class TrailingSpreadPageTests: XCTestCase {
         view.settings = settings
         let delegate = TrailingSpreadDelegateSpy()
         view.delegate = delegate
-        let window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000),
-                                size: view.frame.size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-        window.contentView = view
-        defer {
-            view.cancelPageCensus()
-            view.delegate = nil
-            window.contentView = nil
-            window.close()
-        }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
-        guard await waitUntil({ delegate.moveCount > 0 }) else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+        guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
+            return try skipOrFailIfWebKitUnavailable()
         }
         XCTAssertEqual(view.pageCountInItem, 5, context)
         XCTAssertEqual(view.pagesPerScreen, 2, context)
 
-        let webView = try XCTUnwrap(
-            view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let webView = try view.firstWebView()
         let measurement = try await Task(priority: .userInitiated) { @MainActor in
             let raw = try await webView.callAsyncJavaScript(
                 """
@@ -365,7 +353,7 @@ final class TrailingSpreadPageTests: XCTestCase {
         }.value
         XCTAssertEqual(measurement.landed, 4, context)
         XCTAssertEqual(measurement.ids, "page-4", context)
-        let didLand = await waitUntil { view.pageInItem == 4 }
+        let didLand = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) { view.pageInItem == 4 }
         XCTAssertTrue(didLand, context)
 
         let labels = view.subviews.compactMap { $0 as? NSTextField }
@@ -378,18 +366,6 @@ final class TrailingSpreadPageTests: XCTestCase {
         XCTAssertEqual(folioIsRight, contentIsRight, context)
         XCTAssertEqual(view.pageFurnitureSlotNumbers,
                        firstSlot == .right ? [nil, 5] : [5, nil], context)
-    }
-
-    private func waitUntil(
-        timeout: Duration = .seconds(5),
-        _ condition: @MainActor () -> Bool
-    ) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return condition()
     }
 
     private func visibleFixturePages(in harness: PaginationGeometryHarness) async throws -> String {

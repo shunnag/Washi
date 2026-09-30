@@ -48,14 +48,6 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         return try publication(entries)
     }
 
-    private func window(for view: EPUBReaderView) -> NSWindow {
-        let window = NSWindow(contentRect: view.frame.offsetBy(dx: -20_000, dy: -20_000),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = view
-        return window
-    }
-
     private func activeID(in webView: WKWebView) async -> String? {
         try? await webView.evaluateJavaScript(
             "document.querySelector('.-epub-media-overlay-active')?.id || ''") as? String
@@ -67,10 +59,10 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         for transition in ["hide", "hideAncestor", "detach"] {
             let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
             let parent = NSView(frame: view.frame)
-            let window = window(for: view)
+            let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
             window.contentView = parent
             parent.addSubview(view)
-            defer { view.unload(); window.contentView = nil; window.close() }
+            defer { closeReader(view, in: window, teardown: .unload) }
             view.preparePublication(try silentOverlayPublication())
             let initial = await view.screenThumbnail(spineIndex: Int.max, pageInItem: 0, width: 100)
             XCTAssertNil(initial)
@@ -91,8 +83,8 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
     /// 描画を始めない共通の準備経路で本を保持し、unload の解放と冪等性を検証する。
     func testUnloadReleasesBookStateAndPreservesReusableViewConfiguration() async throws {
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        let window = window(for: view)
-        defer { view.unload(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = OverlayAuditDelegate()
         view.delegate = delegate
         view.settings.fontScale = 1.4
@@ -158,8 +150,8 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
     func testHideAndDetachPauseMediaOverlayWithoutLosingPosition() throws {
         for hides in [true, false] {
             let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-            let window = window(for: view)
-            defer { view.unload(); window.contentView = nil; window.close() }
+            let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+            defer { closeReader(view, in: window, teardown: .unload) }
             view.preparePublication(try silentOverlayPublication())
             XCTAssertTrue(view.playMediaOverlay(atSpineIndex: 0, parIndex: 1))
             XCTAssertTrue(view.isPlayingMediaOverlay)
@@ -216,25 +208,13 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         }
     }
 
-    /// 条件が満たされるまで待つ(期限つき)
-    private func waitUntil(timeout: Duration = .seconds(8),
-                           _ condition: @MainActor () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return condition()
-    }
-
     /// 次のページ割りの通知と表示の復帰を待つ。WebKit が使えなければ skip する
     private func waitUntilShown(_ web: WKWebView, _ delegate: MoveCountingStateDelegate,
                                 after moves: Int) async throws {
-        guard await waitUntil({ delegate.moves > moves }) else {
-            return try failOrSkipWebKitTest(
-                "WKWebView navigation is unavailable in this sandbox")
+        guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(10), { delegate.moves > moves }) else {
+            return try skipOrFailIfWebKitUnavailable()
         }
-        let shown = await waitUntil { web.alphaValue == 1 }
+        let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(10)) { web.alphaValue == 1 }
         XCTAssertTrue(shown)
     }
 
@@ -259,10 +239,10 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
     func testFixedLayoutFrameIsDecidedBeforeTheDocumentLoads() throws {
         let book = try publication(EPUBFixtures.fxlComicEntries())
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        let window = window(for: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         view.load(publication: book)
-        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let web = try view.firstWebView()
         let scale = min(640.0 / 1_200.0, 400.0 / 1_920.0)
         let expected = NSRect(x: (640 - 1_200 * scale) / 2, y: (400 - 1_920 * scale) / 2,
                               width: 1_200 * scale, height: 1_920 * scale)
@@ -281,10 +261,10 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         let delegate = MoveCountingStateDelegate()
         view.delegate = delegate
-        let window = window(for: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         view.load(publication: book)
-        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let web = try view.firstWebView()
         // 表示が戻るまで待つ(透明なうちは即時に当てる扱いになるため)
         try await waitUntilShown(web, delegate, after: 0)
         let a = fitted(1_200, 1_920)
@@ -310,12 +290,12 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         view.accessibilityReduceMotionOverride = false
         let delegate = MoveCountingStateDelegate()
         view.delegate = delegate
-        let window = window(for: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         let a = fitted(1_200, 1_920)
         let c = fitted(1_920, 1_080)
         view.load(publication: book)
-        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let web = try view.firstWebView()
         try await waitUntilShown(web, delegate, after: 0)
         assertLayout(web, a.0, a.1, "最初のページの矩形と倍率")
 
@@ -355,10 +335,10 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         view.settings = settings
         let delegate = MoveCountingStateDelegate()
         view.delegate = delegate
-        let window = window(for: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         view.load(publication: book)
-        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let web = try view.firstWebView()
         try await waitUntilShown(web, delegate, after: 0)
         let fxlFrame = web.frame
         let fxlZoom = web.pageZoom
@@ -389,11 +369,11 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         let delegate = MoveCountingStateDelegate()
         view.delegate = delegate
-        let window = window(for: view)
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         view.load(publication: book)
         view.layoutSubtreeIfNeeded()
-        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let web = try view.firstWebView()
         try await waitUntilShown(web, delegate, after: 0)
         XCTAssertLessThan(web.pageZoom, 1)
         var moves = delegate.moves
@@ -422,13 +402,10 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
 
     func testSilentOverlayResumesCurrentPar() async throws {
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        let window = window(for: view)
-        defer {
-            view.stopMediaOverlay(); view.cancelPageCensus()
-            window.contentView = nil; window.close()
-        }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { view.stopMediaOverlay(); closeReader(view, in: window, teardown: .cancelPageCensus) }
         view.load(publication: try silentOverlayPublication())
-        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let web = try view.firstWebView()
         for _ in 0..<250 where web.alphaValue == 0 {
             try await Task.sleep(for: .milliseconds(20))
         }

@@ -85,21 +85,6 @@ final class PageCoverCaptureCostTests: XCTestCase {
         return window
     }
 
-    private func webView(of view: EPUBReaderView) throws -> WKWebView {
-        try XCTUnwrap(view.subviews.compactMap { $0 as? WKWebView }.first)
-    }
-
-    private func waitUntil(
-        timeout: Duration = .seconds(10), _ condition: @MainActor () -> Bool
-    ) async throws -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        return condition()
-    }
-
     private func measureBook(_ name: String, entries: [(name: String, data: Data)],
                              size: NSSize, screen: NSScreen) async throws {
         // PNG を再圧縮せず格納し、本の生成を撮影時間に含めない。
@@ -121,8 +106,8 @@ final class PageCoverCaptureCostTests: XCTestCase {
         view.delegate = delegate
         view.load(publication: publication)
         view.layoutSubtreeIfNeeded()
-        let web = try webView(of: view)
-        let shown = try await waitUntil {
+        let web = try view.firstWebView()
+        let shown = await waitUntil(timeout: .seconds(10), poll: .milliseconds(10)) {
             delegate.failure != nil || (delegate.moves > 0 && web.alphaValue == 1)
         }
         if let failure = delegate.failure { throw failure }
