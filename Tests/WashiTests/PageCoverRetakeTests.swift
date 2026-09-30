@@ -345,70 +345,67 @@ final class PageCoverRetakeTests: XCTestCase {
     /// 用意された控えは didCommit で撮った矩形に貼られ、表示が戻ると畳まれる
     func testPreparedCoverIsInstalledAtCommitAndFoldedAfterDisplay() async throws {
         let publication = try makePublication()
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        var settings = view.settings
-        settings.pageTurnStyle = .none
-        view.settings = settings
-        let window = makeOffscreenWindow(containing: view)
-        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, publication, delegate: ReaderObservationSpy())
-        // カバーが見えている間を確実に観測できるよう、表示の復帰を打ち切りまで遅らせる
-        view.animationFrameWait = { _ in try? await Task.sleep(for: .seconds(30)) }
-        view.animationFrameWaitTimeout = .milliseconds(400)
-        let rect = NSRect(x: 12, y: 34, width: 200, height: 150)
-        let prepared = cover(for: view, rect: rect,
-                             spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
-        view.setPrefetchedPageCoverForTesting(prepared)
+        try await withSettledReader(publication: publication, configure: { view in
+            var settings = view.settings
+            settings.pageTurnStyle = .none
+            view.settings = settings
+        }) { view, _ in
+            // カバーが見えている間を確実に観測できるよう、表示の復帰を打ち切りまで遅らせる
+            view.animationFrameWait = { _ in try? await Task.sleep(for: .seconds(30)) }
+            view.animationFrameWaitTimeout = .milliseconds(400)
+            let rect = NSRect(x: 12, y: 34, width: 200, height: 150)
+            let prepared = cover(for: view, rect: rect,
+                                 spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
+            view.setPrefetchedPageCoverForTesting(prepared)
 
-        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image, "離れるページの控えを取り置く")
-        let installed = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            view.turn.pendingSpineTurn?.cover.image === prepared.image
-        }
-        XCTAssertTrue(installed, "didCommit でカバーとして貼られる")
-        let cover = try XCTUnwrap(view.turn.pendingSpineTurn?.cover)
-        XCTAssertEqual(cover.frame, rect, "撮った矩形に置く")
-        XCTAssertTrue(view.turn.turnOverlays.contains { $0 === cover })
-        XCTAssertEqual(try view.firstWebView().alphaValue, 0)
+            view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+            XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image, "離れるページの控えを取り置く")
+            let installed = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
+                view.turn.pendingSpineTurn?.cover.image === prepared.image
+            }
+            XCTAssertTrue(installed, "didCommit でカバーとして貼られる")
+            let cover = try XCTUnwrap(view.turn.pendingSpineTurn?.cover)
+            XCTAssertEqual(cover.frame, rect, "撮った矩形に置く")
+            XCTAssertTrue(view.turn.turnOverlays.contains { $0 === cover })
+            XCTAssertEqual(try view.firstWebView().alphaValue, 0)
 
-        let folded = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            (try? view.firstWebView().alphaValue) == 1 && view.turn.turnOverlays.isEmpty
+            let folded = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
+                (try? view.firstWebView().alphaValue) == 1 && view.turn.turnOverlays.isEmpty
+            }
+            XCTAssertTrue(folded, "表示が戻ったらカバーを畳む")
+            XCTAssertNil(view.turn.pendingSpineTurn)
         }
-        XCTAssertTrue(folded, "表示が戻ったらカバーを畳む")
-        XCTAssertNil(view.turn.pendingSpineTurn)
     }
 
     /// 演出ありの送り(既定の slide)では控えを使わない
     func testCoverIsNotUsedWithAnimatedPageTurns() async throws {
         let publication = try makePublication()
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        // CI ランナーには視差効果を減らす設定が有効なものがあるので、OS 設定に依存させない
-        view.accessibilityReduceMotionOverride = false
-        let window = makeOffscreenWindow(containing: view)
-        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, publication, delegate: ReaderObservationSpy())
-        XCTAssertEqual(view.settings.pageTurnStyle, .slide)
-        view.setPrefetchedPageCoverForTesting(cover(
-            for: view, rect: view.bounds,
-            spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem))
-        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertNil(view.pageCover.armedSpineCover)
+        try await withSettledReader(publication: publication, configure: { view in
+            // CI ランナーには視差効果を減らす設定が有効なものがあるので、OS 設定に依存させない
+            view.accessibilityReduceMotionOverride = false
+        }) { view, _ in
+            XCTAssertEqual(view.settings.pageTurnStyle, .slide)
+            view.setPrefetchedPageCoverForTesting(cover(
+                for: view, rect: view.bounds,
+                spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem))
+            view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+            XCTAssertNil(view.pageCover.armedSpineCover)
+        }
     }
 
     /// 視差効果を減らす設定では演出が省かれるので、slide でも控えを使う
     func testCoverIsUsedWithAnimatedPageTurnsWhenReducingMotion() async throws {
         let publication = try makePublication()
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        view.accessibilityReduceMotionOverride = true
-        let window = makeOffscreenWindow(containing: view)
-        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, publication, delegate: ReaderObservationSpy())
-        XCTAssertEqual(view.settings.pageTurnStyle, .slide)
-        let prepared = cover(for: view, rect: view.bounds,
-                             spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
-        view.setPrefetchedPageCoverForTesting(prepared)
-        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image)
+        try await withSettledReader(publication: publication, configure: { view in
+            view.accessibilityReduceMotionOverride = true
+        }) { view, _ in
+            XCTAssertEqual(view.settings.pageTurnStyle, .slide)
+            let prepared = cover(for: view, rect: view.bounds,
+                                 spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
+            view.setPrefetchedPageCoverForTesting(prepared)
+            view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+            XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image)
+        }
     }
 
     /// 前の本の控えを次の本に貼らない
@@ -432,23 +429,22 @@ final class PageCoverRetakeTests: XCTestCase {
     /// 控えが無い遷移はカバー無しで最後まで進む
     func testTransitionWithoutAPrefetchedCoverFallsBack() async throws {
         let publication = try makePublication()
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        var settings = view.settings
-        settings.pageTurnStyle = .none
-        view.settings = settings
-        let window = makeOffscreenWindow(containing: view)
-        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, publication, delegate: ReaderObservationSpy())
-        XCTAssertGreaterThan(publication.readingOrder.count, 2)
-        view.setPrefetchedPageCoverForTesting(nil)
-        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
-        XCTAssertNil(view.pageCover.armedSpineCover)
-        XCTAssertNil(view.pageCover.prefetchedPageCover)
-        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            (try? view.firstWebView().alphaValue) == 1 && view.turn.turnOverlays.isEmpty
+        try await withSettledReader(publication: publication, configure: { view in
+            var settings = view.settings
+            settings.pageTurnStyle = .none
+            view.settings = settings
+        }) { view, _ in
+            XCTAssertGreaterThan(publication.readingOrder.count, 2)
+            view.setPrefetchedPageCoverForTesting(nil)
+            view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+            view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
+            XCTAssertNil(view.pageCover.armedSpineCover)
+            XCTAssertNil(view.pageCover.prefetchedPageCover)
+            let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
+                (try? view.firstWebView().alphaValue) == 1 && view.turn.turnOverlays.isEmpty
+            }
+            XCTAssertTrue(restored)
+            XCTAssertNil(view.turn.pendingSpineTurn)
         }
-        XCTAssertTrue(restored)
-        XCTAssertNil(view.turn.pendingSpineTurn)
     }
 }

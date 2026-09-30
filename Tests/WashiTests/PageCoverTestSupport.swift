@@ -27,6 +27,26 @@ extension XCTestCase {
         return publication
     }
 
+    /// 既定 800×600 のリーダーを画面外ウインドウに置いて本を開き、最初の表示が
+    /// 戻ってから `body` を実行する。`configure` はウインドウに載せる前に呼ぶ。
+    /// 後始末は `body` の後(途中で投げた場合も)に closeReader(.cancelPageCensus)
+    /// で行い、各テストが繰り返していた生成・defer・openAndSettle の前置きを置き換える
+    @MainActor
+    func withSettledReader(
+        publication: EPUBPublication,
+        size: NSSize = NSSize(width: 800, height: 600),
+        configure: @MainActor (EPUBReaderView) -> Void = { _ in },
+        _ body: @MainActor (EPUBReaderView, ReaderObservationSpy) async throws -> Void
+    ) async throws {
+        let view = EPUBReaderView(frame: NSRect(origin: .zero, size: size))
+        configure(view)
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
+        let delegate = ReaderObservationSpy()
+        try await openAndSettle(view, publication, delegate: delegate)
+        try await body(view, delegate)
+    }
+
     /// 本を開き、最初の表示が戻るまで待つ。WebKit が使えなければ skip する
     @MainActor
     func openAndSettle(_ view: EPUBReaderView, _ publication: EPUBPublication,

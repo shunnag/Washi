@@ -72,12 +72,10 @@ final class SpineTransitionVisibilityTests: XCTestCase {
 
     /// 描画フレームが進まなくても、表示は打ち切り時間の後に必ず戻る
     func testAlphaIsRestoredWhenAnimationFramesNeverArrive() async throws {
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        let window = makeOffscreenWindow(containing: view)
-        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        view.animationFrameWait = { _ in try? await Task.sleep(for: .seconds(30)) }
-        view.animationFrameWaitTimeout = .milliseconds(100)
-        try await openAndSettle(view, try makePublication(), delegate: ReaderObservationSpy())
+        try await withSettledReader(publication: try makePublication(), configure: { view in
+            view.animationFrameWait = { _ in try? await Task.sleep(for: .seconds(30)) }
+            view.animationFrameWaitTimeout = .milliseconds(100)
+        }) { _, _ in }
     }
 
     // MARK: - 透明化の時点
@@ -85,81 +83,73 @@ final class SpineTransitionVisibilityTests: XCTestCase {
     /// 読み込みの開始では透明にしない(透明にするのは didCommit)
     func testLoadingTheNextItemDoesNotHideThePreviousPage() async throws {
         let publication = try makePublication()
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        let window = makeOffscreenWindow(containing: view)
-        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, publication, delegate: ReaderObservationSpy())
-        XCTAssertGreaterThan(publication.readingOrder.count, 1)
-        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertEqual(try view.firstWebView().alphaValue, 1)
+        try await withSettledReader(publication: publication) { view, _ in
+            XCTAssertGreaterThan(publication.readingOrder.count, 1)
+            view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+            XCTAssertEqual(try view.firstWebView().alphaValue, 1)
+        }
     }
 
     /// 置き換えた読み込みのコミットでも、ページ割り前の文書を隠す(Washi-7ct)
     func testSupersededLoadCommitHidesTheUnpaginatedDocument() async throws {
         let publication = try makePublication()
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        view.accessibilityReduceMotionOverride = false
-        let window = makeOffscreenWindow(containing: view)
-        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        let delegate = ReaderObservationSpy()
-        try await openAndSettle(view, publication, delegate: delegate)
-        XCTAssertGreaterThan(publication.readingOrder.count, 2)
-        let web = try view.firstWebView()
-        view.setPrefetchedPageCoverForTesting(nil)
-        let moves = delegate.moveCount
+        try await withSettledReader(publication: publication, configure: { view in
+            view.accessibilityReduceMotionOverride = false
+        }) { view, delegate in
+            XCTAssertGreaterThan(publication.readingOrder.count, 2)
+            let web = try view.firstWebView()
+            view.setPrefetchedPageCoverForTesting(nil)
+            let moves = delegate.moveCount
 
-        // await を挟まず、先行のコミットが次の読み込みの開始後に届く順序を再現する
-        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        let superseded = try XCTUnwrap(view.currentNavigation)
-        view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
-        XCTAssertTrue(view.currentNavigation !== superseded)
-        XCTAssertEqual(web.alphaValue, 1, "どちらもコミット前なので前のページが見えている")
-        view.webView(web, didCommit: superseded)
-        XCTAssertEqual(web.alphaValue, 0, "ページ割り前の文書を見せない")
+            // await を挟まず、先行のコミットが次の読み込みの開始後に届く順序を再現する
+            view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+            let superseded = try XCTUnwrap(view.currentNavigation)
+            view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
+            XCTAssertTrue(view.currentNavigation !== superseded)
+            XCTAssertEqual(web.alphaValue, 1, "どちらもコミット前なので前のページが見えている")
+            view.webView(web, didCommit: superseded)
+            XCTAssertEqual(web.alphaValue, 0, "ページ割り前の文書を見せない")
 
-        let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            delegate.moveCount > moves && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
+            let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
+                delegate.moveCount > moves && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
+            }
+            XCTAssertTrue(restored, "次の読み込みのコミットと setup の後に表示が戻る")
+            XCTAssertEqual(view.currentSpineIndex, 2)
+            XCTAssertNil(view.turn.pendingSpineTurn)
         }
-        XCTAssertTrue(restored, "次の読み込みのコミットと setup の後に表示が戻る")
-        XCTAssertEqual(view.currentSpineIndex, 2)
-        XCTAssertNil(view.turn.pendingSpineTurn)
     }
 
     /// 修正の前後とも成功する、ガードの広げすぎを防ぐテスト。
     /// 表示が落ち着いた後の古いコミットは、今のページを隠さない。
     func testLateCommitOfAnEarlierLoadDoesNotHideASettledPage() async throws {
         let publication = try makePublication()
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        view.accessibilityReduceMotionOverride = false
-        let window = makeOffscreenWindow(containing: view)
-        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        let delegate = ReaderObservationSpy()
-        try await openAndSettle(view, publication, delegate: delegate)
-        let web = try view.firstWebView()
-        let initial = try XCTUnwrap(view.currentNavigation)
+        try await withSettledReader(publication: publication, configure: { view in
+            view.accessibilityReduceMotionOverride = false
+        }) { view, delegate in
+            let web = try view.firstWebView()
+            let initial = try XCTUnwrap(view.currentNavigation)
 
-        let m = delegate.moveCount
-        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        let settled = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { delegate.moveCount > m && web.alphaValue == 1 }
-        XCTAssertTrue(settled)
-        let frame = web.frame
+            let m = delegate.moveCount
+            view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+            let settled = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { delegate.moveCount > m && web.alphaValue == 1 }
+            XCTAssertTrue(settled)
+            let frame = web.frame
 
-        view.webView(web, didCommit: initial)
-        XCTAssertEqual(web.alphaValue, 1, "表示済みのページは古いコミットで隠さない")
-        XCTAssertEqual(web.frame, frame, "表示済みのページの矩形を変えない")
+            view.webView(web, didCommit: initial)
+            XCTAssertEqual(web.alphaValue, 1, "表示済みのページは古いコミットで隠さない")
+            XCTAssertEqual(web.frame, frame, "表示済みのページの矩形を変えない")
+        }
     }
 
     /// コミットまでは前のページが見えているので、新しい項目のノンブルを出さない
     func testPageNumbersAreHiddenUntilTheNextItemCommits() async throws {
         let publication = try makePublication()
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        let window = makeOffscreenWindow(containing: view)
-        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, publication, delegate: ReaderObservationSpy())
-        let labels = view.subviews.compactMap { $0 as? NSTextField }
-        XCTAssertTrue(labels.contains { !$0.isHidden }, "ノンブルが見えている前提")
-        view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(labels.allSatisfy(\.isHidden))
+        try await withSettledReader(publication: publication) { view, _ in
+            let labels = view.subviews.compactMap { $0 as? NSTextField }
+            XCTAssertTrue(labels.contains { !$0.isHidden }, "ノンブルが見えている前提")
+            view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
+            XCTAssertTrue(labels.allSatisfy(\.isHidden))
+        }
     }
 
     /// 表示できない項目への移動を拒否したら、移動前のノンブルをそのまま保つ。
