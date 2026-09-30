@@ -2,7 +2,8 @@ import WebKit
 
 /// didFinish / didFail を async で待つための一時デリゲート。
 /// WebContent プロセスの死亡・タイムアウトでも必ず 1 回だけ resume する
-/// (ラスタライザと全文ページ census で共用)
+/// (EPUBOffscreenWebViewHost を通してラスタライザ・全文ページ census・
+/// サムネイルレンダラの 3 者で共用)
 @MainActor
 final class NavigationWaiter: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, any Error>?
@@ -30,7 +31,8 @@ final class NavigationWaiter: NSObject, WKNavigationDelegate {
     /// 取り消し由来のエラーは「失敗」ではない。取り消された前の読み込みの
     /// -999 が次の計測へ配達されると、偽の失敗として累積し、census が
     /// 2 回で停止してしまう(cooViewer-oxr.46 C33)。
-    private static func isCancellation(_ error: any Error) -> Bool {
+    /// EPUBPaginationCensus.mustAbortMeasurement も同じ分類を使う。
+    static func isCancellation(_ error: any Error) -> Bool {
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain,
            nsError.code == NSURLErrorCancelled { return true }
