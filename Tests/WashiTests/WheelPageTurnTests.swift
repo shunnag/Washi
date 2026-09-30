@@ -172,6 +172,20 @@ final class WheelPageTurnTests: XCTestCase {
         try await turn(htbSingle, dy: 12, expect: 2, "横書き単ページ 縦 上")
     }
 
+    /// トラックパッドは指を置いた時点で移動量 0 のイベント(mayBegin)を送る。
+    /// それで軸を決めると縦になり、続く横スワイプで送れなくなる
+    func testMayBeginBeforeHorizontalSwipeStillTurns() async throws {
+        let harness = try await makeReader(
+            try publication(body: horizontalBody(), name: "may-begin"), double: false)
+        await advance(harness, times: 2)
+        XCTAssertEqual(harness.view.pageInItem, 2)
+        // kCGScrollPhaseMayBegin = 128
+        let mayBegin = try XCTUnwrap(scrollEvent(dx: 0, dy: 0, phase: 128, in: harness.webView))
+        harness.webView.scrollWheel(with: mayBegin)
+        try await Task.sleep(for: .milliseconds(30))
+        try await turn(harness, dx: -12, expect: 3, "指を置いてからの横スワイプ 右向き")
+    }
+
     // MARK: テスト 3 — 横方向の 2 設定
 
     func testHorizontalWheelSettingsGateAndReverse() async throws {
