@@ -245,6 +245,41 @@ extension EPUBReaderView {
         guard request == navigationRequestGeneration,
               previousGeneration == spineLoadGeneration,
               webView === self.webView else { return }
+        resetItemState(for: index, target: target, isRecovery: isRecovery,
+                       preservingTurnCover: preservingTurnCover,
+                       publication: publication, webView: webView)
+        predictWebViewLayout(for: webView)
+        if let failure {
+            reportNavigationFailure(failure)
+            return
+        }
+        guard let url else { return }  // URL が無い場合は上の失敗判定で処理済み。
+        // 透明にするのは didCommit(それまでは前のページが見えている)
+        let navigationPath = schemeHandler.containerPath(for: url) ?? entry.resolvedContainerPath
+        spineNavigationGate.expect(navigationPath, generation: spineLoadGeneration)
+        let urlRequest = URLRequest(url: url)
+        let navigation: WKNavigation?
+        if let spineLoadHandler {
+            navigation = spineLoadHandler(urlRequest)
+        } else {
+            navigation = webView.load(urlRequest)
+        }
+        if navigation == nil {
+            spineNavigationGate.cancelExpectation(for: navigationPath)
+            reportNavigationFailure(EPUBError.malformed(
+                "Cannot load spine resource: \(entry.resolvedContainerPath)"))
+            // 入れ子で始まった読み込み直しの navigation を nil で上書きしない。
+            return
+        }
+        currentNavigation = navigation
+    }
+
+    /// 読み込み先の項目に合わせて位置・ページ・フラグを初期化し、世代を進める
+    /// (loadSpineItem の状態変更部。控えの取り置きとカバーの引き継ぎもここ)
+    private func resetItemState(for index: Int, target: PendingTarget, isRecovery: Bool,
+                                preservingTurnCover: Bool,
+                                publication: EPUBPublication, webView: WKWebView) {
+        let entry = publication.readingOrder[index]
         spineNavigationGate.dropTerminatedProcessExpectations()
         if spineLoad.recovery.isShowingSetUpDocument {
             spineLoad.recovery.settledLocator = currentLocator
@@ -300,12 +335,15 @@ extension EPUBReaderView {
         } else {
             isImageOnlyItem = publication.isSingleImageItem(atSpineIndex: index)
         }
-        // 新しい項目の矩形と倍率は読み込み前に決め、当てるのは didCommit にする。
-        // WebKit はコミットまで旧文書を描き続けるので、ここで当てると旧ページが
-        // 新しい矩形・倍率で一瞬描かれる。setup は didFinish の後なので、
-        // ページ割りは新しい寸法で行われる(cooViewer-oxr.51)。
-        // FXL は宣言された viewport から矩形を決める(描いてから測って動かさない)。
-        // 旧文書が無いか透明なら見えないので即時に当てる。
+    }
+
+    /// 新しい項目の矩形と倍率は読み込み前に決め、当てるのは didCommit にする。
+    /// WebKit はコミットまで旧文書を描き続けるので、ここで当てると旧ページが
+    /// 新しい矩形・倍率で一瞬描かれる。setup は didFinish の後なので、
+    /// ページ割りは新しい寸法で行われる(cooViewer-oxr.51)。
+    /// FXL は宣言された viewport から矩形を決める(描いてから測って動かさない)。
+    /// 旧文書が無いか透明なら見えないので即時に当てる。
+    private func predictWebViewLayout(for webView: WKWebView) {
         let targetLayout: (frame: NSRect, zoom: CGFloat)? = isFixedLayoutItem
             ? fixedItemLayout() : (contentFrame, 1)
         if let layout = targetLayout {
@@ -319,29 +357,6 @@ extension EPUBReaderView {
         }
         spineLoad.isAwaitingCommit = webView.url != nil && webView.alphaValue > 0
         updateFurniture()
-        if let failure {
-            reportNavigationFailure(failure)
-            return
-        }
-        guard let url else { return }  // URL が無い場合は上の失敗判定で処理済み。
-        // 透明にするのは didCommit(それまでは前のページが見えている)
-        let navigationPath = schemeHandler.containerPath(for: url) ?? entry.resolvedContainerPath
-        spineNavigationGate.expect(navigationPath, generation: spineLoadGeneration)
-        let urlRequest = URLRequest(url: url)
-        let navigation: WKNavigation?
-        if let spineLoadHandler {
-            navigation = spineLoadHandler(urlRequest)
-        } else {
-            navigation = webView.load(urlRequest)
-        }
-        if navigation == nil {
-            spineNavigationGate.cancelExpectation(for: navigationPath)
-            reportNavigationFailure(EPUBError.malformed(
-                "Cannot load spine resource: \(entry.resolvedContainerPath)"))
-            // 入れ子で始まった読み込み直しの navigation を nil で上書きしない。
-            return
-        }
-        currentNavigation = navigation
     }
 
     func canRenderSpine(at index: Int) -> Bool {

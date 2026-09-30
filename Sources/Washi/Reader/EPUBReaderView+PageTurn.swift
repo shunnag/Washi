@@ -233,6 +233,34 @@ extension EPUBReaderView {
                       cover: cover, forward: forward)
     }
 
+    /// spine 遷移演出の仕上げ: 新ページの描画完了を待って撮り、
+    /// 項目内めくりと同じ演出でカバー(旧ページ)を取り除く(runSetup の末尾)
+    func finishPendingSpineTurn(_ pending: PendingSpineTurn, webView: WKWebView,
+                                generation: Int) async {
+        turn.pendingSpineTurn = nil
+        // このカバーの時間切れ回収タスクを **snapshot の await より前** に
+        // 止める。runTurnEffect 冒頭でも止めるが、下の takeSnapshot 待ちの
+        // 間に membership タイムアウトが発火するとカバーを途中で引き剥がし、
+        // superview を失ったビューを演出することになる
+        let coverID = ObjectIdentifier(pending.cover)
+        turn.spineTurnTimeouts[coverID]?.cancel()
+        turn.spineTurnTimeouts[coverID] = nil
+        let config = WKSnapshotConfiguration()
+        config.afterScreenUpdates = true
+        // ノンブルは runSetup の updateFurniture(前進)または
+        // .end 適用時の pageChanged(後退。snapshot 待ちの間に届く)で
+        // 新項目の値になっている
+        let newWeb = try? await webView.takeSnapshot(configuration: config)
+        guard generation == spineLoadGeneration,
+              webView === self.webView,
+              turn.turnOverlays.contains(pending.cover) else { return }
+        let newPage = newWeb.map {
+            self.composeFullPage(webImage: $0, in: webView.frame)
+        }
+        runTurnEffect(oldPage: pending.oldPage, newPage: newPage,
+                      cover: pending.cover, forward: pending.forward)
+    }
+
     /// めくり演出の本体(項目内・spine 遷移で共通)。
     /// ホスト独自演出(ページカール等)があれば委譲し、なければ内蔵の
     /// スライド/フェードでカバー(旧ページ)を取り除く

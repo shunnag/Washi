@@ -79,55 +79,7 @@ public final class EPUBReaderView: NSView {
     public internal(set) var currentPrintPage: String?
 
     public var settings = EPUBReaderSettings() {
-        didSet {
-            guard oldValue != settings else { return }
-            let layoutChanged = layoutKey(for: oldValue) != layoutKey(for: settings)
-            applyTheme()
-            updateAccessibilityMetadata()
-            if oldValue.announcesPageChanges && !settings.announcesPageChanges {
-                accessibilityAnnouncementTask?.cancel()
-                accessibilityAnnouncementTask = nil
-            }
-            if oldValue.forwardsKeyEventsNatively
-                != settings.forwardsKeyEventsNatively {
-                updateNativeKeyMonitor()
-            }
-            if oldValue.handlesKeyboardNavigation
-                != settings.handlesKeyboardNavigation {
-                // cooViewer-oxr.24: setup 後の切替も現在の文書へ即時反映する。
-                evaluate("__washi.setKeysEnabled(\(settings.handlesKeyboardNavigation));")
-            }
-            if oldValue.defersTapsForDoubleClick
-                != settings.defersTapsForDoubleClick {
-                // cooViewer-oxr.27: ページ割りを伴わない入力設定も現在文書へ即時反映する。
-                updateTapDeferral()
-            }
-            if oldValue.allowsScriptedContent != settings.allowsScriptedContent {
-                // JS 許可はビュー構成ごと作り直す(WKWebViewConfiguration は不変)
-                reloadCurrentPublication()
-            } else if layoutChanged {
-                // cooViewer-oxr.24: 個別フィールド列挙ではなく census と同じ
-                // 導出キーを正とし、userCSS を含む変更漏れを防ぐ。
-                needsLayout = true
-                // 組版(同じ代入で変えた配色を含む)が変わるので今の控えは使えない。
-                // 撮り直しは runSetup の最後。
-                dropPrefetchedPageCover()
-                schedulePagination(preserveProgression: true)
-            } else {
-                // 配色・めくり演出・柱の表示などはページ割りを保ったまま反映
-                let appearanceChanged = oldValue.composedUserCSS(
-                    isDark: isDark(for: oldValue.theme),
-                    increaseContrast: shouldIncreaseContrast,
-                    differentiateWithoutColor: shouldDifferentiateWithoutColor)
-                    != settings.composedUserCSS(
-                        isDark: isDark(for: settings.theme),
-                        increaseContrast: shouldIncreaseContrast,
-                        differentiateWithoutColor: shouldDifferentiateWithoutColor)
-                // 配色の CSS が変わらない設定(キー操作・読み上げの通知・柱の表示など)では控えを捨てない。
-                applyThemeCSSOnly(retakesCover: appearanceChanged)
-                updateFurniture()
-            }
-        }
+        didSet { applySettingsChange(from: oldValue) }
     }
 
     var webView: WKWebView?

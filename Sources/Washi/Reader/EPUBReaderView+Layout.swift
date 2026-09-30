@@ -3,8 +3,64 @@ import OSLog
 import WebKit
 
 /// EPUBReaderView のレイアウトと再ページ割り: 余白と本文領域、画面計画
-/// (EPUBScreenMetrics)、WebView の配置、setup/repaginate の実行と結果の反映。
+/// (EPUBScreenMetrics)、WebView の配置、setup/repaginate の実行と結果の反映、
+/// 設定変更の反映(再ページ割りか配色だけかの振り分け)。
 extension EPUBReaderView {
+    // MARK: - 設定変更の反映
+
+    /// settings の didSet。組版に効く変更は進行率を保った再ページ割り、配色だけの
+    /// 変更は CSS の差し替えで反映する。直接代入では didChangeFontScale を出さない
+    /// (adjustFontScale(by:) とピンチだけが出す)
+    func applySettingsChange(from oldValue: EPUBReaderSettings) {
+        guard oldValue != settings else { return }
+        let layoutChanged = layoutKey(for: oldValue) != layoutKey(for: settings)
+        applyTheme()
+        updateAccessibilityMetadata()
+        if oldValue.announcesPageChanges && !settings.announcesPageChanges {
+            accessibilityAnnouncementTask?.cancel()
+            accessibilityAnnouncementTask = nil
+        }
+        if oldValue.forwardsKeyEventsNatively
+            != settings.forwardsKeyEventsNatively {
+            updateNativeKeyMonitor()
+        }
+        if oldValue.handlesKeyboardNavigation
+            != settings.handlesKeyboardNavigation {
+            // cooViewer-oxr.24: setup 後の切替も現在の文書へ即時反映する。
+            evaluate("__washi.setKeysEnabled(\(settings.handlesKeyboardNavigation));")
+        }
+        if oldValue.defersTapsForDoubleClick
+            != settings.defersTapsForDoubleClick {
+            // cooViewer-oxr.27: ページ割りを伴わない入力設定も現在文書へ即時反映する。
+            updateTapDeferral()
+        }
+        if oldValue.allowsScriptedContent != settings.allowsScriptedContent {
+            // JS 許可はビュー構成ごと作り直す(WKWebViewConfiguration は不変)
+            reloadCurrentPublication()
+        } else if layoutChanged {
+            // cooViewer-oxr.24: 個別フィールド列挙ではなく census と同じ
+            // 導出キーを正とし、userCSS を含む変更漏れを防ぐ。
+            needsLayout = true
+            // 組版(同じ代入で変えた配色を含む)が変わるので今の控えは使えない。
+            // 撮り直しは runSetup の最後。
+            dropPrefetchedPageCover()
+            schedulePagination(preserveProgression: true)
+        } else {
+            // 配色・めくり演出・柱の表示などはページ割りを保ったまま反映
+            let appearanceChanged = oldValue.composedUserCSS(
+                isDark: isDark(for: oldValue.theme),
+                increaseContrast: shouldIncreaseContrast,
+                differentiateWithoutColor: shouldDifferentiateWithoutColor)
+                != settings.composedUserCSS(
+                    isDark: isDark(for: settings.theme),
+                    increaseContrast: shouldIncreaseContrast,
+                    differentiateWithoutColor: shouldDifferentiateWithoutColor)
+            // 配色の CSS が変わらない設定(キー操作・読み上げの通知・柱の表示など)では控えを捨てない。
+            applyThemeCSSOnly(retakesCover: appearanceChanged)
+            updateFurniture()
+        }
+    }
+
     /// リフロー時の webView 配置(設定の余白でインセット)。
     /// FXL・roll・画像 1 枚だけの項目は全面(余白なし)に配置してページ自体を版面として見せる
     /// 現在の表示モード(単ページ/見開き)に応じた実効余白。見開きは
@@ -266,79 +322,11 @@ extension EPUBReaderView {
             guard !Task.isCancelled,
                   generation == spineLoadGeneration,
                   webView === self.webView else { return }
-            if let dict = result as? [String: Any] {
-                applySetupResult(dict)
-            }
-            // cooViewer-oxr.46 C40: ページ割りが決まった後に描き直す
-            // (Range は文書に紐づくので、再ページ割りでも作り直す必要がある)
-            applyHighlights()
-            if !preserveProgression {
-                spineNavigationGate.dropExpectations(through: generation)
-                // フレーム待ち中に次の移動が始まっても、この文書を復旧先にする。
-                spineLoad.recovery.isShowingSetUpDocument = true
-                spineLoad.recovery.settledLocator = nil
-                spineLoad.recovery.isRecoveryLoad = false
-                // cooViewer-oxr.23: 新文書の target が発行する pageChanged は
-                // 受けつつ、それ以前の旧文書通知だけを loading gate で捨てる。
-                spineLoad.isLoadingSpineItem = false
-                applyPendingTargetAfterSetup()
-            }
-            spineLoad.isLoadingSpineItem = false
-            spineLoad.pendingTarget = .start
-            if let highlight = pendingMediaOverlayHighlight {
-                pendingMediaOverlayHighlight = nil
-                // 新しい章の最初の区間を、表示を戻す前に強調する。
-                // setup 中の撮影予約は何もしないので、下の撮影にまとめる。
-                mediaOverlayHighlight(fragmentID: highlight.fragmentID,
-                                      cssClass: highlight.cssClass)
-            }
-            updateFurniture()
-            scheduleCensusIfNeeded()  // メトリクス変化(フォント・寸法)に追従
+            settleDocument(after: result, preserveProgression: preserveProgression,
+                           generation: generation)
             guard generation == spineLoadGeneration,
                   webView === self.webView else { return }
-            // 透明から戻すときは、描画フレームが 2 回進むのを待つ。直後はまだ前の
-            // フレームが合成されていて、引き伸ばされた古い絵が一瞬見えるため。
-            // 既に見えている再ページ割りでは待たない
-            if webView.alphaValue < 1 {
-                let wait = animationFrameWait
-                _ = await TimeoutRace.run({ await wait(webView) },
-                                          timeout: animationFrameWaitTimeout)
-                guard generation == spineLoadGeneration,
-                      webView === self.webView else { return }
-            }
-            webView.alphaValue = 1  // 持ち越しカバーがあればその下で戻る
-            // 次の spine 遷移にそなえて控えを撮り直す(カバーを畳んだ後に走る)
-            schedulePageCoverPrefetch()
-            if let pending = turn.pendingSpineTurn, !pending.animated {
-                // 控えのカバーは、新しいページが合成された今の時点で演出なしに畳む
-                turn.pendingSpineTurn = nil
-                foldTurnCover(pending.cover)
-            } else if let pending = turn.pendingSpineTurn {
-                // spine 遷移演出の仕上げ: 新ページの描画完了を待って撮り、
-                // 項目内めくりと同じ演出でカバー(旧ページ)を取り除く
-                turn.pendingSpineTurn = nil
-                // このカバーの時間切れ回収タスクを **snapshot の await より前** に
-                // 止める。runTurnEffect 冒頭でも止めるが、下の takeSnapshot 待ちの
-                // 間に membership タイムアウトが発火するとカバーを途中で引き剥がし、
-                // superview を失ったビューを演出することになる
-                let coverID = ObjectIdentifier(pending.cover)
-                turn.spineTurnTimeouts[coverID]?.cancel()
-                turn.spineTurnTimeouts[coverID] = nil
-                let config = WKSnapshotConfiguration()
-                config.afterScreenUpdates = true
-                // ノンブルは runSetup の updateFurniture(前進)または
-                // .end 適用時の pageChanged(後退。snapshot 待ちの間に届く)で
-                // 新項目の値になっている
-                let newWeb = try? await webView.takeSnapshot(configuration: config)
-                guard generation == spineLoadGeneration,
-                      webView === self.webView,
-                      turn.turnOverlays.contains(pending.cover) else { return }
-                let newPage = newWeb.map {
-                    self.composeFullPage(webImage: $0, in: webView.frame)
-                }
-                runTurnEffect(oldPage: pending.oldPage, newPage: newPage,
-                              cover: pending.cover, forward: pending.forward)
-            }
+            await revealAfterSetup(webView: webView, generation: generation)
         } catch {
             guard !Task.isCancelled else { return }
             // 古い文書の JS 失敗で新しい文書の読み込み状態を壊さない
@@ -352,6 +340,65 @@ extension EPUBReaderView {
             clearPendingSpineTurn()
             webView.alphaValue = 1
             delegate?.readerView(self, didFailWith: error)
+        }
+    }
+
+    /// setup / repaginate の応答を状態へ写し、初回は読み込み中の gate を解いて
+    /// 予約した target を適用する(runSetup の JS 応答直後。await を挟まない)
+    private func settleDocument(after result: Any?, preserveProgression: Bool,
+                                generation: Int) {
+        if let dict = result as? [String: Any] {
+            applySetupResult(dict)
+        }
+        // cooViewer-oxr.46 C40: ページ割りが決まった後に描き直す
+        // (Range は文書に紐づくので、再ページ割りでも作り直す必要がある)
+        applyHighlights()
+        if !preserveProgression {
+            spineNavigationGate.dropExpectations(through: generation)
+            // フレーム待ち中に次の移動が始まっても、この文書を復旧先にする。
+            spineLoad.recovery.isShowingSetUpDocument = true
+            spineLoad.recovery.settledLocator = nil
+            spineLoad.recovery.isRecoveryLoad = false
+            // cooViewer-oxr.23: 新文書の target が発行する pageChanged は
+            // 受けつつ、それ以前の旧文書通知だけを loading gate で捨てる。
+            spineLoad.isLoadingSpineItem = false
+            applyPendingTargetAfterSetup()
+        }
+        spineLoad.isLoadingSpineItem = false
+        spineLoad.pendingTarget = .start
+        if let highlight = pendingMediaOverlayHighlight {
+            pendingMediaOverlayHighlight = nil
+            // 新しい章の最初の区間を、表示を戻す前に強調する。
+            // setup 中の撮影予約は何もしないので、下の撮影にまとめる。
+            mediaOverlayHighlight(fragmentID: highlight.fragmentID,
+                                  cssClass: highlight.cssClass)
+        }
+        updateFurniture()
+        scheduleCensusIfNeeded()  // メトリクス変化(フォント・寸法)に追従
+    }
+
+    /// 描画フレームを待ってから表示を戻し、控えを撮り直して持ち越しカバーを畳む
+    /// (runSetup の末尾。await の後は世代と webView を確かめてから続ける)
+    private func revealAfterSetup(webView: WKWebView, generation: Int) async {
+        // 透明から戻すときは、描画フレームが 2 回進むのを待つ。直後はまだ前の
+        // フレームが合成されていて、引き伸ばされた古い絵が一瞬見えるため。
+        // 既に見えている再ページ割りでは待たない
+        if webView.alphaValue < 1 {
+            let wait = animationFrameWait
+            _ = await TimeoutRace.run({ await wait(webView) },
+                                      timeout: animationFrameWaitTimeout)
+            guard generation == spineLoadGeneration,
+                  webView === self.webView else { return }
+        }
+        webView.alphaValue = 1  // 持ち越しカバーがあればその下で戻る
+        // 次の spine 遷移にそなえて控えを撮り直す(カバーを畳んだ後に走る)
+        schedulePageCoverPrefetch()
+        if let pending = turn.pendingSpineTurn, !pending.animated {
+            // 控えのカバーは、新しいページが合成された今の時点で演出なしに畳む
+            turn.pendingSpineTurn = nil
+            foldTurnCover(pending.cover)
+        } else if let pending = turn.pendingSpineTurn {
+            await finishPendingSpineTurn(pending, webView: webView, generation: generation)
         }
     }
 
