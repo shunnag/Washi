@@ -21,6 +21,13 @@ final class EPUBPaginationCensus {
     private let idleReleaseTimer: EPUBOffscreenIdleReleaseTimer
     private let javaScriptTimeoutScheduler: EPUBOffscreenIdleReleaseTimer.Scheduler
     private var pendingMeasurementCount = 0
+    /// Washi-z74.13: invalidate のたびに進む世代。実測は開始時の世代を控え、
+    /// await から戻るたびに照合する。NavigationWaiter の再開と MainActor での
+    /// 再開の間に invalidate が走っても、取得済みの WebView で続行したり
+    /// 次の項目でウインドウを作り直したりしない(EPUBPageRasterizer の
+    /// isInvalidated と同じ役目。census は invalidate 後も次の measure で
+    /// 作り直せるので、恒久フラグではなく世代で表す)。
+    private var invalidationGeneration: UInt = 0
 
     /// cooViewer-oxr.68: テストと所有者の診断用。アイドル解放後は false
     /// になり、次の measure が prepareIfNeeded を通ると再び true になる。
@@ -41,6 +48,7 @@ final class EPUBPaginationCensus {
     /// 明示的に畳む。ホストが計測を使い終えたとき(ビューのウインドウ離脱・
     /// アトラスの破棄)に呼ぶ。以後 measure が呼ばれれば作り直される
     func invalidate() {
+        invalidationGeneration &+= 1
         idleReleaseTimer.cancel()
         releaseOffscreenResources()
     }
@@ -65,12 +73,18 @@ final class EPUBPaginationCensus {
             pendingMeasurementCount -= 1
             scheduleIdleReleaseIfNeeded()
         }
+        // Washi-z74.13: 呼び出し元のキャンセルと同じく、この実測の開始後の
+        // invalidate も一過性の中断として nil で抜ける(部分結果は返さない)。
+        let generation = invalidationGeneration
+        func isAborted() -> Bool {
+            Task.isCancelled || generation != invalidationGeneration
+        }
         let allowsScriptedContent = EPUBScreenMetrics.allowsScriptedContent(
             in: optionsJSON)
         var counts: [Int] = []
         counts.reserveCapacity(publication.readingOrder.count)
         for (index, entry) in publication.readingOrder.enumerated() {
-            if Task.isCancelled { return nil }
+            if isAborted() { return nil }
             if publication.package.effectiveLayout(for: entry.itemRef) == .prePaginated,
                !EPUBScreenMetrics.isScrolled(publication.renderingFlow(at: index)) {
                 counts.append(1)  // FXL は本番(setup の fxl 分岐)と同じ 1 ページ
@@ -83,7 +97,7 @@ final class EPUBPaginationCensus {
             let fillsViewport = await Task.detached(priority: Task.currentPriority) {
                 EPUBScreenMetrics.fillsViewport(publication, spineIndex: index)
             }.value
-            if Task.isCancelled { return nil }
+            if isAborted() { return nil }
             // cooViewer-oxr.51: 同じ基底メトリクスから itemref ごとの
             // rendition:spread と実効余白を導出し、この項目だけへ渡す。
             let plan = EPUBScreenMetrics.setupPlan(
@@ -120,7 +134,7 @@ final class EPUBPaginationCensus {
                     timeoutScheduler: javaScriptTimeoutScheduler)
             } catch {
                 // キャンセル時の stopLoading は host.load が済ませている。
-                if error is CancellationError || Task.isCancelled {
+                if error is CancellationError || isAborted() {
                     return nil
                 }
                 if Self.mustAbortMeasurement(for: error) {
@@ -132,7 +146,7 @@ final class EPUBPaginationCensus {
                 counts.append(1)
                 continue
             }
-            if Task.isCancelled { return nil }
+            if isAborted() { return nil }
             guard let result else {
                 // 一時的な無応答を 1 ページとして確定・保存しない。
                 // 応答しない WebKit も手放し、次回は新しいビューで再計測する。
