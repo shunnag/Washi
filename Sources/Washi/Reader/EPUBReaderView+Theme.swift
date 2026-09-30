@@ -63,7 +63,7 @@ extension EPUBReaderView {
             in: nil, in: WashiContentWorld.world, completionHandler: nil)
         if retakesCover {
             retakePageCoverAfterRestyle()
-        } else if prefetchedPageCover == nil {
+        } else if pageCover.prefetchedPageCover == nil {
             schedulePageCoverPrefetchAfterFrames()
         }
     }

@@ -229,7 +229,7 @@ extension EPUBReaderView {
 
     /// 読み込み中は旧文書の読み上げハイライトを消さず、最後の要求を保留する。
     func deferMediaOverlayHighlightIfLoading(fragmentID: String?, cssClass: String) -> Bool {
-        guard isLoadingSpineItem else { return false }
+        guard spineLoad.isLoadingSpineItem else { return false }
         pendingMediaOverlayHighlight = (fragmentID, cssClass)
         return true
     }

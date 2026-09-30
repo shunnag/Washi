@@ -5,7 +5,7 @@ import AppKit
 extension EPUBReaderView {
     /// テスト用: 撮影を経ずに控えを置く
     func setPrefetchedPageCoverForTesting(_ cover: PrefetchedPageCover?) {
-        prefetchedPageCover = cover
+        pageCover.prefetchedPageCover = cover
     }
 
     /// テスト用: washi world で任意の式を評価する
@@ -13,12 +13,21 @@ extension EPUBReaderView {
         await callWashiReturning(body)
     }
 
-    /// cooViewer-oxr.54: 回帰テストが非表示中の延期状態を同期的に確認する。
-    var hasDeferredVisibleLayout: Bool { pendingVisibleLayout }
+    // cooViewer-oxr.54
+    /// テスト用: 回帰テストが非表示中の延期状態を同期的に確認する。
+    var hasDeferredVisibleLayout: Bool { repagination.pendingVisibleLayout }
 
-    var isPageCensusScheduled: Bool { censusTask != nil }
+    /// テスト用: census の実測タスクが予約されているか
+    var isPageCensusScheduled: Bool { census.task != nil }
 
-    var isRepaginationScheduled: Bool { repaginateWork != nil }
+    /// テスト用: 再ページ割りが予約されているか
+    var isRepaginationScheduled: Bool { repagination.repaginateWork != nil }
 
+    /// テスト用: サムネイルレンダラが生きているか
     var hasScreenThumbnailRenderer: Bool { thumbnailRenderer != nil }
+
+    /// テスト用: WebContent 終了後の再読み込みが予約または保留されているか
+    var hasPendingWebContentReload: Bool {
+        webContentReload.task != nil || webContentReload.pendingDelay != nil
+    }
 }

@@ -416,12 +416,12 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         view.installTurnCover(cover, pending: true)
         view.handleNavigationFailure(interrupted, hasNavigation: false)
         XCTAssertTrue(delegate.failures.isEmpty)
-        XCTAssertNotNil(view.pendingSpineTurn)
+        XCTAssertNotNil(view.turn.pendingSpineTurn)
 
         view.handleNavigationFailure(interrupted, hasNavigation: true)
         XCTAssertEqual(delegate.failures.count, 1)
         XCTAssertEqual((delegate.failures.first as? NSError)?.code, 102)
-        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(view.turn.pendingSpineTurn)
         XCTAssertNil(cover.superview)
     }
 
@@ -1118,8 +1118,8 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             view.webViewWebContentProcessDidTerminate(webView)
         }
 
-        XCTAssertEqual(view.webContentReloadRequestCount, 3)
-        XCTAssertEqual(view.webContentReloadAttemptCount, 0)
+        XCTAssertEqual(view.webContentReload.requestCount, 3)
+        XCTAssertEqual(view.webContentReload.attemptCount, 0)
         XCTAssertEqual(delegate.failures.count, 1)
         XCTAssertTrue(String(describing: delegate.failures[0]).contains(
             "web content process terminated repeatedly"))
@@ -1133,12 +1133,12 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         view.load(publication: try makePublication())
         let webView = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
         view.webViewWebContentProcessDidTerminate(webView)
-        XCTAssertEqual(view.webContentReloadAttemptCount, 0)
+        XCTAssertEqual(view.webContentReload.attemptCount, 0)
 
         let window = makeWindow(containing: view)
         defer { close(window, view: view) }
-        XCTAssertEqual(view.webContentReloadRequestCount, 1)
-        XCTAssertEqual(view.webContentReloadAttemptCount, 1)
+        XCTAssertEqual(view.webContentReload.requestCount, 1)
+        XCTAssertEqual(view.webContentReload.attemptCount, 1)
     }
 
     /// cooViewer-oxr.47: spine A で予約したバックオフ reload は、B へ
@@ -1172,7 +1172,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
 
         view.webViewWebContentProcessDidTerminate(stale)
 
-        XCTAssertEqual(view.webContentReloadRequestCount, 0)
-        XCTAssertEqual(view.webContentReloadAttemptCount, 0)
+        XCTAssertEqual(view.webContentReload.requestCount, 0)
+        XCTAssertEqual(view.webContentReload.attemptCount, 0)
     }
 }

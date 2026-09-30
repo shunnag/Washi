@@ -69,11 +69,11 @@ extension EPUBReaderView {
     private var currentBackingScale: CGFloat { window?.backingScaleFactor ?? 2 }
 
     func schedulePageCoverPrefetch(after delay: Duration? = nil) {
-        pageCoverPrefetchTask?.cancel()
-        if delay == nil { pageCoverPrefetchRetries = 0 }
-        let wait = delay ?? (prefetchedPageCover == nil
+        pageCover.pageCoverPrefetchTask?.cancel()
+        if delay == nil { pageCover.pageCoverPrefetchRetries = 0 }
+        let wait = delay ?? (pageCover.prefetchedPageCover == nil
             ? Self.pageCoverFirstPrefetchDelay : Self.pageCoverPrefetchDelay)
-        pageCoverPrefetchTask = Task { @MainActor [weak self] in
+        pageCover.pageCoverPrefetchTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: wait)
             guard let self, !Task.isCancelled else { return }
             await self.capturePageCover()
@@ -83,13 +83,13 @@ extension EPUBReaderView {
     /// 描画フレームを待ってから撮影を予約する。待ちも pageCoverPrefetchTask に載せるので、
     /// 後の予約・破棄・armSpineCoverForTransition が取り消す。撮らない場面では待たない。
     func schedulePageCoverPrefetchAfterFrames() {
-        pageCoverPrefetchTask?.cancel()
-        pageCoverPrefetchTask = nil
+        pageCover.pageCoverPrefetchTask?.cancel()
+        pageCover.pageCoverPrefetchTask = nil
         guard let webView, usesPrefetchedPageCover, isAtItemBoundaryScreen,
-              isWindowOnScreen, !isLoadingSpineItem, !isSettingUp else { return }
+              isWindowOnScreen, !spineLoad.isLoadingSpineItem, !spineLoad.isSettingUp else { return }
         let wait = animationFrameWait
         let timeout = animationFrameWaitTimeout
-        pageCoverPrefetchTask = Task { @MainActor [weak self] in
+        pageCover.pageCoverPrefetchTask = Task { @MainActor [weak self] in
             guard !Task.isCancelled else { return }
             _ = await TimeoutRace.run({ await wait(webView) }, timeout: timeout)
             guard let self, !Task.isCancelled, webView === self.webView else { return }
@@ -108,35 +108,35 @@ extension EPUBReaderView {
 
     /// 控えと撮影の予約を捨てる。撮影中の結果も取り消しで捨て、取り置いた控えは残す。
     func dropPrefetchedPageCover() {
-        pageCoverPrefetchTask?.cancel()
-        pageCoverPrefetchTask = nil
-        pageCoverPrefetchRetries = 0
-        prefetchedPageCover = nil
+        pageCover.pageCoverPrefetchTask?.cancel()
+        pageCover.pageCoverPrefetchTask = nil
+        pageCover.pageCoverPrefetchRetries = 0
+        pageCover.prefetchedPageCover = nil
     }
 
     /// 控えと撮影の予約に加え、遷移のために取り置いた控えも捨てる。
     func discardPageCovers() {
-        dropPrefetchedPageCover()
-        armedSpineCover = nil
+        pageCover.pageCoverPrefetchTask?.cancel()
+        pageCover = PageCoverState()
     }
 
     /// 現在の表示を等倍で 1 枚撮る。合成はしない(メインスレッドを止めないため)。
     private func capturePageCover() async {
         // 使わない場面では持たない(古い控えも捨てる)
         guard usesPrefetchedPageCover, isAtItemBoundaryScreen, isWindowOnScreen else {
-            prefetchedPageCover = nil
+            pageCover.prefetchedPageCover = nil
             return
         }
         guard let webView, publication != nil,
-              !isLoadingSpineItem, !isSettingUp else { return }
+              !spineLoad.isLoadingSpineItem, !spineLoad.isSettingUp else { return }
         // カバーの掲示中はカバー自身を撮ってしまうので、少し後に撮り直す
-        guard turnOverlays.isEmpty else {
-            guard pageCoverPrefetchRetries < Self.pageCoverPrefetchRetryLimit else { return }
-            pageCoverPrefetchRetries += 1
+        guard turn.turnOverlays.isEmpty else {
+            guard pageCover.pageCoverPrefetchRetries < Self.pageCoverPrefetchRetryLimit else { return }
+            pageCover.pageCoverPrefetchRetries += 1
             schedulePageCoverPrefetch(after: Self.pageCoverPrefetchDelay)
             return
         }
-        pageCoverPrefetchRetries = 0
+        pageCover.pageCoverPrefetchRetries = 0
         let spineIndex = currentSpineIndex
         let page = pageInItem
         let size = bounds.size
@@ -148,10 +148,10 @@ extension EPUBReaderView {
         else { return }
         // 撮影中にページや表示条件が変わっていたら捨てる
         guard !Task.isCancelled, webView === self.webView,
-              !isLoadingSpineItem, turnOverlays.isEmpty,
+              !spineLoad.isLoadingSpineItem, turn.turnOverlays.isEmpty,
               spineIndex == currentSpineIndex, page == pageInItem,
               size == bounds.size, rect == webView.frame else { return }
-        prefetchedPageCover = PrefetchedPageCover(
+        pageCover.prefetchedPageCover = PrefetchedPageCover(
             image: image, rect: rect, backingScale: backingScale,
             spineIndex: spineIndex, pageInItem: page,
             size: size, fontScale: settings.fontScale)
@@ -161,18 +161,18 @@ extension EPUBReaderView {
     /// ものなら取り置き、そうでなければカバー無しで読み込む。
     /// コミット待ちで前のページが見えている間は、取り置いた控えを引き継ぐ(Washi-3b1)
     func armSpineCoverForTransition() {
-        let held = prefetchedPageCover
-        prefetchedPageCover = nil
-        pageCoverPrefetchTask?.cancel()
-        if isAwaitingCommit, let webView, webView.url != nil, webView.alphaValue > 0 {
+        let held = pageCover.prefetchedPageCover
+        pageCover.prefetchedPageCover = nil
+        pageCover.pageCoverPrefetchTask?.cancel()
+        if spineLoad.isAwaitingCommit, let webView, webView.url != nil, webView.alphaValue > 0 {
             // currentSpineIndex・pageInItem は前の読み込みが書き換えたので照合しない。
             // effectiveFlow も読み込み中の項目を指し、見えているページがページ単位でも
             // スクロール表示になりうるので、ここでは usesPrefetchedPageCover を使わない。
             // 見えているページの flow は取り置き時に確認済みで、表示条件だけ照合し直す
-            guard let armed = armedSpineCover, turnsPagesWithoutAnimation,
+            guard let armed = pageCover.armedSpineCover, turnsPagesWithoutAnimation,
                   armed.matchesDisplay(size: bounds.size, fontScale: settings.fontScale,
                                        backingScale: currentBackingScale) else {
-                armedSpineCover = nil
+                pageCover.armedSpineCover = nil
                 return
             }
             return
@@ -181,10 +181,10 @@ extension EPUBReaderView {
               held.matches(spineIndex: currentSpineIndex, pageInItem: pageInItem,
                            size: bounds.size, fontScale: settings.fontScale,
                            backingScale: currentBackingScale) else {
-            armedSpineCover = nil
+            pageCover.armedSpineCover = nil
             return
         }
-        armedSpineCover = held
+        pageCover.armedSpineCover = held
     }
 
     /// 取り置いた控えをカバーとして撮影時の矩形に貼る。既存のカバーの回収経路
@@ -195,10 +195,10 @@ extension EPUBReaderView {
         cover.imageScaling = .scaleAxesIndependently
         cover.frame = held.rect
         addSubview(cover, positioned: .above, relativeTo: webView)
-        turnOverlays.append(cover)
+        turn.turnOverlays.append(cover)
         updateFurnitureSuppression()
         clearPendingSpineTurn()
-        pendingSpineTurn = PendingSpineTurn(
+        turn.pendingSpineTurn = PendingSpineTurn(
             oldPage: held.image, cover: cover, forward: true, animated: false)
         // 重い画像ページの読み込みにも耐えるよう、時間切れは長めにする
         scheduleSpineTurnTimeout(for: cover, after: .seconds(8))
@@ -209,7 +209,7 @@ extension EPUBReaderView {
     /// Retakes the snapshot laid over chapter transitions when the backing scale changes.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard let cover = prefetchedPageCover,
+        guard let cover = pageCover.prefetchedPageCover,
               cover.backingScale != currentBackingScale else { return }
         retakePageCoverAfterRestyle()
     }
@@ -218,7 +218,7 @@ extension EPUBReaderView {
     @objc func windowVisibilityDidChange(_ notification: Notification) {
         guard isWindowOnScreen else { dropPrefetchedPageCover(); return }
         // 見えたままの通知が重なっても、使える控えを撮り直さない
-        guard prefetchedPageCover == nil else { return }
+        guard pageCover.prefetchedPageCover == nil else { return }
         schedulePageCoverPrefetchAfterFrames()
     }
 }

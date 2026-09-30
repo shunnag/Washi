@@ -271,8 +271,8 @@ extension EPUBReaderView {
     }
 
     private func notePress(_ event: NSEvent) {
-        marginPressTime = event.timestamp
-        marginPressLocation = convert(event.locationInWindow, from: nil)
+        marginPress.time = event.timestamp
+        marginPress.location = convert(event.locationInWindow, from: nil)
     }
 
     public override func mouseUp(with event: NSEvent) {
@@ -292,9 +292,9 @@ extension EPUBReaderView {
         else { return false }
         // JS の click 抑制と同じ閾値(§5.9): 30pt 超のドラッグ・1 秒超の
         // 長押しの解放はクリックにしない(イベントは消費する)
-        guard event.timestamp - marginPressTime <= 1.0,
-              max(abs(location.x - marginPressLocation.x),
-                  abs(location.y - marginPressLocation.y)) <= 30
+        guard event.timestamp - marginPress.time <= 1.0,
+              max(abs(location.x - marginPress.location.x),
+                  abs(location.y - marginPress.location.y)) <= 30
         else { return true }
         let flags = event.modifierFlags
         // y は JS の tap と同じ「上端 0」の正規化(この view は非 flipped)
@@ -318,26 +318,10 @@ extension EPUBReaderView {
             super.scrollWheel(with: event)
             return
         }
-        // JS 側と同じ「1 ジェスチャ = 1 ページ」量子化(250ms 静穏で解除・
-        // 軸は最初のイベントで確定)。慣性はラッチが飲み込む
-        if event.timestamp - marginWheelLastTime > 0.25 {
-            marginWheelLatched = false
-            marginWheelAccumulator = 0
-            marginWheelHorizontal =
-                abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
-        }
-        marginWheelLastTime = event.timestamp
-        guard !marginWheelLatched else { return }
-        let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 40
-        marginWheelAccumulator += scale * (marginWheelHorizontal
-            ? event.scrollingDeltaX : event.scrollingDeltaY)
-        guard abs(marginWheelAccumulator) >= 50 else { return }
-        let positive = marginWheelAccumulator > 0
-        marginWheelAccumulator = 0
-        marginWheelLatched = true
+        guard let (horizontal, positive) = marginWheelLatch.register(event) else { return }
         // AppKit の scrollingDelta は DOM の wheel と符号が逆(正=文書の
         // 先頭方向へのスクロール)なので、JS の wheelTurn と対になる写像
-        if marginWheelHorizontal {
+        if horizontal {
             // 水平めくりはホスト設定でゲート・反転できる(ホストが自前の
             // スワイプめくりを持つ場合に二重発火を避け、綴じ方向をそろえる)
             guard settings.horizontalWheelTurnsPages else { return }

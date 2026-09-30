@@ -51,7 +51,7 @@ extension EPUBReaderView {
     func updateFurniture() {
         let visible = settings.showsPageFurniture && publication != nil
             && !isFixedLayoutItem && !isRollItem && !isImagePage && !isImageOnlyItem
-            && !furnitureSuppressed && !isAwaitingCommit
+            && !furnitureSuppressed && !spineLoad.isAwaitingCommit
         guard visible else {
             for label in pageNumberLabels { label.isHidden = true }
             updateAccessibilityMetadata()
@@ -148,7 +148,7 @@ extension EPUBReaderView {
         accessibilityAnnouncementTask = Task { @MainActor [weak self] in
             if delay != .zero { try? await Task.sleep(for: delay) }
             guard let self, !Task.isCancelled,
-                  !self.isLoadingSpineItem,
+                  !self.spineLoad.isLoadingSpineItem,
                   self.currentSpineIndex == identity.spineIndex,
                   self.pageInItem == identity.page,
                   self.pageCountInItem == identity.pageCount else { return }

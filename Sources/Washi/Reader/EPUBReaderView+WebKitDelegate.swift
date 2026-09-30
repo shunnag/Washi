@@ -73,15 +73,15 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
         // 矩形と倍率を当てる(Washi-7ct)
         guard webView === self.webView,
               navigation == nil || navigation === currentNavigation
-                  || isAwaitingCommit else { return }
+                  || spineLoad.isAwaitingCommit else { return }
         // 演出のカバーが既にあるときは横取りしない
-        if pendingSpineTurn == nil, let armed = armedSpineCover {
+        if turn.pendingSpineTurn == nil, let armed = pageCover.armedSpineCover {
             installSpineCover(armed)
         }
-        armedSpineCover = nil
+        pageCover.armedSpineCover = nil
         webView.alphaValue = 0
         applyPendingWebViewLayout()
-        isAwaitingCommit = false
+        spineLoad.isAwaitingCommit = false
         updateFurniture()
     }
 
@@ -92,7 +92,7 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
               navigation == nil || navigation === currentNavigation else { return }
         // 通常は didCommit で当たっている。取り残しがあればここで当てる
         applyPendingWebViewLayout()
-        isAwaitingCommit = false
+        spineLoad.isAwaitingCommit = false
         if isFixedLayoutItem {
             layoutFixedItem()
         }
@@ -154,19 +154,17 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
     func handleWebContentProcessTermination(at now: Date = Date()) {
         spineNavigationGate.abandonForProcessTermination()
         // プロセスと一緒に前の文書も失われるため、通常の読み込み失敗の復旧先にしない。
-        settledLocator = nil
-        isShowingSetUpDocument = false
-        isRecoveryLoad = false
-        switch webContentReloadLimiter.register(
+        spineLoad.resetRecovery()
+        switch webContentReload.limiter.register(
             spineIndex: currentSpineIndex, at: now) {
         case .reload(let delay):
-            webContentReloadRequestCount += 1
+            webContentReload.requestCount += 1
             scheduleWebContentReload(after: delay)
         case .suppress(let reportFailure):
-            webContentReloadTask?.cancel()
-            webContentReloadTask = nil
-            pendingWebContentReloadDelay = nil
-            if isLoadingSpineItem {
+            webContentReload.task?.cancel()
+            webContentReload.task = nil
+            webContentReload.pendingDelay = nil
+            if spineLoad.isLoadingSpineItem {
                 abandonSpineLoad()
                 let request = navigationRequestGeneration
                 updateCurrentPrintPage()
@@ -182,24 +180,24 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
     }
 
     private func scheduleWebContentReload(after delay: Duration) {
-        webContentReloadTask?.cancel()
-        webContentReloadTask = nil
+        webContentReload.task?.cancel()
+        webContentReload.task = nil
         guard allowsVisibleRenderingWork else {
             // cooViewer-oxr.47: 不可視中は同じ再試行を保持し、表示復帰で消費する。
-            pendingWebContentReloadDelay = delay
+            webContentReload.pendingDelay = delay
             return
         }
-        pendingWebContentReloadDelay = nil
+        webContentReload.pendingDelay = nil
         guard delay != .zero else {
             performWebContentReload()
             return
         }
-        webContentReloadTask = Task { @MainActor [weak self] in
+        webContentReload.task = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
             guard let self, !Task.isCancelled else { return }
-            self.webContentReloadTask = nil
+            self.webContentReload.task = nil
             guard self.allowsVisibleRenderingWork else {
-                self.pendingWebContentReloadDelay = .zero
+                self.webContentReload.pendingDelay = .zero
                 return
             }
             self.performWebContentReload()
@@ -207,14 +205,14 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
     }
 
     func resumePendingWebContentReloadIfNeeded() {
-        guard let delay = pendingWebContentReloadDelay,
+        guard let delay = webContentReload.pendingDelay,
               allowsVisibleRenderingWork else { return }
         scheduleWebContentReload(after: delay)
     }
 
     private func performWebContentReload() {
         guard publication != nil else { return }
-        webContentReloadAttemptCount += 1
+        webContentReload.attemptCount += 1
         reloadCurrentPublication()
     }
 

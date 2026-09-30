@@ -14,7 +14,7 @@ extension EPUBReaderView {
     /// 現在表示している項目のハイライトを描画する。ハイライトの変更時と、
     /// spine の読み込み・再ページ割りの完了後に呼び出す。
     func applyHighlights() {
-        guard webView != nil, !isLoadingSpineItem else { return }
+        guard webView != nil, !spineLoad.isLoadingSpineItem else { return }
         let payload = highlightsOnCurrentItem(highlights)
             .map { ["offset": $0.utf16Offset, "length": $0.utf16Length,
                     "style": $0.style.rawValue] as [String: Any] }
@@ -137,7 +137,7 @@ extension EPUBReaderView {
     public func rects(
         forTextRange range: Range<Int>, inSpineIndex index: Int
     ) async -> [CGRect] {
-        guard index == currentSpineIndex, !isLoadingSpineItem,
+        guard index == currentSpineIndex, !spineLoad.isLoadingSpineItem,
               canRenderSpine(at: index),
               !isFixedLayoutItem, range.lowerBound >= 0, !range.isEmpty,
               let webView else { return [] }

@@ -133,7 +133,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         let web = try webView(view)
         let restored = await waitUntil {
             delegate.moves.count > moves && delegate.moves.last?.spineIndex == index
-                && web.alphaValue == 1 && view.turnOverlays.isEmpty
+                && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
         XCTAssertEqual(view.currentSpineIndex, index)
@@ -183,7 +183,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         XCTAssertEqual(view.currentPrintPage, "10")
         XCTAssertEqual(delegate.printPages.count, printPages)
         XCTAssertEqual(view.currentSelection, selection)
-        XCTAssertTrue(view.prefetchedPageCover?.image === image)
+        XCTAssertTrue(view.pageCover.prefetchedPageCover?.image === image)
         XCTAssertFalse(view.canGoBack)
 
         // 印なしの偽メッセージでは退行を検出できないので、本物の JS のページ送りを使う。
@@ -265,15 +265,15 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         view.go(to: book.locator(forSpineIndex: 2))
         let navigation = try XCTUnwrap(view.currentNavigation)
         view.webView(web, didCommit: navigation)
-        let cover = try XCTUnwrap(view.pendingSpineTurn?.cover)
+        let cover = try XCTUnwrap(view.turn.pendingSpineTurn?.cover)
         XCTAssertTrue(cover.image === image)
         view.webView(web, didFail: navigation, withError: failure)
         XCTAssertEqual(delegate.failures.count, 1)
         XCTAssertEqual(web.alphaValue, 0)
         XCTAssertEqual(view.currentSpineIndex, 0)
         XCTAssertNotNil(view.currentNavigation)
-        XCTAssertTrue(view.pendingSpineTurn?.cover === cover)
-        XCTAssertEqual(view.pendingSpineTurn?.animated, false)
+        XCTAssertTrue(view.turn.pendingSpineTurn?.cover === cover)
+        XCTAssertEqual(view.turn.pendingSpineTurn?.animated, false)
         try await assertRestored(view, delegate, after: moves, to: 0)
         XCTAssertNil(cover.superview)
     }
@@ -311,13 +311,13 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         view.webView(web, didCommit: try XCTUnwrap(view.currentNavigation))
         view.handleNavigationFailure(failure, hasNavigation: true)
         let recovery = try XCTUnwrap(view.currentNavigation)
-        XCTAssertEqual(view.pendingSpineTurn?.animated, false)
+        XCTAssertEqual(view.turn.pendingSpineTurn?.animated, false)
         view.handleNavigationFailure(failure, hasNavigation: true)
         XCTAssertEqual(delegate.failures.count, 2)
         XCTAssertNil(view.currentNavigation)
-        XCTAssertNil(view.armedSpineCover)
-        XCTAssertNil(view.pendingSpineTurn)
-        XCTAssertTrue(view.turnOverlays.isEmpty)
+        XCTAssertNil(view.pageCover.armedSpineCover)
+        XCTAssertNil(view.turn.pendingSpineTurn)
+        XCTAssertTrue(view.turn.turnOverlays.isEmpty)
         XCTAssertEqual(web.alphaValue, 1)
         XCTAssertFalse(labels(view).isEmpty)
         XCTAssertFalse(view.deferMediaOverlayHighlightIfLoading(fragmentID: nil, cssClass: "unused"))
@@ -483,7 +483,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         view.handleWebContentProcessTermination(at: now)
         view.handleWebContentProcessTermination(at: now)
         XCTAssertTrue(view.hasPendingWebContentReload)
-        XCTAssertEqual(view.webContentReloadAttemptCount, 1, "2 回目の終了は遅延再読み込みになる")
+        XCTAssertEqual(view.webContentReload.attemptCount, 1, "2 回目の終了は遅延再読み込みになる")
         let navigation = view.currentNavigation
         view.go(to: book.locator(forSpineIndex: 1))
         XCTAssertEqual(delegate.failures.count, 1)
@@ -503,7 +503,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         let navigation = try XCTUnwrap(view.currentNavigation)
         view.installTurnCover(NSImageView(image: NSImage(size: view.bounds.size)),
                               pending: true, animated: false)
-        XCTAssertNotNil(view.pendingSpineTurn)
+        XCTAssertNotNil(view.turn.pendingSpineTurn)
         view.mediaOverlayHighlight(fragmentID: "sec1", cssClass: "recovery-test-active")
         // 終了通知だけを注入する。実機では前の文書も WebContent と一緒に失われる。
         // 非表示扱いなので自動復旧は延期され、4 回目で抑止される。
@@ -511,9 +511,9 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         for _ in 0..<4 { view.handleWebContentProcessTermination(at: now) }
         XCTAssertEqual(delegate.failures.count, 1)
         XCTAssertNil(view.currentNavigation)
-        XCTAssertNil(view.pendingSpineTurn)
-        XCTAssertNil(view.armedSpineCover)
-        XCTAssertTrue(view.turnOverlays.isEmpty)
+        XCTAssertNil(view.turn.pendingSpineTurn)
+        XCTAssertNil(view.pageCover.armedSpineCover)
+        XCTAssertTrue(view.turn.turnOverlays.isEmpty)
         XCTAssertFalse(view.hasPendingWebContentReload)
         XCTAssertEqual(view.currentPrintPage, "20")
         XCTAssertEqual(labels(view), ["1 [p. 20]"])
@@ -562,7 +562,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
 
                 try await assertRestored(view, delegate, after: moves, to: 2)
                 XCTAssertTrue(try webView(view) === web)
-                XCTAssertEqual(view.webContentReloadAttemptCount, 0)
+                XCTAssertEqual(view.webContentReload.attemptCount, 0)
                 XCTAssertEqual(delegate.failures.count, terminationCount == 4 ? 1 : 0)
             }
         }
@@ -737,12 +737,12 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         let context = view.mediaOverlayDocumentContext()
         view.go(to: book.locator(forSpineIndex: 1))
         XCTAssertEqual(delegate.failures.count, 1)
-        XCTAssertTrue(view.pendingSpineTurn?.cover === cover)
+        XCTAssertTrue(view.turn.pendingSpineTurn?.cover === cover)
         XCTAssertEqual(view.mediaOverlayDocumentContext(), context)
         view.animationFrameWait = { _ in }
         frames?.resume()
         frames = nil
-        let shown = await waitUntil { web.alphaValue == 1 && view.turnOverlays.isEmpty }
+        let shown = await waitUntil { web.alphaValue == 1 && view.turn.turnOverlays.isEmpty }
         XCTAssertTrue(shown)
     }
 

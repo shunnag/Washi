@@ -25,7 +25,7 @@ extension EPUBReaderView {
         let source = publication.readingOrder[sourceSpineIndex]
 
         guard sourceSpineIndex == currentSpineIndex,
-              !isLoadingSpineItem, let webView else {
+              !spineLoad.isLoadingSpineItem, let webView else {
             // cooViewer-oxr.32: 別 spine は UI actor を塞がず Core の XML 抽出で読む。
             let text = await Task.detached(priority: .userInitiated) {
                 publication.noteText(

@@ -54,9 +54,9 @@ extension EPUBReaderView {
               record.counts.count == publication.readingOrder.count,
               record.releaseIdentifier == publication.metadata.releaseIdentifier
         else { return false }
-        censusCache[record.metricsKey] = record.counts
+        census.cache[record.metricsKey] = record.counts
         if record.metricsKey == censusOptionsJSON() {
-            censusKey = record.metricsKey
+            census.key = record.metricsKey
             pageCensus = record.counts
             delegate?.readerViewDidUpdatePageCensus(self)
         }
@@ -73,7 +73,7 @@ extension EPUBReaderView {
     /// once the measurement has completed — `censusKey` alone cannot be trusted,
     /// because it is updated ahead of time when the measurement begins.
     public var pageCensusMetricsKey: String? {
-        pageCensus != nil ? censusKey : nil
+        pageCensus != nil ? census.key : nil
     }
 
     /// spine 項目の先頭ページの、本全体でのオフセット(0 始まり)。
@@ -230,8 +230,8 @@ extension EPUBReaderView {
     /// Stops the background census (for when the host leaves the EPUB view; it
     /// is naturally rescheduled by the next runSetup / layout).
     public func cancelPageCensus() {
-        censusTask?.cancel()
-        censusTask = nil
+        census.task?.cancel()
+        census.task = nil
     }
 
     /// メトリクスが変わっていれば census を(デバウンス付きで)再実測する。
@@ -244,14 +244,14 @@ extension EPUBReaderView {
         // 実測を復活させ、不可視ウインドウ/プロセスが生き返るのを防ぐ。
         // 再表示されれば layout/runSetup が改めて呼ぶ)
         guard allowsVisibleRenderingWork else {
-            pendingVisibleLayout = true
+            repagination.pendingVisibleLayout = true
             return
         }
         let key = censusOptionsJSON()
         // 実測に使う寸法はキーと同じ瞬間に採る(デバウンス起床時に採ると、
         // 窓の終盤のリサイズで「旧キーに新寸法の実測」が入りキャッシュが汚れる)
         let size = reflowContentSize()
-        if censusKey == key {
+        if census.key == key {
             if pageCensus != nil { return }
             // 同一メトリクスで実測中なら継続させる(spine 遷移のたびに
             // runSetup から呼ばれるため、ここで中断すると大きい本で
@@ -259,24 +259,24 @@ extension EPUBReaderView {
             // censusTask を nil に戻すので(下記 3 経路)、この分岐が再実測を
             // 塞ぐことはない。この不変条件は「censusTask の再代入は必ず先行
             // cancel を伴う」規律(下の Task 生成箇所)に依存する
-            if let censusTask, !censusTask.isCancelled { return }
+            if let task = census.task, !task.isCancelled { return }
         }
-        if let cached = censusCache[key] {
-            censusKey = key
+        if let cached = census.cache[key] {
+            census.key = key
             pageCensus = cached
             // 旧キーの計測が走っていれば止める(完走させても無駄なうえ、
             // 同じキーへ戻ったときの並走の種になる)
-            censusTask?.cancel()
+            census.task?.cancel()
             delegate?.readerViewDidUpdatePageCensus(self)
             return
         }
-        if censusFailures.shouldSkip(key) {
+        if census.failures.shouldSkip(key) {
             // cooViewer-oxr.21: 失敗台帳で再試行を省く場合も、別メトリクスの
             // 成功値を N/M・ページバーへ残してはならない。
-            if censusKey != key {
-                censusTask?.cancel()
-                censusTask = nil
-                censusKey = key
+            if census.key != key {
+                census.task?.cancel()
+                census.task = nil
+                census.key = key
                 pageCensus = nil
                 delegate?.readerViewDidUpdatePageCensus(self)
             }
@@ -289,15 +289,15 @@ extension EPUBReaderView {
             delegate?.readerViewDidUpdatePageCensus(self)
             guard request == navigationRequestGeneration else { return }
         }
-        censusKey = key
+        census.key = key
         // 規律: censusTask の再代入は必ず先行 cancel を伴う(上のガードの
         // 不変条件がこれに依存する。この規律を崩すと居座り/取り違えが再発する)
-        censusTask?.cancel()
-        let previous = censusTask
+        census.task?.cancel()
+        let previous = census.task
         // オフスクリーン WebKit のジョブは明示 .userInitiated で起動する
         // (低 QoS 継承だと最初の JS 実行の返信が返らない。兄弟の census/
         // rasterizer/thumbnail レンダラと規約を揃える)
-        censusTask = Task(priority: .userInitiated) { [weak self] in
+        census.task = Task(priority: .userInitiated) { [weak self] in
             // リサイズ嵐・連続の設定変更を合流させる
             try? await Task.sleep(for: .milliseconds(300))
             // 旧計測の完全な離脱を待つ(FIFO 直列化)。同じ WKWebView 上で
@@ -312,29 +312,29 @@ extension EPUBReaderView {
             // censusTask を自己退去する(完了済みタスクが居座って再実測を
             // 永久に塞ぐのを防ぐ。成功・失敗経路と対称にする)
             guard !Task.isCancelled else { return }
-            guard let publication = self?.publication, self?.censusKey == key
-            else { self?.censusTask = nil; return }
-            let engine = self?.censusEngine ?? EPUBPaginationCensus()
-            self?.censusEngine = engine
+            guard let publication = self?.publication, self?.census.key == key
+            else { self?.census.task = nil; return }
+            let engine = self?.census.engine ?? EPUBPaginationCensus()
+            self?.census.engine = engine
             let counts = await engine.measure(
                 publication: publication, optionsJSON: key, contentSize: size)
-            guard let self, !Task.isCancelled, self.censusKey == key else { return }
+            guard let self, !Task.isCancelled, self.census.key == key else { return }
             guard let counts else {
                 // 失敗完了は「実測中」ではない — タスクを解放して次の
                 // runSetup での再実測を許す(回数はキーごとに上限あり + TTL)
                 self.recordCensusFailure(forKey: key)
-                self.censusTask = nil
+                self.census.task = nil
                 return
             }
-            self.censusCache[key] = counts
+            self.census.cache[key] = counts
             self.pageCensus = counts
-            self.censusTask = nil  // 成功完了も自己退去(不変条件を対称に保つ)
+            self.census.task = nil  // 成功完了も自己退去(不変条件を対称に保つ)
             self.delegate?.readerViewDidUpdatePageCensus(self)
         }
     }
 
     /// cooViewer-oxr.21: 実測経路と決定的な回帰テストで失敗台帳を共有する。
     func recordCensusFailure(forKey key: String) {
-        censusFailures.recordFailure(key)
+        census.failures.recordFailure(key)
     }
 }

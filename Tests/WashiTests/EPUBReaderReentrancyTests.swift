@@ -248,19 +248,19 @@ final class EPUBReaderReentrancyTests: XCTestCase {
         var sawInFlightCover = false
         delegate.onMove = { view in
             delegate.onMove = nil
-            sawInFlightCover = !view.turnOverlays.isEmpty
+            sawInFlightCover = !view.turn.turnOverlays.isEmpty
             view.load(publication: replacement)
         }
 
         view.goForward()
-        let turn = try XCTUnwrap(view.lastAnimatedTurnTask)
+        let turn = try XCTUnwrap(view.turn.lastAnimatedTurnTask)
         await turn.value
 
         XCTAssertTrue(sawInFlightCover, "スナップショット失敗による演出なしの経路では検証にならない")
         XCTAssertTrue(view.publication === replacement)
         XCTAssertEqual(view.currentSpineIndex, 0)
         XCTAssertEqual(delegate.animationCount, 0)
-        XCTAssertTrue(view.turnOverlays.isEmpty)
+        XCTAssertTrue(view.turn.turnOverlays.isEmpty)
     }
 
     func testScheduledAnimatedTurnDoesNotAdvanceReplacementBook() async throws {
@@ -290,14 +290,14 @@ final class EPUBReaderReentrancyTests: XCTestCase {
         let replacement = try publication("replacement-fxl", fixed: true)
 
         view.goForward()
-        let turn = try XCTUnwrap(view.lastAnimatedTurnTask)
+        let turn = try XCTUnwrap(view.turn.lastAnimatedTurnTask)
         view.load(publication: replacement)
         await turn.value
 
         XCTAssertTrue(view.publication === replacement)
         XCTAssertEqual(view.currentSpineIndex, 0)
         XCTAssertEqual(delegate.animationCount, 0)
-        XCTAssertTrue(view.turnOverlays.isEmpty)
+        XCTAssertTrue(view.turn.turnOverlays.isEmpty)
     }
 
     func testReduceMotionUsesSystemSettingUnlessOverridden() {
@@ -339,8 +339,8 @@ final class EPUBReaderReentrancyTests: XCTestCase {
         view.goForward()
 
         XCTAssertEqual(view.currentSpineIndex, 1)
-        XCTAssertNil(view.lastAnimatedTurnTask)
+        XCTAssertNil(view.turn.lastAnimatedTurnTask)
         XCTAssertEqual(delegate.animationCount, 0)
-        XCTAssertTrue(view.turnOverlays.isEmpty)
+        XCTAssertTrue(view.turn.turnOverlays.isEmpty)
     }
 }

@@ -95,7 +95,7 @@ extension EPUBReaderView {
         guard allowsVisibleRenderingWork else {
             // cooViewer-oxr.54: 非表示中は WebKit の再ページ割りと census を
             // 起動せず、最後の寸法を表示復帰時に一度だけ反映する。
-            pendingVisibleLayout = true
+            repagination.pendingVisibleLayout = true
             return
         }
         layoutVisibleContent(webView, forcePagination: false)
@@ -115,11 +115,11 @@ extension EPUBReaderView {
             scheduleCensusIfNeeded()
         } else {
             placeWebView(contentFrame, zoom: 1)
-            if forcePagination || lastLaidOutSize != bounds.size {
+            if forcePagination || repagination.lastLaidOutSize != bounds.size {
                 schedulePagination(preserveProgression: true)
             }
         }
-        lastLaidOutSize = bounds.size
+        repagination.lastLaidOutSize = bounds.size
     }
 
     /// FXL: ICB へのアスペクトフィット。中央寄せは webView フレームで行う。
@@ -131,9 +131,9 @@ extension EPUBReaderView {
 
     /// WebView の矩形と倍率を当てる。コミット待ちの間は、当てる予定の値だけを更新する
     private func placeWebView(_ frame: NSRect, zoom: CGFloat) {
-        if pendingWebViewLayout != nil {
-            pendingWebViewLayout?.frame = frame
-            pendingWebViewLayout?.zoom = zoom
+        if spineLoad.pendingWebViewLayout != nil {
+            spineLoad.pendingWebViewLayout?.frame = frame
+            spineLoad.pendingWebViewLayout?.zoom = zoom
             return
         }
         applyWebViewLayout(frame, zoom: zoom)
@@ -141,8 +141,8 @@ extension EPUBReaderView {
 
     /// コミット待ちの矩形と倍率を当てる(同じ読み込みのものに限る)。
     func applyPendingWebViewLayout() {
-        guard let pending = pendingWebViewLayout else { return }
-        pendingWebViewLayout = nil
+        guard let pending = spineLoad.pendingWebViewLayout else { return }
+        spineLoad.pendingWebViewLayout = nil
         guard pending.generation == spineLoadGeneration else { return }
         applyWebViewLayout(pending.frame, zoom: pending.zoom)
     }
@@ -151,22 +151,9 @@ extension EPUBReaderView {
     func fixedItemLayout() -> (frame: NSRect, zoom: CGFloat)? {
         guard webView != nil, let publication else { return nil }
         let available = contentFrame
-        let viewport: CGSize
-        if fxlDeviceSizedViewportItems.contains(currentSpineIndex) {
-            viewport = available.size
-        } else if let cached = fxlViewportCache[currentSpineIndex] {
-            viewport = cached
-        } else {
-            let info = try? publication.fixedLayoutInfo(
-                forSpineIndex: currentSpineIndex)
-            if info?.viewportIsDeviceSized == true {
-                fxlDeviceSizedViewportItems.insert(currentSpineIndex)
-                viewport = available.size
-            } else {
-                viewport = info?.viewportSize ?? CGSize(width: 1200, height: 1600)
-                fxlViewportCache[currentSpineIndex] = viewport
-            }
-        }
+        let viewport = fxlViewportCache.viewport(
+            forSpineIndex: currentSpineIndex, available: available.size,
+            publication: publication)
         guard viewport.width > 0, viewport.height > 0,
               available.width > 0, available.height > 0 else { return nil }
         let scale = min(available.width / viewport.width,
@@ -193,7 +180,7 @@ extension EPUBReaderView {
         guard webView != nil, publication != nil else { return }
         guard allowsVisibleRenderingWork else {
             // cooViewer-oxr.54: 設定変更経路も不可視中は同じ延期状態へ畳む。
-            pendingVisibleLayout = true
+            repagination.pendingVisibleLayout = true
             return
         }
         // spine 読み込み中(didFinish 前)は再ページ割りを走らせない。
@@ -201,13 +188,13 @@ extension EPUBReaderView {
         // や alpha を早期リセットして、旧文書の境界イベント受理や表示のちらつきを
         // 招く(世代トークンは同一世代なので防げない)。didFinish 後の
         // runSetup 完了時に defer が pendingRepaginate を拾って正しい順序で走る
-        if isSettingUp || isLoadingSpineItem {
-            pendingRepaginate = true
+        if spineLoad.isSettingUp || spineLoad.isLoadingSpineItem {
+            repagination.pendingRepaginate = true
             return
         }
-        repaginateWork?.cancel()
+        repagination.repaginateWork?.cancel()
         let generation = spineLoadGeneration
-        repaginateWork = Task { [weak self] in
+        repagination.repaginateWork = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
             await self?.runSetup(preserveProgression: preserveProgression,
@@ -252,7 +239,7 @@ extension EPUBReaderView {
     /// JS へ復元先の適用を依頼した時点では実位置が未確定なので、locator は
     /// pageChanged が届くまで保持する
     func applyPendingTargetAfterSetup() {
-        applyTarget(pendingTarget)
+        applyTarget(spineLoad.pendingTarget)
     }
 
     /// didFinish 後(または再ページ割り時)のセットアップ実行。
@@ -261,12 +248,12 @@ extension EPUBReaderView {
     /// 移っていたら、その文書の状態を消費・破壊してはならない)
     func runSetup(preserveProgression: Bool, generation: Int) async {
         guard let webView, generation == spineLoadGeneration else { return }
-        isSettingUp = true
+        spineLoad.isSettingUp = true
         defer {
-            isSettingUp = false
+            spineLoad.isSettingUp = false
             // 実行中に届いた再ページ割り(リサイズ・設定変更)を後追いする
-            if pendingRepaginate {
-                pendingRepaginate = false
+            if repagination.pendingRepaginate {
+                repagination.pendingRepaginate = false
                 schedulePagination(preserveProgression: true)
             }
         }
@@ -288,16 +275,16 @@ extension EPUBReaderView {
             if !preserveProgression {
                 spineNavigationGate.dropExpectations(through: generation)
                 // フレーム待ち中に次の移動が始まっても、この文書を復旧先にする。
-                isShowingSetUpDocument = true
-                settledLocator = nil
-                isRecoveryLoad = false
+                spineLoad.recovery.isShowingSetUpDocument = true
+                spineLoad.recovery.settledLocator = nil
+                spineLoad.recovery.isRecoveryLoad = false
                 // cooViewer-oxr.23: 新文書の target が発行する pageChanged は
                 // 受けつつ、それ以前の旧文書通知だけを loading gate で捨てる。
-                isLoadingSpineItem = false
+                spineLoad.isLoadingSpineItem = false
                 applyPendingTargetAfterSetup()
             }
-            isLoadingSpineItem = false
-            pendingTarget = .start
+            spineLoad.isLoadingSpineItem = false
+            spineLoad.pendingTarget = .start
             if let highlight = pendingMediaOverlayHighlight {
                 pendingMediaOverlayHighlight = nil
                 // 新しい章の最初の区間を、表示を戻す前に強調する。
@@ -322,21 +309,21 @@ extension EPUBReaderView {
             webView.alphaValue = 1  // 持ち越しカバーがあればその下で戻る
             // 次の spine 遷移にそなえて控えを撮り直す(カバーを畳んだ後に走る)
             schedulePageCoverPrefetch()
-            if let pending = pendingSpineTurn, !pending.animated {
+            if let pending = turn.pendingSpineTurn, !pending.animated {
                 // 控えのカバーは、新しいページが合成された今の時点で演出なしに畳む
-                pendingSpineTurn = nil
+                turn.pendingSpineTurn = nil
                 foldTurnCover(pending.cover)
-            } else if let pending = pendingSpineTurn {
+            } else if let pending = turn.pendingSpineTurn {
                 // spine 遷移演出の仕上げ: 新ページの描画完了を待って撮り、
                 // 項目内めくりと同じ演出でカバー(旧ページ)を取り除く
-                pendingSpineTurn = nil
+                turn.pendingSpineTurn = nil
                 // このカバーの時間切れ回収タスクを **snapshot の await より前** に
                 // 止める。runTurnEffect 冒頭でも止めるが、下の takeSnapshot 待ちの
                 // 間に membership タイムアウトが発火するとカバーを途中で引き剥がし、
                 // superview を失ったビューを演出することになる
                 let coverID = ObjectIdentifier(pending.cover)
-                spineTurnTimeouts[coverID]?.cancel()
-                spineTurnTimeouts[coverID] = nil
+                turn.spineTurnTimeouts[coverID]?.cancel()
+                turn.spineTurnTimeouts[coverID] = nil
                 let config = WKSnapshotConfiguration()
                 config.afterScreenUpdates = true
                 // ノンブルは runSetup の updateFurniture(前進)または
@@ -345,7 +332,7 @@ extension EPUBReaderView {
                 let newWeb = try? await webView.takeSnapshot(configuration: config)
                 guard generation == spineLoadGeneration,
                       webView === self.webView,
-                      turnOverlays.contains(pending.cover) else { return }
+                      turn.turnOverlays.contains(pending.cover) else { return }
                 let newPage = newWeb.map {
                     self.composeFullPage(webImage: $0, in: webView.frame)
                 }
@@ -357,12 +344,10 @@ extension EPUBReaderView {
             // 古い文書の JS 失敗で新しい文書の読み込み状態を壊さない
             guard generation == spineLoadGeneration else { return }
             if !preserveProgression {
-                settledLocator = nil
-                isRecoveryLoad = false
-                isShowingSetUpDocument = false
+                spineLoad.resetRecovery()
             }
             cancelPendingTextRangeRequest()
-            isLoadingSpineItem = false
+            spineLoad.isLoadingSpineItem = false
             pendingMediaOverlayHighlight = nil
             clearPendingSpineTurn()
             webView.alphaValue = 1

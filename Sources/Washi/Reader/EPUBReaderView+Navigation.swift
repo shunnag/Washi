@@ -56,7 +56,7 @@ extension EPUBReaderView {
     /// plain locator when the position cannot be resolved (images, empty pages).
     public func currentLocatorWithTextAnchor() async -> EPUBLocator {
         var locator = currentLocator
-        guard !isLoadingSpineItem, canRenderSpine(at: currentSpineIndex),
+        guard !spineLoad.isLoadingSpineItem, canRenderSpine(at: currentSpineIndex),
               let webView else { return locator }
         let result = try? await webView.callAsyncJavaScript(
             "return __washi.visibleTextOffset();",
@@ -70,12 +70,14 @@ extension EPUBReaderView {
     public var currentLocator: EPUBLocator {
         // cooViewer-oxr.23: 読み込み中は旧文書由来のページカウンタでなく、
         // load/go が最後に予約した target を現在位置として答える。
-        if isLoadingSpineItem {
-            return locator(for: pendingTarget, at: currentSpineIndex)
+        if spineLoad.isLoadingSpineItem {
+            return locator(for: spineLoad.pendingTarget, at: currentSpineIndex)
         }
         // 復元がまだ適用されていない間は復元先を答える(開いてすぐ閉じたときに
         // 保存済み位置を (0,0) で潰さない)
-        if let pendingRestoreLocator { return pendingRestoreLocator }
+        if let pendingRestoreLocator = spineLoad.pendingRestoreLocator {
+            return pendingRestoreLocator
+        }
         let progression = scrollProgression ?? (pageCountInItem <= 1
             ? 0 : Double(pageInItem) / Double(pageCountInItem - 1))
         // idref 併記(publication.resolve で改版追跡できる形)で返す
@@ -248,7 +250,7 @@ extension EPUBReaderView {
             // 巻頭/巻末超え: ホストの反応(ループ・隣の本・何もしない)は
             // めくり演出ではないので、演出の持ち越しカバーは先に畳む。
             // 控えのカバーは、読み込み中の最後の項目の表示が戻るまで残す(Washi-3b1)
-            if pendingSpineTurn?.animated != false { clearPendingSpineTurn() }
+            if turn.pendingSpineTurn?.animated != false { clearPendingSpineTurn() }
             delegate?.readerView(self, didReachBookEdge: forward)
             return
         }
@@ -304,9 +306,9 @@ extension EPUBReaderView {
     func applyOrQueueTarget(_ target: PendingTarget) {
         if case .textRange = target {
             // 着地前の保存・戻る履歴にもアンカーを残し、進行率だけへ劣化させない。
-            pendingRestoreLocator = locator(for: target, at: currentSpineIndex)
+            spineLoad.pendingRestoreLocator = locator(for: target, at: currentSpineIndex)
         }
-        guard isLoadingSpineItem else {
+        guard spineLoad.isLoadingSpineItem else {
             applyTarget(target)
             return
         }
@@ -315,8 +317,8 @@ extension EPUBReaderView {
         } else {
             cancelPendingTextRangeRequest()
         }
-        pendingTarget = target
-        pendingRestoreLocator = locator(for: target, at: currentSpineIndex)
+        spineLoad.pendingTarget = target
+        spineLoad.pendingRestoreLocator = locator(for: target, at: currentSpineIndex)
     }
 
     func locator(for target: PendingTarget, at index: Int) -> EPUBLocator {

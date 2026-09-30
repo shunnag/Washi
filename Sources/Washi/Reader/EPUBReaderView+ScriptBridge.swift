@@ -71,7 +71,7 @@ extension EPUBReaderView {
               let type = dict["type"] as? String,
               isFromCurrentDocument(dict) else { return }
         if let index = dict["spineIndex"] as? Int {
-            guard !isLoadingSpineItem, isFromCurrentDocument(dict),
+            guard !spineLoad.isLoadingSpineItem, isFromCurrentDocument(dict),
                   loadedScrollGroup?.contains(index) == true else { return }
         }
         switch type {
@@ -84,7 +84,7 @@ extension EPUBReaderView {
             // pending target / 復元位置とホストの保存位置を上書きしない。
             // cooViewer-oxr.46 C35: 読み込みが済んだ後に届く旧文書の通知も、
             // setup で渡した印が違うので同じく捨てる。
-            guard !isLoadingSpineItem, isFromCurrentDocument(dict) else { break }
+            guard !spineLoad.isLoadingSpineItem, isFromCurrentDocument(dict) else { break }
             let request = navigationRequestGeneration
             let generation = spineLoadGeneration
             if let index = dict["spineIndex"] as? Int, index != currentSpineIndex {
@@ -99,7 +99,7 @@ extension EPUBReaderView {
             pageCountInItem = max(1, dict["pageCount"] as? Int ?? 1)
             scrollProgression = (dict["progression"] as? Double).map(Self.clampedProgression)
             pagesPerScreen = max(1, dict["pagesPerScreen"] as? Int ?? pagesPerScreen)
-            pendingRestoreLocator = nil  // 実位置が確定した
+            spineLoad.pendingRestoreLocator = nil  // 実位置が確定した
             updateCurrentPrintPage()
             guard request == navigationRequestGeneration,
                   generation == spineLoadGeneration else { break }
@@ -115,7 +115,7 @@ extension EPUBReaderView {
         case "boundary":
             // spine 切替の読み込み中に旧文書から届く境界イベントは捨てる
             // (トラックパッド慣性やキーリピートでの章飛び越し防止)
-            guard !isLoadingSpineItem else { break }
+            guard !spineLoad.isLoadingSpineItem else { break }
             let forward = dict["forward"] as? Bool ?? true
             advanceSpine(forward: forward)
         case "wheelTurn":
@@ -127,7 +127,7 @@ extension EPUBReaderView {
             // 綴じ方向への変換はタップと同じく turnPageLeft/Right が担う
             // (JS は表紙等の画像ページで本の writing-mode を知れない)。
             // 垂直ジェスチャは内部縦積みと一致するので下=読書順で次
-            guard !isLoadingSpineItem else { break }
+            guard !spineLoad.isLoadingSpineItem else { break }
             let forward = dict["forward"] as? Bool ?? true
             if dict["horizontal"] as? Bool ?? false {
                 // native 経路と同じくホスト設定でゲート・反転する
@@ -161,7 +161,7 @@ extension EPUBReaderView {
                 command: dict["meta"] as? Bool ?? false)
             dispatchClick(event)
         case "selection":
-            guard !isLoadingSpineItem else { break }
+            guard !spineLoad.isLoadingSpineItem else { break }
             guard let text = dict["text"] as? String, !text.isEmpty,
                   let start = dict["start"] as? Int,
                   let end = dict["end"] as? Int,

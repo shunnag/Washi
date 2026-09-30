@@ -140,20 +140,6 @@ public final class EPUBReaderView: NSView {
     }
     var printPageMarkers: [PrintPageMarker] = []
 
-    /// cooViewer-oxr.37: テストは VoiceOver プロセスへ依存せず、確定した
-    /// アナウンス文字列をこの seam で捕捉する。
-    var accessibilityAnnouncementHandler: ((String) -> Void)?
-    var accessibilityAnnouncementDelay: Duration = .milliseconds(150)
-    var accessibilityPreferredLanguageOverride: String?
-    var accessibilityIncreaseContrastOverride: Bool? {
-        didSet { accessibilityDisplayOptionsDidChange() }
-    }
-    var accessibilityDifferentiateWithoutColorOverride: Bool? {
-        didSet { accessibilityDisplayOptionsDidChange() }
-    }
-    // OS の設定を変更せず、演出の有無と取り消しを両方検証する。
-    // 未指定なら常に現在のアクセシビリティ設定に従う。
-    var accessibilityReduceMotionOverride: Bool?
     var accessibilityShouldReduceMotion: Bool {
         accessibilityReduceMotionOverride
             ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -226,26 +212,48 @@ public final class EPUBReaderView: NSView {
         case fragment(String)
         case textRange(utf16Offset: Int, utf16Length: Int, fallbackProgression: Double)
     }
-    var pendingTarget: PendingTarget = .start
     struct PendingTextRangeRequest {
         let id: UUID
         let continuation: CheckedContinuation<EPUBTextRangeLanding?, Never>
     }
     var pendingTextRangeRequest: PendingTextRangeRequest?
     var textRangeTask: Task<Void, Never>?
-    // JS との境界だけを差し替え、実 WebKit なしでアンカー移動と取消を検証する。
-    var textRangeLocationHandler: ((Int, Int) async -> EPUBTextRangeLanding?)?
-    var scriptEvaluationHandler: ((String) -> Void)?
-    var isSettingUp = false
-    /// spine 項目の読み込み中(旧文書から届く境界イベントを捨てて
-    /// 章の飛び越しを防ぐ)
-    var isLoadingSpineItem = false
-    /// setup 済みの文書を離れる最初の移動元。読み込みの置き換え中も保持する。
-    var settledLocator: EPUBLocator?
-    var isShowingSetUpDocument = false
-    var isRecoveryLoad = false
-    // WebKit が読み込みを開始しない場合を、実際の再読み込みと組み合わせて検証する。
-    var spineLoadHandler: ((URLRequest) -> WKNavigation?)?
+
+    /// spine 項目の読み込みの進行状態。unload では丸ごと既定値へ戻す
+    struct SpineLoadState {
+        /// 読み込みの失敗から戻る先。setup 済みの文書を離れた後も、その文書を
+        /// 復旧先として覚えておく
+        struct RecoveryState {
+            /// setup 済みの文書を離れる最初の移動元。読み込みの置き換え中も保持する。
+            var settledLocator: EPUBLocator?
+            var isShowingSetUpDocument = false
+            var isRecoveryLoad = false
+        }
+
+        var isSettingUp = false
+        /// spine 項目の読み込み中(旧文書から届く境界イベントを捨てて
+        /// 章の飛び越しを防ぐ)
+        var isLoadingSpineItem = false
+        var recovery = RecoveryState()
+        var pendingTarget: PendingTarget = .start
+        /// 復元先(復元完了まで currentLocator の答えとして使う。復元前の保存で
+        /// 位置が (0,0) に潰れるのを防ぐ)
+        var pendingRestoreLocator: EPUBLocator?
+        /// 読み込み前に決め、didCommit で当てる WebView の矩形と倍率
+        var pendingWebViewLayout: (frame: NSRect, zoom: CGFloat, generation: Int)?
+        /// spine の読み込みを始めてからコミットまでの間か(置き換えた前の読み込みの
+        /// コミットでも終わる)。前の文書が見えているのでノンブルを隠す
+        /// (新しい項目の番号を前のページの上に出さない)
+        /// この間に次の読み込みが始まったら、取り置いた控えを引き継ぐ(Washi-3b1)
+        var isAwaitingCommit = false
+
+        /// 復旧先を忘れる(WebView の作り直し・復旧できない失敗・WebContent の終了)
+        mutating func resetRecovery() {
+            recovery = RecoveryState()
+        }
+    }
+    var spineLoad = SpineLoadState()
+
     /// spine 読み込みの世代。loadSpineItem のたびに進める。
     /// runSetup は「開始時と各 await 後」に世代一致を確認し、高速なページ
     /// 送りで古いセットアップが新しい文書の状態(pendingTarget・
@@ -287,13 +295,46 @@ public final class EPUBReaderView: NSView {
     /// ピンチ開始時の倍率(確定は指を離したとき)
     var pinchBaseFontScale: Double?
 
-    var marginPressTime: TimeInterval = 0
-    var marginPressLocation = NSPoint.zero
+    /// 余白で押し下げた時刻と位置(解放時にクリックかドラッグ・長押しかを判定する)
+    struct MarginPress {
+        var time: TimeInterval = 0
+        var location = NSPoint.zero
+    }
+    var marginPress = MarginPress()
 
-    var marginWheelAccumulator: CGFloat = 0
-    var marginWheelLastTime: TimeInterval = 0
-    var marginWheelLatched = false
-    var marginWheelHorizontal = false
+    /// 余白のホイール/トラックパッドを「1 ジェスチャ = 1 ページ」に量子化するラッチ。
+    /// 定数(0.25 秒の静穏・±50 の蓄積・非精密デルタの ×40・軸のラッチ)は
+    /// JS 側の wheelTurn と cooViewer が同じ値を持つので変えない
+    struct WheelTurnLatch {
+        var accumulator: CGFloat = 0
+        var lastTime: TimeInterval = 0
+        var latched = false
+        var horizontal = false
+
+        /// ホイールイベントを蓄積し、1 ページぶんに達したら軸と向きを返す
+        /// (ラッチ中・蓄積が足りない間は nil)
+        mutating func register(_ event: NSEvent) -> (horizontal: Bool, positive: Bool)? {
+            // JS 側と同じ「1 ジェスチャ = 1 ページ」量子化(250ms 静穏で解除・
+            // 軸は最初のイベントで確定)。慣性はラッチが飲み込む
+            if event.timestamp - lastTime > 0.25 {
+                latched = false
+                accumulator = 0
+                horizontal =
+                    abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
+            }
+            lastTime = event.timestamp
+            guard !latched else { return nil }
+            let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 40
+            accumulator += scale * (horizontal
+                ? event.scrollingDeltaX : event.scrollingDeltaY)
+            guard abs(accumulator) >= 50 else { return nil }
+            let positive = accumulator > 0
+            accumulator = 0
+            latched = true
+            return (horizontal, positive)
+        }
+    }
+    var marginWheelLatch = WheelTurnLatch()
 
     // MARK: - メディアオーバーレイ
 
@@ -315,34 +356,33 @@ public final class EPUBReaderView: NSView {
 
     // MARK: - カバーと転換
 
-    /// めくりアニメーションのオーバーレイ(spine 切替時に掃除)
-    var turnOverlays: [NSView] = []
-    // 直近に予約した演出処理。テストは固定時間の sleep でなく、この終了を待つ。
-    var lastAnimatedTurnTask: Task<Void, Never>?
-    /// 直前のめくり時刻(高速連打時はアニメーションを省略して即めくり)
-    var lastTurnDate = Date.distantPast
+    /// めくり演出と spine 遷移のカバーの状態
+    struct TurnState {
+        /// めくりアニメーションのオーバーレイ(spine 切替時に掃除)
+        var turnOverlays: [NSView] = []
+        var pendingSpineTurn: PendingSpineTurn?
+        /// カバー同一性 → 時間切れ回収タスク。所有権を失った(上書きされた)カバーも
+        /// membership で回収するため、pendingSpineTurn ではなくカバーごとに持つ。
+        /// 演出中(runTurnEffect)や仕上げ時は明示 cancel してスライド途中で
+        /// カバーを引き剥がさない
+        var spineTurnTimeouts: [ObjectIdentifier: Task<Void, Never>] = [:]
+        /// 直前のめくり時刻(高速連打時はアニメーションを省略して即めくり)
+        var lastTurnDate = Date.distantPast
+        // 直近に予約した演出処理。テストは固定時間の sleep でなく、この終了を待つ。
+        var lastAnimatedTurnTask: Task<Void, Never>?
+    }
+    var turn = TurnState()
 
-    /// 控えは常に 1 枚だけ持つ(等倍なので全画面では数十 MB になる)
-    var prefetchedPageCover: PrefetchedPageCover?
-    var pageCoverPrefetchTask: Task<Void, Never>?
-    var pageCoverPrefetchRetries = 0
-    /// spine を離れる直前に、離れるページのものと確認できた控え。didCommit で貼る
-    var armedSpineCover: PrefetchedPageCover?
-    /// 読み込み前に決め、didCommit で当てる WebView の矩形と倍率
-    var pendingWebViewLayout: (frame: NSRect, zoom: CGFloat, generation: Int)?
-    /// spine の読み込みを始めてからコミットまでの間か(置き換えた前の読み込みの
-    /// コミットでも終わる)。前の文書が見えているのでノンブルを隠す
-    /// (新しい項目の番号を前のページの上に出さない)
-    /// この間に次の読み込みが始まったら、取り置いた控えを引き継ぐ(Washi-3b1)
-    var isAwaitingCommit = false
-
-    var pendingSpineTurn: PendingSpineTurn?
-
-    /// カバー同一性 → 時間切れ回収タスク。所有権を失った(上書きされた)カバーも
-    /// membership で回収するため、pendingSpineTurn ではなくカバーごとに持つ。
-    /// 演出中(runTurnEffect)や仕上げ時は明示 cancel してスライド途中で
-    /// カバーを引き剥がさない
-    var spineTurnTimeouts: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// spine 遷移中に地色を見せないための、現在ページの控えの状態
+    struct PageCoverState {
+        /// 控えは常に 1 枚だけ持つ(等倍なので全画面では数十 MB になる)
+        var prefetchedPageCover: PrefetchedPageCover?
+        var pageCoverPrefetchTask: Task<Void, Never>?
+        var pageCoverPrefetchRetries = 0
+        /// spine を離れる直前に、離れるページのものと確認できた控え。didCommit で貼る
+        var armedSpineCover: PrefetchedPageCover?
+    }
+    var pageCover = PageCoverState()
 
     /// めくりカバー掲示中はライブのノンブルを隠す。番号はカバー(全面合成)に
     /// 焼き込み済みで、カバーはラベルより背面に入るため、隠さないと演出中に
@@ -354,21 +394,45 @@ public final class EPUBReaderView: NSView {
 
     // MARK: - レイアウトと再ページ割り
 
-    /// セットアップ実行中に届いた再ページ割り要求(捨てずに後追い実行する)
-    var pendingRepaginate = false
-    var repaginateWork: Task<Void, Never>?
-    var lastLaidOutSize: CGSize = .zero
-    /// cooViewer-oxr.54: 不可視中に畳んだレイアウトを、再表示時に一度だけ行う。
-    var pendingVisibleLayout = false
-    /// 復元先(復元完了まで currentLocator の答えとして使う。復元前の保存で
-    /// 位置が (0,0) に潰れるのを防ぐ)
-    var pendingRestoreLocator: EPUBLocator?
+    /// 再ページ割りの予約と、不可視中に畳んだレイアウトの状態
+    struct RepaginationState {
+        /// セットアップ実行中に届いた再ページ割り要求(捨てずに後追い実行する)
+        var pendingRepaginate = false
+        var repaginateWork: Task<Void, Never>?
+        var lastLaidOutSize: CGSize = .zero
+        /// cooViewer-oxr.54: 不可視中に畳んだレイアウトを、再表示時に一度だけ行う。
+        var pendingVisibleLayout = false
+    }
+    var repagination = RepaginationState()
+
     /// FXL の viewport キャッシュ(layoutFixedItem がリサイズ毎に XHTML を
     /// 再パースしないため)
-    var fxlViewportCache: [Int: CGSize] = [:]
-    /// cooViewer-oxr.50: device-* viewport は寸法でなく種別だけをキャッシュし、
-    /// 実寸は毎回現在の表示領域から取る。
-    var fxlDeviceSizedViewportItems: Set<Int> = []
+    struct FixedLayoutViewportCache {
+        var sizes: [Int: CGSize] = [:]
+        /// cooViewer-oxr.50: device-* viewport は寸法でなく種別だけをキャッシュし、
+        /// 実寸は毎回現在の表示領域から取る。
+        var deviceSizedItems: Set<Int> = []
+
+        /// 項目の viewport 寸法(初回は XHTML を解析してキャッシュする)
+        mutating func viewport(forSpineIndex index: Int, available: CGSize,
+                               publication: EPUBPublication) -> CGSize {
+            if deviceSizedItems.contains(index) {
+                return available
+            }
+            if let cached = sizes[index] {
+                return cached
+            }
+            let info = try? publication.fixedLayoutInfo(forSpineIndex: index)
+            if info?.viewportIsDeviceSized == true {
+                deviceSizedItems.insert(index)
+                return available
+            }
+            let viewport = info?.viewportSize ?? CGSize(width: 1200, height: 1600)
+            sizes[index] = viewport
+            return viewport
+        }
+    }
+    var fxlViewportCache = FixedLayoutViewportCache()
 
     // MARK: - census
 
@@ -380,32 +444,35 @@ public final class EPUBReaderView: NSView {
     /// dimensions, or spread mode change.
     public internal(set) var pageCensus: [Int]?
 
-    var censusEngine: EPUBPaginationCensus?
-    var censusTask: Task<Void, Never>?
-    /// 計測時のメトリクスキー(census 用オプション JSON。sortedKeys で決定的)
-    var censusKey: String?
-    /// メトリクスキー → 実測結果(フォントを行き来したときの再計測を省く)
-    var censusCache: [String: [Int]] = [:]
+    /// 全文ページ数の実測(census)の状態。本に紐づくので本の差し替えで丸ごと戻す
+    struct CensusState {
+        var engine: EPUBPaginationCensus?
+        var task: Task<Void, Never>?
+        /// 計測時のメトリクスキー(census 用オプション JSON。sortedKeys で決定的)
+        var key: String?
+        /// メトリクスキー → 実測結果(フォントを行き来したときの再計測を省く)
+        var cache: [String: [Int]] = [:]
+        /// メトリクスごとの実測失敗台帳(2-strike + TTL)。上限を超えたキーは
+        /// 再スケジュールしない(壊れた spine を持つ本で runSetup のたびに 15 秒
+        /// タイムアウトを繰り返さないため)が、TTL 経過で赦して再挑戦させる
+        /// (一時要因で欠けたページ数がセッション中ずっと出ないのを防ぐ)
+        var failures = CensusFailureLedger()
+    }
+    var census = CensusState()
 
     var thumbnailRenderer: EPUBScreenThumbnailRenderer?
 
-    /// メトリクスごとの実測失敗台帳(2-strike + TTL)。上限を超えたキーは
-    /// 再スケジュールしない(壊れた spine を持つ本で runSetup のたびに 15 秒
-    /// タイムアウトを繰り返さないため)が、TTL 経過で赦して再挑戦させる
-    /// (一時要因で欠けたページ数がセッション中ずっと出ないのを防ぐ)
-    var censusFailures = CensusFailureLedger()
-
     // MARK: - WebContent 再読込
 
-    /// WebContent 終了の再読み込みは同一 spine の短時間ループを有限にする。
-    var webContentReloadLimiter = WebContentReloadLimiter()
-    var pendingWebContentReloadDelay: Duration?
-    var webContentReloadTask: Task<Void, Never>?
-    var webContentReloadRequestCount = 0
-    var webContentReloadAttemptCount = 0
-    var hasPendingWebContentReload: Bool {
-        webContentReloadTask != nil || pendingWebContentReloadDelay != nil
+    /// WebContent 終了後の再読み込みの状態。同一 spine の短時間ループを有限にする
+    struct WebContentReloadState {
+        var limiter = WebContentReloadLimiter()
+        var pendingDelay: Duration?
+        var task: Task<Void, Never>?
+        var requestCount = 0
+        var attemptCount = 0
     }
+    var webContentReload = WebContentReloadState()
 
     // MARK: - テスト用の差し替え点
 
@@ -419,9 +486,37 @@ public final class EPUBReaderView: NSView {
     /// 描画フレームの待ちを打ち切るまでの時間。テストで差し替えられる
     var animationFrameWaitTimeout = Duration.milliseconds(600)
 
+    /// 読み上げの通知までの待ち。テストで差し替えられる
+    var accessibilityAnnouncementDelay: Duration = .milliseconds(150)
+
     /// テスト用: ウインドウが画面に出ているかを OS の遮蔽判定に依らず決める。
     /// 画面外に置いたテストウインドウは遮蔽扱いで、控えを撮らないため
     var isWindowOnScreenOverride: Bool?
+
+    // cooViewer-oxr.37
+    /// テスト用: VoiceOver プロセスへ依存せず、確定したアナウンス文字列を捕捉する。
+    var accessibilityAnnouncementHandler: ((String) -> Void)?
+    /// テスト用: 読み上げ文の言語を OS の設定に依らず決める
+    var accessibilityPreferredLanguageOverride: String?
+    /// テスト用: コントラスト増加の設定を OS に依らず決める
+    var accessibilityIncreaseContrastOverride: Bool? {
+        didSet { accessibilityDisplayOptionsDidChange() }
+    }
+    /// テスト用: 色以外の区別の設定を OS に依らず決める
+    var accessibilityDifferentiateWithoutColorOverride: Bool? {
+        didSet { accessibilityDisplayOptionsDidChange() }
+    }
+    /// テスト用: 視差効果を減らす設定を OS に依らず決める。
+    /// OS の設定を変更せず、演出の有無と取り消しを両方検証する。
+    /// 未指定なら常に現在のアクセシビリティ設定に従う。
+    var accessibilityReduceMotionOverride: Bool?
+
+    /// テスト用: JS との境界だけを差し替え、実 WebKit なしでアンカー移動と取消を検証する。
+    var textRangeLocationHandler: ((Int, Int) async -> EPUBTextRangeLanding?)?
+    /// テスト用: 送り出す JS を捕捉する(実 WebKit なしで評価内容を検証する)
+    var scriptEvaluationHandler: ((String) -> Void)?
+    /// テスト用: WebKit が読み込みを開始しない場合を、実際の再読み込みと組み合わせて検証する。
+    var spineLoadHandler: ((URLRequest) -> WKNavigation?)?
 
     /// 外部ネットワークを遮断するコンテンツルール(コンパイルは初回のみ)
     static let contentRuleList: Task<WKContentRuleList?, Never> = Task { @MainActor in

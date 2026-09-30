@@ -19,18 +19,18 @@ extension EPUBReaderView {
             && !EPUBScreenMetrics.isScrolled(effectiveFlow)
             && allowsVisibleRenderingWork
             && !accessibilityShouldReduceMotion
-            && Date().timeIntervalSince(lastTurnDate) > 0.3
+            && Date().timeIntervalSince(turn.lastTurnDate) > 0.3
             // spine 読込中は演出を張らない: 章境界の重い読込中に再度めくると、
             // 読込中 webView のスナップショットでゴミカバーを作り pendingSpineTurn を
             // 上書きして画面を固着させる。演出なしの fast-path に降格することで
             // FXL のキーリピートめくりは従来どおり動く
-            && !isLoadingSpineItem
-        lastTurnDate = Date()
+            && !spineLoad.isLoadingSpineItem
+        turn.lastTurnDate = Date()
         if isFixedLayoutItem {
             // FXL 項目は常に隣接 spine への移動。演出ありなら旧ページの
             // カバーを持ち越して spine 遷移演出(下の boundary 経路と同じ)
             if wantsAnimation {
-                lastAnimatedTurnTask = Task { [weak self] in
+                turn.lastAnimatedTurnTask = Task { [weak self] in
                     guard let self else { return }
                     await self.beginFXLSpineTurn(forward: forward, context: context)
                 }
@@ -43,7 +43,7 @@ extension EPUBReaderView {
             evaluate("__washi.turnInDoc(\(forward));")
             return
         }
-        lastAnimatedTurnTask = Task { [weak self] in
+        turn.lastAnimatedTurnTask = Task { [weak self] in
             guard let self else { return }
             await self.performAnimatedTurn(forward: forward, context: context)
         }
@@ -80,13 +80,13 @@ extension EPUBReaderView {
         cover.imageScaling = .scaleAxesIndependently
         cover.frame = bounds
         addSubview(cover, positioned: .above, relativeTo: webView)
-        turnOverlays.append(cover)
+        turn.turnOverlays.append(cover)
         updateFurnitureSuppression()
         // 既存の持ち越しカバー(前のめくりの旧ページ)を先に畳んでから上書きする。
         // 畳まないと旧カバーが所有権(pendingSpineTurn)を失って回収経路を全て
         // 失い、画面が旧ページで固着する
         clearPendingSpineTurn()
-        pendingSpineTurn = PendingSpineTurn(
+        turn.pendingSpineTurn = PendingSpineTurn(
             oldPage: oldPage, cover: cover, forward: forward)
         scheduleSpineTurnTimeout(for: cover)
         advanceSpine(forward: forward)
@@ -105,7 +105,7 @@ extension EPUBReaderView {
 
     /// turnOverlays を増減させた後に必ず呼ぶ(カバーの有無と抑制を同期)
     func updateFurnitureSuppression() {
-        furnitureSuppressed = !turnOverlays.isEmpty
+        furnitureSuppressed = !turn.turnOverlays.isEmpty
     }
 
     /// カバー 1 枚を確実に回収する単一経路(旧: removeCover/timeout/clear に散っていた
@@ -113,16 +113,16 @@ extension EPUBReaderView {
     /// pending を壊さない。所有権を失って上書きされた孤児カバーもこれで畳める
     func foldTurnCover(_ cover: NSView) {
         let id = ObjectIdentifier(cover)
-        spineTurnTimeouts[id]?.cancel()  // 時間切れ回収タスクを止める
-        spineTurnTimeouts[id] = nil
+        turn.spineTurnTimeouts[id]?.cancel()  // 時間切れ回収タスクを止める
+        turn.spineTurnTimeouts[id] = nil
         cover.removeFromSuperview()
-        turnOverlays.removeAll { $0 === cover }
-        if pendingSpineTurn?.cover === cover { pendingSpineTurn = nil }
+        turn.turnOverlays.removeAll { $0 === cover }
+        if turn.pendingSpineTurn?.cover === cover { turn.pendingSpineTurn = nil }
         updateFurnitureSuppression()
     }
 
     func clearPendingSpineTurn() {
-        guard let pending = pendingSpineTurn else { return }
+        guard let pending = turn.pendingSpineTurn else { return }
         foldTurnCover(pending.cover)  // pending の nil 化・overlay 除去・timeout 停止を一括
     }
 
@@ -131,10 +131,10 @@ extension EPUBReaderView {
     func installTurnCover(_ cover: NSImageView, pending: Bool, forward: Bool = true,
                           animated: Bool = true) {
         addSubview(cover)
-        turnOverlays.append(cover)
+        turn.turnOverlays.append(cover)
         updateFurnitureSuppression()
         if pending {
-            pendingSpineTurn = PendingSpineTurn(
+            turn.pendingSpineTurn = PendingSpineTurn(
                 oldPage: cover.image ?? NSImage(), cover: cover, forward: forward,
                 animated: animated)
         }
@@ -148,10 +148,10 @@ extension EPUBReaderView {
         let task = Task { [weak self] in
             try? await Task.sleep(for: duration)
             guard let self, !Task.isCancelled,
-                  self.turnOverlays.contains(cover) else { return }
+                  self.turn.turnOverlays.contains(cover) else { return }
             self.foldTurnCover(cover)  // 所有権を問わず、まだ残っていれば畳む
         }
-        spineTurnTimeouts[ObjectIdentifier(cover)] = task
+        turn.spineTurnTimeouts[ObjectIdentifier(cover)] = task
     }
 
     private func performAnimatedTurn(forward: Bool, context: PageTurnContext) async {
@@ -175,7 +175,7 @@ extension EPUBReaderView {
         cover.imageScaling = .scaleAxesIndependently
         cover.frame = bounds
         addSubview(cover, positioned: .above, relativeTo: webView)
-        turnOverlays.append(cover)
+        turn.turnOverlays.append(cover)
         updateFurnitureSuppression()
 
         // 2. カバーの下でめくる。境界なら次項目の表示完了までカバーを持ち越す
@@ -185,26 +185,26 @@ extension EPUBReaderView {
         //    代入前に旧 pending を畳む: 畳まないと前のめくりのカバーが所有権を
         //    失って回収経路を全て失い、画面が旧ページで固着する
         clearPendingSpineTurn()
-        pendingSpineTurn = PendingSpineTurn(
+        turn.pendingSpineTurn = PendingSpineTurn(
             oldPage: oldPage, cover: cover, forward: forward)
         let result = try? await webView.callAsyncJavaScript(
             "return __washi.turnInDoc(\(forward));",
             arguments: [:], in: nil, contentWorld: WashiContentWorld.world)
         switch result as? String {
         case "turned":
-            guard canContinueTurn(context), turnOverlays.contains(cover) else {
+            guard canContinueTurn(context), turn.turnOverlays.contains(cover) else {
                 foldTurnCover(cover)
                 return
             }
             // await 中に別のめくり(B)が入って自分の pending を上書きしていたら、
             // B の境界持ち越しを壊さないよう自分が現 pending のときだけ nil にする
-            if pendingSpineTurn?.cover === cover { pendingSpineTurn = nil }
+            if turn.pendingSpineTurn?.cover === cover { turn.pendingSpineTurn = nil }
         case "boundary":
             // 自分の境界遷移は spine 世代を進めるので、ここでは本と要求、
             // カバーの所有権を確認する。別の本・明示ジャンプには持ち越さない。
             guard webView === self.webView,
                   context.navigationRequest == navigationRequestGeneration,
-                  turnOverlays.contains(cover) else {
+                  turn.turnOverlays.contains(cover) else {
                 foldTurnCover(cover)
                 return
             }
@@ -224,7 +224,7 @@ extension EPUBReaderView {
         // showPage は turnInDoc の返答前に pageChanged を post するため、
         // ここに来た時点でノンブルは新ページの値に更新済み(合成に正しく載る)
         let newWeb = try? await webView.takeSnapshot(configuration: after)
-        guard canContinueTurn(context), turnOverlays.contains(cover) else {
+        guard canContinueTurn(context), turn.turnOverlays.contains(cover) else {
             foldTurnCover(cover)
             return
         }
@@ -238,12 +238,12 @@ extension EPUBReaderView {
     /// スライド/フェードでカバー(旧ページ)を取り除く
     func runTurnEffect(oldPage: NSImage, newPage: NSImage?,
                                cover: NSImageView, forward: Bool) {
-        guard cover.superview === self, turnOverlays.contains(cover) else { return }
+        guard cover.superview === self, turn.turnOverlays.contains(cover) else { return }
         // 演出に入る前に、このカバーの時間切れ回収タスクを止める(membership 判定の
         // タイムアウトがスライド/フェード中に発火してカバーを途中で引き剥がさない)
         let coverID = ObjectIdentifier(cover)
-        spineTurnTimeouts[coverID]?.cancel()
-        spineTurnTimeouts[coverID] = nil
+        turn.spineTurnTimeouts[coverID]?.cancel()
+        turn.spineTurnTimeouts[coverID] = nil
         func removeCover() { foldTurnCover(cover) }
         let removeCoverAfterAnimation: @Sendable () -> Void = {
             [weak self, weak cover] in
@@ -260,7 +260,7 @@ extension EPUBReaderView {
             removeCover()  // ホストのオーバーレイが被さっている
             return
         }
-        guard cover.superview === self, turnOverlays.contains(cover) else { return }
+        guard cover.superview === self, turn.turnOverlays.contains(cover) else { return }
         switch settings.pageTurnStyle {
         case .slide:
             // 物理方向: 進む=旧ページが綴じの反対側へ抜ける
