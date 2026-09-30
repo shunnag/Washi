@@ -41,10 +41,8 @@ private final class RenderingLifecycleScriptHarness {
     private let schemeHandler: EPUBSchemeHandler
 
     init(bodyHTML: String) throws {
-        publication = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.singleSpineEntries(bodyHTML: bodyHTML), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-rendering-lifecycle.epub"))
+        publication = try EPUBFixtures.singleSpine(bodyHTML: bodyHTML,
+            name: "washi-rendering-lifecycle")
 
         let size = NSSize(width: 640, height: 400)
         let configuration = WKWebViewConfiguration()

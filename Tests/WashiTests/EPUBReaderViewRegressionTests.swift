@@ -55,19 +55,15 @@ private final class KeyDownResponderSpy: NSResponder {
 @MainActor
 final class EPUBReaderViewRegressionTests: XCTestCase {
     private func makePublication() throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-reader-regression.epub"))
+        try EPUBFixtures.verticalNovel(name: "washi-reader-regression")
     }
 
     private func makePublication(spread: RenditionSpread) throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.reflowSpreadEntries(
-                    renditionSpread: spread,
-                    bodyHTML: "<p>\(String(repeating: "本文。", count: 200))</p>"),
-                method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-reader-\(spread.rawValue).epub"))
+        try EPUBFixtures.publication(
+            EPUBFixtures.reflowSpreadEntries(
+                renditionSpread: spread,
+                bodyHTML: "<p>\(String(repeating: "本文。", count: 200))</p>"),
+            name: "washi-reader-\(spread.rawValue)")
     }
 
     private func makePublication(
@@ -76,38 +72,29 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         var entries = EPUBFixtures.reflowSpreadEntries(
             renditionSpread: spread,
             bodyHTML: "<p>\(String(repeating: "本文。", count: 200))</p>")
-        let index = try XCTUnwrap(
-            entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        let opf = String(decoding: entries[index].data, as: UTF8.self)
-            .replacingOccurrences(
-                of: #"<itemref idref="c"/>"#,
-                with: #"<itemref idref="c" properties="\#(itemProperties)"/>"#)
-        entries[index].data = Data(opf.utf8)
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-reader-item-spread.epub"))
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
+            of: #"<itemref idref="c"/>"#,
+            with: #"<itemref idref="c" properties="\#(itemProperties)"/>"#)
+        return try EPUBFixtures.publication(entries, name: "washi-reader-item-spread")
     }
 
     private func makeSpreadTransitionPublication() throws -> EPUBPublication {
         var entries = EPUBFixtures.reflowSpreadEntries(
             renditionSpread: .both,
             bodyHTML: "<p>first</p>")
-        let packageIndex = try XCTUnwrap(
-            entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        let package = String(decoding: entries[packageIndex].data, as: UTF8.self)
-            .replacingOccurrences(
-                of: #"<manifest><item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/></manifest>"#,
-                with: #"<manifest><item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/><item id="c2" href="text/c2.xhtml" media-type="application/xhtml+xml"/></manifest>"#)
-            .replacingOccurrences(
-                of: #"<spine><itemref idref="c"/></spine>"#,
-                with: #"<spine><itemref idref="c"/><itemref idref="c2" properties="rendition:spread-none"/></spine>"#)
-        entries[packageIndex].data = Data(package.utf8)
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
+            of: #"<manifest><item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/></manifest>"#,
+            with: #"<manifest><item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/><item id="c2" href="text/c2.xhtml" media-type="application/xhtml+xml"/></manifest>"#)
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
+            of: #"<spine><itemref idref="c"/></spine>"#,
+            with: #"<spine><itemref idref="c"/><itemref idref="c2" properties="rendition:spread-none"/></spine>"#)
         entries.append((
             "OEBPS/text/c2.xhtml",
             Data("<html xmlns=\"http://www.w3.org/1999/xhtml\"><body>second</body></html>".utf8)))
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-reader-spread-transition.epub"))
+        return try EPUBFixtures.publication(entries, name: "washi-reader-spread-transition")
     }
 
     private func setupOptions(of view: EPUBReaderView) throws -> [String: Any] {
@@ -406,14 +393,13 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             ("image/png", true, true),
         ] {
             var entries = EPUBFixtures.singleSpineEntries(bodyHTML: "<p>本文</p>")
-            let packageIndex = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
-            entries[packageIndex].data = Data(String(decoding: entries[packageIndex].data, as: UTF8.self)
-                .replacingOccurrences(of:
-                    #"<item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/>"#,
-                    with: """
-                        <item id="c" href="foreign.dmg" media-type="application/octet-stream" fallback="fb"/>
-                        <item id="fb" href="fallback" media-type="\(mediaType)"/>
-                        """).utf8)
+            entries = try EPUBFixtures.replacing(
+                entries, in: "OEBPS/package.opf",
+                of: #"<item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/>"#,
+                with: """
+                    <item id="c" href="foreign.dmg" media-type="application/octet-stream" fallback="fb"/>
+                    <item id="fb" href="fallback" media-type="\(mediaType)"/>
+                    """)
             entries.append(("OEBPS/foreign.dmg", Data([0])))
             if exists { entries.append(("OEBPS/fallback", Data([1]))) }
             let publication = try EPUBPublication(
@@ -527,12 +513,9 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
     /// cooViewer-oxr.20: 画像ページの実測 1 面ではなく、画面計画 2 面を
     /// 基準に columnMode を反転する。
     func testToggleColumnModeUsesPlannedPagesForImageItem() throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.imagePageEntries(
-                    bodyHTML: "<img src=\"../images/page.png\"/>") ,
-                method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-toggle-image.epub"))
+        let publication = try EPUBFixtures.publication(
+            EPUBFixtures.imagePageEntries(bodyHTML: "<img src=\"../images/page.png\"/>"),
+            name: "washi-toggle-image")
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 1_200, height: 900))
         var settings = view.settings
@@ -692,10 +675,8 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
     func testUserCSSChangeRepaginatesCurrentItem() async throws {
         let body = (1...36).map { "<p>段落 \($0) 本文本文本文本文本文</p>" }
             .joined()
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.singleSpineEntries(bodyHTML: body), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-user-css-layout.epub"))
+        let publication = try EPUBFixtures.singleSpine(bodyHTML: body,
+            name: "washi-user-css-layout")
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         var settings = view.settings
@@ -785,9 +766,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
     /// cooViewer-oxr.54: hidden view の frame 変更は census を起動せず、
     /// unhide で一度だけ延期レイアウトを消費する。
     func testHiddenLayoutDefersCensusUntilUnhide() throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.fxlComicEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-hidden-layout.epub"))
+        let publication = try EPUBFixtures.fxlComic(name: "washi-hidden-layout")
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 900, height: 700))
         let window = makeOffscreenWindow(containing: view)

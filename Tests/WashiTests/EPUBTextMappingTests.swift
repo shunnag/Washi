@@ -33,9 +33,8 @@ final class EPUBTextMappingTests: XCTestCase {
     /// WashiCore の抽出本文と washi world の UTF-16 マップを同じ EPUB で
     /// 照合し、各検索ヒットが元の DOM Range へ戻ることを検証する
     func testExtractedTextAndEverySearchHitRoundTripThroughDOM() async throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.textMappingEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-text-map-fixtures.epub"))
+        let publication = try EPUBFixtures.publication(EPUBFixtures.textMappingEntries(),
+            name: "washi-text-map-fixtures")
         let size = NSSize(width: 640, height: 480)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()

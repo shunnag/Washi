@@ -69,9 +69,7 @@ final class CensusRecordTests: XCTestCase {
     /// 現在の reader へ取り込まず一度だけ再計測させる。
     @MainActor
     func testImportRejectsLegacyPaginationEngineKey() throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-legacy-census.epub"))
+        let publication = try EPUBFixtures.verticalNovel(name: "washi-legacy-census")
         let view = EPUBReaderView(frame: .init(x: 0, y: 0, width: 800, height: 600))
         view.load(publication: publication)
         let legacy = EPUBCensusRecord(

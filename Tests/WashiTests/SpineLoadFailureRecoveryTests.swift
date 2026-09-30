@@ -9,15 +9,11 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
 
     private func publication(unrenderable: Set<String> = ["ch2"]) throws -> EPUBPublication {
         var entries = EPUBFixtures.verticalNovelEntries()
-        let opf = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        var package = String(decoding: entries[opf].data, as: UTF8.self)
         for id in unrenderable {
             let original = "<item id=\"\(id)\" href=\"text/\(id).xhtml\" media-type=\"application/xhtml+xml\"/>"
-            XCTAssertTrue(package.contains(original), "フィクスチャの OPF が変わった")
-            package = package.replacingOccurrences(of: original,
+            entries = try EPUBFixtures.replacing(entries, in: "OEBPS/package.opf", of: original,
                 with: original.replacingOccurrences(of: "application/xhtml+xml", with: "text/html"))
         }
-        entries[opf].data = Data(package.utf8)
         let chapter = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/text/ch1.xhtml" })
         // 前章で実際にページを送れる分量と、保持すべき印刷ページを用意する。
         let paragraphs = (0..<40).map {
@@ -29,21 +25,18 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         let last = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/text/colophon.xhtml" })
         entries[last].data = Data(EPUBFixtures.chapterXHTML(
             title: "奥付", body: "<p id=\"sec1\">奥付の本文。</p>").utf8)
-        let nav = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/nav.xhtml" })
-        entries[nav].data = Data(String(decoding: entries[nav].data, as: UTF8.self)
-            .replacingOccurrences(of: "</body>", with: """
+        entries = try EPUBFixtures.replacing(entries, in: "OEBPS/nav.xhtml", of: "</body>", with: """
               <nav epub:type="page-list"><ol>
                 <li><a href="text/ch1.xhtml#p10">10</a></li>
                 <li><a href="text/ch2.xhtml">20</a></li>
                 <li><a href="text/colophon.xhtml">30</a></li>
               </ol></nav></body>
-              """).utf8)
+              """)
         return try makePublication(entries)
     }
 
     private func makePublication(_ entries: [(name: String, data: Data)]) throws -> EPUBPublication {
-        try EPUBPublication(data: ZipBuilder.build(entries, method: 8),
-                            displayURL: URL(fileURLWithPath: "/tmp/washi-spine-failure.epub"))
+        try EPUBFixtures.publication(entries, name: "washi-spine-failure")
     }
 
     private func reader() -> (EPUBReaderView, NSWindow, ReaderObservationSpy) {
@@ -372,10 +365,10 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
 
     func testFixedLayoutKeyTurnSkipsUnloadablePage() async throws {
         var entries = EPUBFixtures.fxlComicEntries()
-        let opf = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        entries[opf].data = Data(String(decoding: entries[opf].data, as: UTF8.self)
-            .replacingOccurrences(of: "href=\"p002.xhtml\" media-type=\"application/xhtml+xml\"",
-                                  with: "href=\"p002.xhtml\" media-type=\"text/html\"").utf8)
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
+            of: "href=\"p002.xhtml\" media-type=\"application/xhtml+xml\"",
+            with: "href=\"p002.xhtml\" media-type=\"text/html\"")
         let (view, window, delegate) = reader()
         defer { closeReader(view, in: window, teardown: .unload) }
         try await open(view, makePublication(entries), delegate)
@@ -389,11 +382,12 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
 
     func testContinuousGroupWithUnloadableMiddleItemReportsOneFailure() async throws {
         var entries = EPUBFixtures.fxlComicEntries()
-        let opf = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        entries[opf].data = Data(String(decoding: entries[opf].data, as: UTF8.self)
-            .replacingOccurrences(of: "pre-paginated", with: "roll")
-            .replacingOccurrences(of: "href=\"p002.xhtml\" media-type=\"application/xhtml+xml\"",
-                                  with: "href=\"p002.xhtml\" media-type=\"text/html\"").utf8)
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf", of: "pre-paginated", with: "roll")
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
+            of: "href=\"p002.xhtml\" media-type=\"application/xhtml+xml\"",
+            with: "href=\"p002.xhtml\" media-type=\"text/html\"")
         // 短いページにして、表示不能な中央の項目を初回 setup の先読み範囲に入れる。
         for index in entries.indices where entries[index].name.hasSuffix(".xhtml") {
             entries[index].data = Data(String(decoding: entries[index].data, as: UTF8.self)
@@ -698,10 +692,10 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
 
     func testMediaOverlayFinishesWhenItsNextChapterIsRejected() async throws {
         var entries = EPUBFixtures.multiDocumentMediaOverlayEntries()
-        let opf = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        entries[opf].data = Data(String(decoding: entries[opf].data, as: UTF8.self)
-            .replacingOccurrences(of: "href=\"text/b.xhtml\" media-type=\"application/xhtml+xml\"",
-                                  with: "href=\"text/b.xhtml\" media-type=\"text/html\"").utf8)
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
+            of: "href=\"text/b.xhtml\" media-type=\"application/xhtml+xml\"",
+            with: "href=\"text/b.xhtml\" media-type=\"text/html\"")
         let book = try makePublication(entries)
         let (view, window, delegate) = reader()
         defer { closeReader(view, in: window, teardown: .unload) }

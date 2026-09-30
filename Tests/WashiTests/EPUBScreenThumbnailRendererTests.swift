@@ -191,31 +191,20 @@ final class EPUBScreenThumbnailRendererTests: XCTestCase {
     private func makeLargePublication() throws -> EPUBPublication {
         let body = "<p>" + String(repeating: "A long rendering request. ",
                                     count: 100_000) + "</p>"
-        return try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.reflowSpreadEntries(
-                    renditionSpread: .none, bodyHTML: body),
-                method: 8),
-            displayURL: URL(
-                fileURLWithPath: "/tmp/washi-thumbnail-cancel.epub"))
+        return try EPUBFixtures.publication(
+            EPUBFixtures.reflowSpreadEntries(renditionSpread: .none, bodyHTML: body),
+            name: "washi-thumbnail-cancel")
     }
 
     private func makeSmallPublication() throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.reflowSpreadEntries(
-                    renditionSpread: .none,
-                    bodyHTML: "<p>Idle thumbnail lifecycle fixture.</p>"),
-                method: 8),
-            displayURL: URL(
-                fileURLWithPath: "/tmp/washi-thumbnail-idle-release.epub"))
+        try EPUBFixtures.publication(
+            EPUBFixtures.reflowSpreadEntries(
+                renditionSpread: .none, bodyHTML: "<p>Idle thumbnail lifecycle fixture.</p>"),
+            name: "washi-thumbnail-idle-release")
     }
 
     private func makeFXLPublication() throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.fxlComicEntries(), method: 8),
-            displayURL: URL(
-                fileURLWithPath: "/tmp/washi-thumbnail-fxl-idle-release.epub"))
+        try EPUBFixtures.fxlComic(name: "washi-thumbnail-fxl-idle-release")
     }
 
     private func makeMetrics() -> EPUBScreenMetrics {

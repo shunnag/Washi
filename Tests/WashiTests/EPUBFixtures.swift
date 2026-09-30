@@ -1,4 +1,5 @@
 import Foundation
+import XCTest
 @testable import Washi
 @testable import WashiCore
 
@@ -304,5 +305,48 @@ enum EPUBFixtures {
             ("OEBPS/package.opf", Data(opf.utf8)),
             ("OEBPS/text/c.xhtml", Data(xhtml.utf8)),
         ]
+    }
+}
+
+// テストから EPUBPublication を組み立てる近道。deflate(method 8)で固め、
+// displayURL は /tmp/<name>.epub にする(store のまま固めたい場合は method: 0 を渡す)
+extension EPUBFixtures {
+    static func publication(_ entries: [(name: String, data: Data)],
+                            name: String = #function, method: UInt16 = 8) throws -> EPUBPublication {
+        try EPUBPublication(
+            data: ZipBuilder.build(entries, method: method),
+            displayURL: URL(fileURLWithPath: "/tmp/\(name).epub"))
+    }
+
+    /// 縦組み小説 EPUB
+    static func verticalNovel(name: String = #function) throws -> EPUBPublication {
+        try publication(verticalNovelEntries(), name: name)
+    }
+
+    /// FXL 漫画 EPUB
+    static func fxlComic(name: String = #function) throws -> EPUBPublication {
+        try publication(fxlComicEntries(), name: name)
+    }
+
+    /// 単一 spine の最小 EPUB
+    static func singleSpine(bodyHTML: String, name: String = #function) throws -> EPUBPublication {
+        try publication(singleSpineEntries(bodyHTML: bodyHTML), name: name)
+    }
+
+    /// `path` の項目の中の `target` を `replacement` に置き換えた entries を返す。
+    /// 項目が無い・`target` が含まれない(フィクスチャが変わった)場合はテスト失敗にする
+    static func replacing(_ entries: [(name: String, data: Data)], in path: String,
+                          of target: String, with replacement: String,
+                          file: StaticString = #filePath, line: UInt = #line) throws
+        -> [(name: String, data: Data)]
+    {
+        var entries = entries
+        let index = try XCTUnwrap(entries.firstIndex { $0.name == path },
+                                  "フィクスチャに \(path) が無い", file: file, line: line)
+        let source = String(decoding: entries[index].data, as: UTF8.self)
+        XCTAssertTrue(source.contains(target),
+                      "フィクスチャの \(path) に \(target) が無い", file: file, line: line)
+        entries[index].data = Data(source.replacingOccurrences(of: target, with: replacement).utf8)
+        return entries
     }
 }

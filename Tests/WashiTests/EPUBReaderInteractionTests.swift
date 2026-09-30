@@ -51,10 +51,7 @@ private final class ReaderInteractionDelegate: EPUBReaderViewDelegate {
 @MainActor
 final class EPUBReaderInteractionTests: XCTestCase {
     private func makePublication(body: String) throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.singleSpineEntries(bodyHTML: body), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-reader-interaction.epub"))
+        try EPUBFixtures.singleSpine(bodyHTML: body, name: "washi-reader-interaction")
     }
 
     /// cooViewer-oxr.34: DOM 選択を検索と同じ正規化本文へ写し、view 矩形へ
@@ -444,8 +441,6 @@ final class EPUBReaderInteractionTests: XCTestCase {
             ("OEBPS/text/c1.xhtml", Data(c1.utf8)),
             ("OEBPS/text/c2.xhtml", Data(c2.utf8)),
         ]
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-print-pages.epub"))
+        return try EPUBFixtures.publication(entries, name: "washi-print-pages")
     }
 }

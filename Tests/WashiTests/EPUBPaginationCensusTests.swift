@@ -187,20 +187,14 @@ final class EPUBPaginationCensusTests: XCTestCase {
             ("OEBPS/package.opf", Data(opf.utf8)),
             ("OEBPS/text/present.xhtml", Data(xhtml.utf8)),
         ]
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-census-missing.epub"))
+        return try EPUBFixtures.publication(entries, name: "washi-census-missing")
     }
 
     private func makeReflowPublication() throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.reflowSpreadEntries(
-                    renditionSpread: .none,
-                    bodyHTML: "<p>Idle census lifecycle fixture.</p>"),
-                method: 8),
-            displayURL: URL(
-                fileURLWithPath: "/tmp/washi-census-idle-release.epub"))
+        try EPUBFixtures.publication(
+            EPUBFixtures.reflowSpreadEntries(
+                renditionSpread: .none, bodyHTML: "<p>Idle census lifecycle fixture.</p>"),
+            name: "washi-census-idle-release")
     }
 
     private func makeMetrics() -> EPUBScreenMetrics {

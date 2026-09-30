@@ -82,9 +82,7 @@ final class EffectiveDirectionReaderTests: XCTestCase {
             ("OEBPS/text/first.xhtml", Data(first.utf8)),
             ("OEBPS/text/second.xhtml", Data(second.utf8)),
         ]
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/effective-reader-direction.epub"))
+        return try EPUBFixtures.publication(entries, name: "effective-reader-direction")
     }
 
 }

@@ -6,11 +6,11 @@ import XCTest
 final class UnsupportedHTMLSpineTests: XCTestCase {
     func testRejectedHTMLSpineKeepsPreviousXHTMLLocationsAndRejectsHTMLRanges() async throws {
         var entries = EPUBFixtures.singleSpineEntries(bodyHTML: "<p>和紙の本文</p>")
-        let package = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        entries[package].data = Data(String(decoding: entries[package].data, as: UTF8.self)
-            .replacingOccurrences(of: "</manifest>", with:
-                "<item id=\"html\" href=\"text/nonconforming.html\" media-type=\"text/html\"/></manifest>")
-            .replacingOccurrences(of: "</spine>", with: "<itemref idref=\"html\"/></spine>").utf8)
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf", of: "</manifest>",
+            with: "<item id=\"html\" href=\"text/nonconforming.html\" media-type=\"text/html\"/></manifest>")
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf", of: "</spine>", with: "<itemref idref=\"html\"/></spine>")
         entries.append(("OEBPS/text/nonconforming.html", Data("<html><body><p>和紙の別の本文</p></body></html>".utf8)))
         let book = try EPUBPublication(data: ZipBuilder.build(entries),
                                        displayURL: URL(fileURLWithPath: "/tmp/nonconforming-html.epub"))

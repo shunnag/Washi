@@ -48,24 +48,17 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     private func makePublication(_ name: String = "washi-spine-transition") throws
         -> EPUBPublication
     {
-        try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/\(name).epub"))
+        try EPUBFixtures.verticalNovel(name: name)
     }
 
     /// 2 番目の項目(ch2)を text/html と宣言し、描画可能な fallback の無い項目にする
     private func makePublicationWithUnrenderableSecondItem() throws -> EPUBPublication {
         var entries = EPUBFixtures.verticalNovelEntries()
-        let opf = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        let original = String(decoding: entries[opf].data, as: UTF8.self)
-        let patched = original.replacingOccurrences(
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
             of: #"<item id="ch2" href="text/ch2.xhtml" media-type="application/xhtml+xml"/>"#,
             with: #"<item id="ch2" href="text/ch2.xhtml" media-type="text/html"/>"#)
-        XCTAssertNotEqual(patched, original, "フィクスチャの OPF が変わった")
-        entries[opf].data = Data(patched.utf8)
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-unrenderable-second.epub"))
+        let publication = try EPUBFixtures.publication(entries, name: "washi-unrenderable-second")
         XCTAssertFalse(publication.canRenderSpineResource(publication.readingOrder[1]))
         return publication
     }
@@ -515,14 +508,11 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testChapterLoadKeepsTheOldNarrationHighlightAndAppliesTheNewOne() async throws {
         var entries = EPUBFixtures.verticalNovelEntries()
-        let chapter = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/text/ch2.xhtml" })
-        let original = String(decoding: entries[chapter].data, as: UTF8.self)
-        let patched = original.replacingOccurrences(of: "<h1>", with: "<h1 id=\"sec2\">")
-        XCTAssertNotEqual(patched, original, "次の章の最初の区間に断片 ID を付ける")
-        entries[chapter].data = Data(patched.utf8)
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-narration-chapter-load.epub"))
+        // 次の章の最初の区間に断片 ID を付ける
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/text/ch2.xhtml", of: "<h1>", with: "<h1 id=\"sec2\">")
+        let publication = try EPUBFixtures.publication(entries,
+            name: "washi-narration-chapter-load")
         let (view, window) = makeCoverReader()
         defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = ReaderObservationSpy()
@@ -640,9 +630,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     }
 
     func testFixedLayoutCoverIsRetakenWhenTheViewIsShownAgain() async throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.fxlComicEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-cover-fxl.epub"))
+        let publication = try EPUBFixtures.fxlComic(name: "washi-cover-fxl")
         let (view, window) = makeCoverReader()
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         try await openAndSettle(view, publication, delegate: ReaderObservationSpy())
@@ -864,9 +852,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     }
 
     func testFixedLayoutKeyRepeatKeepsThePreviousPageCoverWhenReducingMotion() async throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.fxlComicEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-fxl-chain.epub"))
+        let publication = try EPUBFixtures.fxlComic(name: "washi-fxl-chain")
         let (view, window) = makeChainReader(reduceMotion: true, pageTurnStyle: .slide)
         defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = ReaderObservationSpy()
@@ -1058,16 +1044,11 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testChainedMoveThroughAScrolledItemKeepsThePreviousPageCover() async throws {
         var entries = EPUBFixtures.verticalNovelEntries()
-        let opf = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        let original = String(decoding: entries[opf].data, as: UTF8.self)
-        let patched = original.replacingOccurrences(
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
             of: #"<itemref idref="ch2"/>"#,
             with: #"<itemref idref="ch2" properties="rendition:flow-scrolled-doc"/>"#)
-        XCTAssertNotEqual(patched, original, "フィクスチャの OPF が変わった")
-        entries[opf].data = Data(patched.utf8)
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-scrolled-chain.epub"))
+        let publication = try EPUBFixtures.publication(entries, name: "washi-scrolled-chain")
         XCTAssertTrue(EPUBScreenMetrics.isScrolled(publication.renderingFlow(at: 1)))
         XCTAssertFalse(EPUBScreenMetrics.isScrolled(publication.renderingFlow(at: 0)))
         let (view, window) = makeChainReader()
@@ -1120,9 +1101,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     }
 
     func testKeyRepeatAtTheBookEndKeepsTheSnapshotCover() async throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.fxlComicEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-fxl-chain-end.epub"))
+        let publication = try EPUBFixtures.fxlComic(name: "washi-fxl-chain-end")
         let (view, window) = makeChainReader(reduceMotion: true, pageTurnStyle: .slide)
         defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = ReaderObservationSpy()

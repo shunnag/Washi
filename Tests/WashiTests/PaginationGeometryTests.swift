@@ -15,22 +15,17 @@ final class PaginationGeometryHarness {
     init(bodyHTML: String, size: NSSize, htmlDirection: String? = nil,
          headCSS: String = "") throws {
         var entries = EPUBFixtures.singleSpineEntries(bodyHTML: bodyHTML)
-        if let index = entries.firstIndex(where: { $0.name == "OEBPS/text/c.xhtml" }) {
-            var source = String(decoding: entries[index].data, as: UTF8.self)
-            if let htmlDirection {
-                source = source.replacingOccurrences(
-                    of: "xml:lang=\"ja\">",
-                    with: "xml:lang=\"ja\" dir=\"\(htmlDirection)\">")
-            }
-            if !headCSS.isEmpty {
-                source = source.replacingOccurrences(
-                    of: "</head>", with: "<style>\(headCSS)</style></head>")
-            }
-            entries[index].data = Data(source.utf8)
+        if let htmlDirection {
+            entries = try EPUBFixtures.replacing(
+                entries, in: "OEBPS/text/c.xhtml", of: "xml:lang=\"ja\">",
+                with: "xml:lang=\"ja\" dir=\"\(htmlDirection)\">")
         }
-        publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-pagination-geometry.epub"))
+        if !headCSS.isEmpty {
+            entries = try EPUBFixtures.replacing(
+                entries, in: "OEBPS/text/c.xhtml", of: "</head>",
+                with: "<style>\(headCSS)</style></head>")
+        }
+        publication = try EPUBFixtures.publication(entries, name: "washi-pagination-geometry")
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false

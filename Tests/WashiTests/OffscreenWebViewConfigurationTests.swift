@@ -64,10 +64,8 @@ final class OffscreenWebViewConfigurationTests: XCTestCase {
             </script>
             <p>WebRTC hardening</p>
             """
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.singleSpineEntries(bodyHTML: body), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-webrtc-hardening.epub"))
+        let publication = try EPUBFixtures.singleSpine(bodyHTML: body,
+            name: "washi-webrtc-hardening")
         let handler = EPUBSchemeHandler(publication: publication,
                                         allowsScripts: true)
         configuration.setURLSchemeHandler(

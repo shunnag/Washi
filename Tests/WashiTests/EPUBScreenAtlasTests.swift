@@ -60,9 +60,7 @@ final class EPUBScreenAtlasTests: XCTestCase {
     func testInvalidThumbnailWidthsReturnNil() async throws {
         for entries in [EPUBFixtures.fxlComicEntries(),
                         EPUBFixtures.verticalNovelEntries()] {
-            let publication = try EPUBPublication(
-                data: ZipBuilder.build(entries, method: 8),
-                displayURL: URL(fileURLWithPath: "/tmp/atlas-invalid-width.epub"))
+            let publication = try EPUBFixtures.publication(entries, name: "atlas-invalid-width")
             let atlas = EPUBScreenAtlas(publication: publication)
             defer { atlas.invalidate() }
             let invalidWidths: [CGFloat] = [
@@ -79,9 +77,7 @@ final class EPUBScreenAtlasTests: XCTestCase {
     }
 
     private func makePublication() throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/atlas.epub"))
+        try EPUBFixtures.verticalNovel(name: "atlas")
     }
 
     private func metrics(width: CGFloat) -> EPUBScreenMetrics {
@@ -92,34 +88,27 @@ final class EPUBScreenAtlasTests: XCTestCase {
     private func makeSpreadPublication(
         _ spread: RenditionSpread, bodyHTML: String = "<p>本文</p>"
     ) throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.reflowSpreadEntries(
-                    renditionSpread: spread, bodyHTML: bodyHTML),
-                method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/atlas-\(spread.rawValue).epub"))
+        try EPUBFixtures.publication(
+            EPUBFixtures.reflowSpreadEntries(renditionSpread: spread, bodyHTML: bodyHTML),
+            name: "atlas-\(spread.rawValue)")
     }
 
     private func makePerItemSpreadPublication(bodyHTML: String) throws
         -> EPUBPublication {
         var entries = EPUBFixtures.reflowSpreadEntries(
             renditionSpread: .both, bodyHTML: bodyHTML)
-        let packageIndex = try XCTUnwrap(
-            entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        let package = String(decoding: entries[packageIndex].data, as: UTF8.self)
-            .replacingOccurrences(
-                of: #"<manifest><item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/></manifest>"#,
-                with: #"<manifest><item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/><item id="c2" href="text/c2.xhtml" media-type="application/xhtml+xml"/></manifest>"#)
-            .replacingOccurrences(
-                of: #"<spine><itemref idref="c"/></spine>"#,
-                with: #"<spine><itemref idref="c"/><itemref idref="c2" properties="rendition:spread-none"/></spine>"#)
-        entries[packageIndex].data = Data(package.utf8)
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
+            of: #"<manifest><item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/></manifest>"#,
+            with: #"<manifest><item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/><item id="c2" href="text/c2.xhtml" media-type="application/xhtml+xml"/></manifest>"#)
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
+            of: #"<spine><itemref idref="c"/></spine>"#,
+            with: #"<spine><itemref idref="c"/><itemref idref="c2" properties="rendition:spread-none"/></spine>"#)
         let firstDocument = try XCTUnwrap(
             entries.first { $0.name == "OEBPS/text/c.xhtml" })
         entries.append(("OEBPS/text/c2.xhtml", firstDocument.data))
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/atlas-item-spread.epub"))
+        return try EPUBFixtures.publication(entries, name: "atlas-item-spread")
     }
 
     func testInvalidateRefusesFurtherWork() async throws {

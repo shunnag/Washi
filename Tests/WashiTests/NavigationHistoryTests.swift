@@ -7,15 +7,11 @@ final class NavigationHistoryTests: XCTestCase {
     private func makeReflowablePublication(
         name: String = "navigation-history"
     ) throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/\(name).epub"))
+        try EPUBFixtures.verticalNovel(name: name)
     }
 
     private func makeFixedLayoutPublication() throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.fxlComicEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/navigation-history-fxl.epub"))
+        try EPUBFixtures.fxlComic(name: "navigation-history-fxl")
     }
 
     /// cooViewer-oxr.31: 目次ジャンプは元位置を積み、Back はその locator へ戻る。

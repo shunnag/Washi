@@ -120,15 +120,13 @@ final class PrefixedCSSDeliveryTests: XCTestCase {
                 media-type="application/oebps-package+xml"/></rootfiles>
             </container>
             """
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build([
+        let publication = try EPUBFixtures.publication([
                 ("mimetype", Data("application/epub+zip".utf8)),
                 ("META-INF/container.xml", Data(container.utf8)),
                 ("OEBPS/package.opf", Data(opf.utf8)),
                 ("OEBPS/c.xhtml", Data(xhtml.utf8)),
                 ("OEBPS/s.css", Data(css.utf8)),
-            ], method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-tcy.epub"))
+            ], name: "washi-tcy")
 
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()

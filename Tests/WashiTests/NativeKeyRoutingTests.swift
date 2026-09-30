@@ -147,9 +147,7 @@ final class NativeKeyRoutingTests: XCTestCase {
         defer { close(window) }
         let delegate = NativeKeyDelegateSpy()
         let view = reader(in: window, delegate: delegate)
-        view.load(publication: try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/native-key-focus.epub")))
+        view.load(publication: try EPUBFixtures.verticalNovel(name: "native-key-focus"))
         let webView = try view.firstWebView()
         XCTAssertTrue(window.makeFirstResponder(webView))
         let key = try event(in: window)

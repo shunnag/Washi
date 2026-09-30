@@ -31,17 +31,13 @@ final class InternalLinkTests: XCTestCase {
     ) throws -> EPUBPublication {
         var entries = EPUBFixtures.singleSpineEntries(bodyHTML: firstBody)
         if let secondBody {
-            let packageIndex = try XCTUnwrap(
-                entries.firstIndex { $0.name == "OEBPS/package.opf" })
-            let package = String(decoding: entries[packageIndex].data, as: UTF8.self)
-                .replacingOccurrences(
-                    of: "</manifest>",
-                    with: "<item id=\"notes\" href=\"text/notes.xhtml\" "
-                        + "media-type=\"application/xhtml+xml\"/></manifest>")
-                .replacingOccurrences(
-                    of: "</spine>",
-                    with: "<itemref idref=\"notes\"/></spine>")
-            entries[packageIndex].data = Data(package.utf8)
+            entries = try EPUBFixtures.replacing(
+                entries, in: "OEBPS/package.opf", of: "</manifest>",
+                with: "<item id=\"notes\" href=\"text/notes.xhtml\" "
+                    + "media-type=\"application/xhtml+xml\"/></manifest>")
+            entries = try EPUBFixtures.replacing(
+                entries, in: "OEBPS/package.opf", of: "</spine>",
+                with: "<itemref idref=\"notes\"/></spine>")
             let xhtml = """
                 <?xml version="1.0" encoding="UTF-8"?>
                 <html xmlns="http://www.w3.org/1999/xhtml"
@@ -52,9 +48,7 @@ final class InternalLinkTests: XCTestCase {
                 """
             entries.append(("OEBPS/text/notes.xhtml", Data(xhtml.utf8)))
         }
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/\(name).epub"))
+        return try EPUBFixtures.publication(entries, name: name)
     }
 
     private func requireSendable<T: Sendable>(_ value: T) -> T { value }
@@ -88,9 +82,7 @@ final class InternalLinkTests: XCTestCase {
 
     /// cooViewer-oxr.32: delegate が拒否した内部リンクは位置も履歴も変えない。
     func testDelegateVetoPreservesPositionPageAndNavigationHistory() throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-internal-link-veto.epub"))
+        let publication = try EPUBFixtures.verticalNovel(name: "washi-internal-link-veto")
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 900, height: 700))
         let delegate = InternalLinkDelegateSpy()

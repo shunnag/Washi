@@ -16,19 +16,18 @@ private final class OverlayAuditDelegate: EPUBReaderViewDelegate {
 @MainActor
 final class EPUBReaderStateRegressionTests: XCTestCase {
     private func publication(_ entries: [(name: String, data: Data)]) throws -> EPUBPublication {
-        try EPUBPublication(data: ZipBuilder.build(entries, method: 8),
-                            displayURL: URL(fileURLWithPath: "/tmp/original-audit.epub"))
+        try EPUBFixtures.publication(entries, name: "original-audit")
     }
 
     private func silentOverlayPublication(parCount: Int = 3) throws -> EPUBPublication {
         var entries = EPUBFixtures.singleSpineEntries(bodyHTML:
             (0..<parCount).map { "<p id=\"p\($0)\">Paragraph \($0)</p>" }.joined())
-        let index = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        entries[index].data = Data(String(decoding: entries[index].data, as: UTF8.self)
-            .replacingOccurrences(of: "id=\"c\" href=", with: "id=\"c\" media-overlay=\"mo\" href=")
-            .replacingOccurrences(of: "</manifest>", with:
-                "<item id=\"mo\" href=\"overlay.smil\" media-type=\"application/smil+xml\"/></manifest>")
-            .utf8)
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
+            of: "id=\"c\" href=", with: "id=\"c\" media-overlay=\"mo\" href=")
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf", of: "</manifest>",
+            with: "<item id=\"mo\" href=\"overlay.smil\" media-type=\"application/smil+xml\"/></manifest>")
         let pars = (0..<parCount).map {
             "<par><text src=\"text/c.xhtml#p\($0)\"/></par>"
         }.joined()
@@ -307,10 +306,9 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
     /// FXL とリフローの間でも、新しい矩形と倍率はコミット時に当てる。
     func testMixedLayoutFrameMovesAtCommitInBothDirections() async throws {
         var entries = EPUBFixtures.fxlComicEntries()
-        let opf = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        entries[opf].data = Data(String(decoding: entries[opf].data, as: UTF8.self)
-            .replacingOccurrences(of: "idref=\"p2\" properties=\"", with:
-                "idref=\"p2\" properties=\"rendition:layout-reflowable ").utf8)
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf", of: "idref=\"p2\" properties=\"",
+            with: "idref=\"p2\" properties=\"rendition:layout-reflowable ")
         let p2 = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/p002.xhtml" })
         entries[p2].data = Data("""
             <?xml version="1.0" encoding="UTF-8"?>
@@ -350,10 +348,9 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
 
     func testFixedToReflowTransitionRestoresUnitZoom() async throws {
         var entries = EPUBFixtures.fxlComicEntries()
-        let index = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        entries[index].data = Data(String(decoding: entries[index].data, as: UTF8.self)
-            .replacingOccurrences(of: "idref=\"p2\" properties=\"", with:
-                "idref=\"p2\" properties=\"rendition:layout-reflowable ").utf8)
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf", of: "idref=\"p2\" properties=\"",
+            with: "idref=\"p2\" properties=\"rendition:layout-reflowable ")
         let book = try publication(entries)
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         let delegate = ReaderObservationSpy()

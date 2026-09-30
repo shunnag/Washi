@@ -13,9 +13,7 @@ final class ReaderScriptTestHarness {
     private let schemeHandler: EPUBSchemeHandler
 
     init(entries: [(name: String, data: Data)]) throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-batch3.epub"))
+        let publication = try EPUBFixtures.publication(entries, name: "washi-batch3")
         self.publication = publication
         let size = NSSize(width: 640, height: 400)
         let configuration = WKWebViewConfiguration()

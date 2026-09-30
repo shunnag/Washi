@@ -47,10 +47,8 @@ private final class ReentrantReaderDelegate: EPUBReaderViewDelegate {
 @MainActor
 final class EPUBReaderReentrancyTests: XCTestCase {
     private func publication(_ name: String, fixed: Bool = false) throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(fixed ? EPUBFixtures.fxlComicEntries()
-                                  : EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/\(name).epub"))
+        try EPUBFixtures.publication(fixed ? EPUBFixtures.fxlComicEntries()
+                                  : EPUBFixtures.verticalNovelEntries(), name: name)
     }
 
     func testHistoryCallbackLoadingAnotherBookSupersedesOriginalJump() throws {
@@ -217,10 +215,9 @@ final class EPUBReaderReentrancyTests: XCTestCase {
 
     func testPageChangeCallbackOpeningAnotherBookCancelsInFlightAnimation() async throws {
         // CI の Reduce Motion 設定は変更せず、このビューだけで演出を検証する。
-        let original = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.singleSpineEntries(
-                bodyHTML: String(repeating: "<p>ページめくり中の本の差し替えを検証する本文です。</p>", count: 150)), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/in-flight-reflow.epub"))
+        let original = try EPUBFixtures.singleSpine(
+            bodyHTML: String(repeating: "<p>ページめくり中の本の差し替えを検証する本文です。</p>", count: 150),
+            name: "in-flight-reflow")
         let replacement = try publication("replacement-fxl", fixed: true)
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         view.settings.pageTurnStyle = .fade

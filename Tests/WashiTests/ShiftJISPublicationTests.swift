@@ -37,9 +37,7 @@ final class ShiftJISPublicationTests: XCTestCase {
             ("OEBPS/chapter.xhtml", chapterData),
         ]
 
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/shift-jis.epub"))
+        let publication = try EPUBFixtures.publication(entries, name: "shift-jis")
         XCTAssertEqual(publication.metadata.mainTitle, "日本語の本")
 
         let text = try publication.extractText(forSpineIndex: 0)
@@ -80,9 +78,7 @@ final class ShiftJISPublicationTests: XCTestCase {
             ("OEBPS/chapter.xhtml", chapterData),
         ]
 
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/cp932.epub"))
+        let publication = try EPUBFixtures.publication(entries, name: "cp932")
         let text = try publication.extractText(forSpineIndex: 0)
         XCTAssertTrue(text.contains("①髙㈱"), "抽出結果: \(text)")
         XCTAssertTrue(text.contains("…"), "抽出結果: \(text)")

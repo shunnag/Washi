@@ -7,9 +7,7 @@ import XCTest
 /// EPUBPublication ファサードの統合検証(ZIP / フォルダ両コンテナ)
 final class PublicationTests: XCTestCase {
     private func openVerticalNovel() throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/novel.epub"))
+        try EPUBFixtures.verticalNovel(name: "novel")
     }
 
     func testOpenVerticalNovel() throws {
@@ -32,9 +30,7 @@ final class PublicationTests: XCTestCase {
         var entries = EPUBFixtures.verticalNovelEntries()
         entries.append((name: "META-INF/sinf.xml",
                         data: Data("<sinf/>".utf8)))
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/novel.epub"))
+        let publication = try EPUBFixtures.publication(entries, name: "novel")
         XCTAssertFalse(publication.isDRMProtected)  // 本文は暗号化されていない
         XCTAssertNil(publication.drmSchemeName)      // 指紋だけでは DRM 扱いしない
     }
@@ -122,9 +118,7 @@ final class PublicationTests: XCTestCase {
                 .replacingOccurrences(of: #" properties="cover-image""#, with: "")
             entries[index] = (entry.name, Data(opf.utf8))
         }
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/no-decl.epub"))
+        let publication = try EPUBFixtures.publication(entries, name: "no-decl")
         XCTAssertNil(publication.coverImagePath)
         XCTAssertEqual(publication.resolvedCoverImagePath, "OEBPS/images/cover.png")
     }
@@ -138,9 +132,7 @@ final class PublicationTests: XCTestCase {
                 .replacingOccurrences(of: #" properties="cover-image""#, with: "")
             entries[index] = (entry.name, Data(opf.utf8))
         }
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/fxl-no-decl.epub"))
+        let publication = try EPUBFixtures.publication(entries, name: "fxl-no-decl")
         XCTAssertNil(publication.coverImagePath)
         XCTAssertEqual(publication.resolvedCoverImagePath, "OEBPS/images/p001.png")
         XCTAssertNotNil(publication.coverImage(maxPixelSize: 4))
@@ -236,9 +228,7 @@ final class PublicationTests: XCTestCase {
                 ("OEBPS/package.opf", Data(opf.utf8)),
                 ("OEBPS/c.xhtml", Data(xhtml.utf8)),
             ]
-            return try EPUBPublication(
-                data: ZipBuilder.build(entries, method: 8),
-                displayURL: URL(fileURLWithPath: "/tmp/\(name).epub"))
+            return try EPUBFixtures.publication(entries, name: name)
         }
 
         // 半角本文を全角クエリで引く
@@ -279,9 +269,7 @@ final class PublicationTests: XCTestCase {
 
     /// 複数ヒットでも各 characterOffset が増分計算で正しく整合する
     func testSearchMultipleOffsetsConsistent() throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/multi.epub"))
+        let publication = try EPUBFixtures.verticalNovel(name: "multi")
         // 「は」は 1 章内に複数出現する(吾輩は / 名前は)
         let hits = publication.search("は").filter { $0.spineIndex == 0 }
         XCTAssertGreaterThan(hits.count, 1)

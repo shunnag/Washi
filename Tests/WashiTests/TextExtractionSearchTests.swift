@@ -299,9 +299,7 @@ final class PublicationTestsTextExtractionSearch: XCTestCase {
             ("OEBPS/package.opf", Data(opf.utf8)),
             ("OEBPS/text/c.dat", resourceData ?? Data(xhtml.utf8)),
         ]
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/text-extraction-search.epub"))
+        return try EPUBFixtures.publication(entries, name: "text-extraction-search")
     }
 }
 

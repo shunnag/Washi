@@ -292,17 +292,13 @@ final class TrailingSpreadPageTests: XCTestCase {
                 "<p class=\"fixture-page\" id=\"page-\($0)\">第\($0)ページ</p>"
             }.joined()
         var entries = EPUBFixtures.singleSpineEntries(bodyHTML: body)
-        if let htmlDirection,
-           let index = entries.firstIndex(where: { $0.name == "OEBPS/text/c.xhtml" }) {
-            let source = String(decoding: entries[index].data, as: UTF8.self)
-            entries[index].data = Data(source.replacingOccurrences(
-                of: "xml:lang=\"ja\">",
-                with: "xml:lang=\"ja\" dir=\"\(htmlDirection)\">").utf8)
+        if let htmlDirection {
+            entries = try EPUBFixtures.replacing(
+                entries, in: "OEBPS/text/c.xhtml", of: "xml:lang=\"ja\">",
+                with: "xml:lang=\"ja\" dir=\"\(htmlDirection)\">")
         }
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath:
-                "/tmp/washi-native-folio-\(context.replacingOccurrences(of: " ", with: "-")).epub"))
+        let publication = try EPUBFixtures.publication(
+            entries, name: "washi-native-folio-\(context.replacingOccurrences(of: " ", with: "-"))")
         // 既定 inset を差し引いた WebView が spec と同じ 640 x 400 になる寸法。
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 752, height: 508))

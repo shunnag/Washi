@@ -58,9 +58,7 @@ final class ImageItemInsetsTests: XCTestCase {
         entries.append(("OEBPS/package.opf", Data(opf
             .replacingOccurrences(of: "MANIFEST", with: manifest)
             .replacingOccurrences(of: "SPINE", with: spine).utf8)))
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-image-only-items.epub"))
+        return try EPUBFixtures.publication(entries, name: "washi-image-only-items")
     }
 
     /// ライトノベル型: 挿絵 27 項目＋文字の章 13 項目。
@@ -105,16 +103,12 @@ final class ImageItemInsetsTests: XCTestCase {
     func testScrolledImageOnlyItemKeepsTheInsets() throws {
         var entries = EPUBFixtures.imagePageEntries(
             bodyHTML: "<img src=\"../images/page.png\"/>")
-        let packageIndex = try XCTUnwrap(
-            entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        let package = String(decoding: entries[packageIndex].data, as: UTF8.self)
-            .replacingOccurrences(
-                of: #"<spine><itemref idref="c"/></spine>"#,
-                with: #"<spine><itemref idref="c" properties="rendition:flow-scrolled-doc"/></spine>"#)
-        entries[packageIndex].data = Data(package.utf8)
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-image-item-insets-scrolled.epub"))
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
+            of: #"<spine><itemref idref="c"/></spine>"#,
+            with: #"<spine><itemref idref="c" properties="rendition:flow-scrolled-doc"/></spine>"#)
+        let publication = try EPUBFixtures.publication(entries,
+            name: "washi-image-item-insets-scrolled")
         let view = makeView()
         view.load(publication: publication,
                   at: EPUBLocator(spineIndex: 0, progression: 0))
