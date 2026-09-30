@@ -57,7 +57,7 @@ public enum EPUBPrefixedCSS {
                 startsStatement = false
                 continue
             }
-            if byte == 0x5c { // An escaped delimiter is not CSS structure.
+            if byte == 0x5c { // エスケープされた区切り文字は CSS の構造ではない。
                 index += min(2, input.count - index)
                 startsStatement = false
                 continue
@@ -71,8 +71,8 @@ public enum EPUBPrefixedCSS {
                    properties[name] != nil || name.hasPrefix("--") {
                     let custom = name.hasPrefix("--")
                     let end = endOfValue(input, from: colon + 1, custom: custom)
-                    // A top-level brace starts a nested rule, not a value for
-                    // one of these six properties. Leave such selectors alone.
+                    // 最上位の波括弧は入れ子規則の始まりで、対象 6 プロパティの
+                    // 値ではない。そうしたセレクタには手を付けない。
                     if custom || end == input.count || input[end] != 0x7b {
                         if let standard = properties[name] {
                             let value = String(decoding: input[(colon + 1)..<end], as: UTF8.self)

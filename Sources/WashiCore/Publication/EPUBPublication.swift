@@ -375,10 +375,10 @@ public final class EPUBPublication: Sendable {
     ///
     /// Best-guess DRM scheme (detected from fingerprint files under META-INF); nil when not DRM-protected.
     public var drmSchemeName: String? {
-        // Honor the contract ("nil when not DRM-protected") for every branch: a
-        // stray META-INF/sinf.xml or license.lcpl in a repackaged, non-encrypted
-        // EPUB must not report DRM (cooViewer-2hp). Adobe ADEPT already gated on
-        // isDRMProtected; lift the gate to the top so LCP/FairPlay share it.
+        // 「DRM 保護がなければ nil」の契約を全分岐で守る。再梱包された非暗号化
+        // EPUB に META-INF/sinf.xml や license.lcpl が残っていても DRM と報告
+        // しない(cooViewer-2hp)。Adobe ADEPT は既に isDRMProtected で判定して
+        // いたので、その判定を先頭へ上げて LCP / FairPlay も共有する。
         guard isDRMProtected else { return nil }
         let reader = container.reader
         if reader.exists("META-INF/license.lcpl") { return "Readium LCP" }
