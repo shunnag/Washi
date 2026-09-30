@@ -328,6 +328,15 @@ extension EPUBFixtures {
         try publication(fxlComicEntries(), name: name)
     }
 
+    /// 著者の見開き指定 `spread` を持つ、200 文の本文 1 項目のリフロー EPUB
+    static func reflowSpread(_ spread: RenditionSpread) throws -> EPUBPublication {
+        try publication(
+            reflowSpreadEntries(
+                renditionSpread: spread,
+                bodyHTML: "<p>\(String(repeating: "本文。", count: 200))</p>"),
+            name: "washi-reader-\(spread.rawValue)")
+    }
+
     /// 単一 spine の最小 EPUB
     static func singleSpine(bodyHTML: String, name: String = #function) throws -> EPUBPublication {
         try publication(singleSpineEntries(bodyHTML: bodyHTML), name: name)

@@ -14,14 +14,6 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         try EPUBFixtures.verticalNovel(name: "washi-reader-regression")
     }
 
-    private func makePublication(spread: RenditionSpread) throws -> EPUBPublication {
-        try EPUBFixtures.publication(
-            EPUBFixtures.reflowSpreadEntries(
-                renditionSpread: spread,
-                bodyHTML: "<p>\(String(repeating: "本文。", count: 200))</p>"),
-            name: "washi-reader-\(spread.rawValue)")
-    }
-
     private static func documentToken(fromOptionsJSON json: String) -> String? {
         guard let data = json.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data),
@@ -310,7 +302,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
     /// cooViewer-oxr.24: setup 後に handlesKeyboardNavigation を false へ
     /// 切り替えた文書は、次の keydown を delegate へ送る。
     func testKeyboardSettingChangeUpdatesLoadedScript() async throws {
-        let publication = try makePublication(spread: .none)
+        let publication = try EPUBFixtures.reflowSpread(.none)
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         let delegate = ReaderViewDelegateSpy()
@@ -391,7 +383,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
     /// cooViewer-oxr.54: 表示中に予約済みの再ページ割りも、hide 後に
     /// 起床して不可視 WebView を更新しない。
     func testHideCancelsAlreadyScheduledRepagination() async throws {
-        let publication = try makePublication(spread: .none)
+        let publication = try EPUBFixtures.reflowSpread(.none)
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         let delegate = ReaderViewDelegateSpy()

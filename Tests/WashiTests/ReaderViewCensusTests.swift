@@ -12,14 +12,6 @@ final class ReaderViewCensusTests: XCTestCase {
         try EPUBFixtures.verticalNovel(name: "washi-reader-regression")
     }
 
-    private func makePublication(spread: RenditionSpread) throws -> EPUBPublication {
-        try EPUBFixtures.publication(
-            EPUBFixtures.reflowSpreadEntries(
-                renditionSpread: spread,
-                bodyHTML: "<p>\(String(repeating: "本文。", count: 200))</p>"),
-            name: "washi-reader-\(spread.rawValue)")
-    }
-
     /// 0 始まりの census ページと locator の相互変換は全ページで可逆になる
     func testCensusGlobalPageRoundTripsEveryPage() throws {
         let publication = try makePublication()
@@ -127,7 +119,7 @@ final class ReaderViewCensusTests: XCTestCase {
 
     /// importCensus の照合キーが著者指定を反映した画面計画と決定的に一致する
     func testImportedCensusUsesRenditionSpreadMetricsKey() throws {
-        let publication = try makePublication(spread: .both)
+        let publication = try EPUBFixtures.reflowSpread(.both)
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 640, height: 900))
         view.load(publication: publication)

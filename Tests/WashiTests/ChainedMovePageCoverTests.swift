@@ -8,16 +8,10 @@ import XCTest
 
 @MainActor
 final class ChainedMovePageCoverTests: XCTestCase {
-    private func makePublication(_ name: String = "washi-spine-transition") throws
-        -> EPUBPublication
-    {
-        try EPUBFixtures.verticalNovel(name: name)
-    }
-
     // MARK: - 連続した移動での控えの引き継ぎ(Washi-3b1)
 
     func testChainedMoveBeforeTheCommitKeepsThePreviousPageCover() async throws {
-        let publication = try makePublication()
+        let publication = try spineTransitionPublication()
         let (view, window) = makeChainReader()
         defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = ReaderObservationSpy()
@@ -92,7 +86,7 @@ final class ChainedMovePageCoverTests: XCTestCase {
         let (view, window) = makeChainReader()
         defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = ReaderObservationSpy()
-        try await openAndSettle(view, try makePublication(), delegate: delegate)
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: delegate)
         // 実際のコミットで貼ったカバーを観測できるよう、表示の復帰を打ち切りまで遅らせる
         view.animationFrameWait = { _ in try? await Task.sleep(for: .seconds(30)) }
         view.animationFrameWaitTimeout = .milliseconds(400)
@@ -123,7 +117,7 @@ final class ChainedMovePageCoverTests: XCTestCase {
 
     func testChainedMoveDoesNotKeepTheCoverAfterTheDisplayConditionsChange() async throws {
         for change in ["pageTurnStyle", "fontScale"] {
-            let publication = try makePublication()
+            let publication = try spineTransitionPublication()
             let (view, window) = makeChainReader()
             defer { closeReader(view, in: window, teardown: .unload) }
             let delegate = ReaderObservationSpy()
@@ -160,7 +154,7 @@ final class ChainedMovePageCoverTests: XCTestCase {
         let (view, window) = makeChainReader()
         defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = ReaderObservationSpy()
-        try await openAndSettle(view, try makePublication(), delegate: delegate)
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: delegate)
         let web = try view.firstWebView()
         let prepared = cover(for: view, rect: web.frame,
                              spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
@@ -194,7 +188,7 @@ final class ChainedMovePageCoverTests: XCTestCase {
             let (view, window) = makeChainReader()
             defer { closeReader(view, in: window, teardown: .unload) }
             let delegate = ReaderObservationSpy()
-            try await openAndSettle(view, try makePublication(), delegate: delegate)
+            try await openAndSettle(view, try spineTransitionPublication(), delegate: delegate)
             let web = try view.firstWebView()
             let prepared = cover(for: view, rect: web.frame,
                                  spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
@@ -205,7 +199,7 @@ final class ChainedMovePageCoverTests: XCTestCase {
             let installed = try XCTUnwrap(view.turn.pendingSpineTurn?.cover, rebuild)
             XCTAssertTrue(installed.image === prepared.image, rebuild)
             if rebuild == "anotherBook" {
-                view.load(publication: try makePublication("washi-chain-b"))
+                view.load(publication: try spineTransitionPublication("washi-chain-b"))
             } else {
                 view.settings.allowsScriptedContent.toggle()
             }
@@ -220,7 +214,7 @@ final class ChainedMovePageCoverTests: XCTestCase {
         let (view, window) = makeChainReader()
         defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = ReaderObservationSpy()
-        try await openAndSettle(view, try makePublication(), delegate: delegate)
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: delegate)
         let web = try view.firstWebView()
         let prepared = cover(for: view, rect: web.frame,
                              spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
@@ -285,7 +279,7 @@ final class ChainedMovePageCoverTests: XCTestCase {
         let (view, window) = makeChainReader()
         defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = ReaderObservationSpy()
-        try await openAndSettle(view, try makePublication(), delegate: delegate)
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: delegate)
         let web = try view.firstWebView()
         let moves = delegate.moveCount
         let cover = NSImageView(image: NSImage(size: view.bounds.size))

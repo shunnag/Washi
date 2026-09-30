@@ -7,14 +7,6 @@ import XCTest
 
 @MainActor
 final class ReaderViewSpreadSetupTests: XCTestCase {
-    private func makePublication(spread: RenditionSpread) throws -> EPUBPublication {
-        try EPUBFixtures.publication(
-            EPUBFixtures.reflowSpreadEntries(
-                renditionSpread: spread,
-                bodyHTML: "<p>\(String(repeating: "本文。", count: 200))</p>"),
-            name: "washi-reader-\(spread.rawValue)")
-    }
-
     private func makePublication(
         spread: RenditionSpread, itemProperties: String
     ) throws -> EPUBPublication {
@@ -97,12 +89,12 @@ final class ReaderViewSpreadSetupTests: XCTestCase {
     func testSetupSpreadHonorsPublicationRenditionSpread() throws {
         let bothView = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 640, height: 900))
-        bothView.load(publication: try makePublication(spread: .both))
+        bothView.load(publication: try EPUBFixtures.reflowSpread(.both))
         XCTAssertEqual(try setupOptions(of: bothView)["spread"] as? Bool, true)
 
         let noneView = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 1_200, height: 900))
-        noneView.load(publication: try makePublication(spread: .none))
+        noneView.load(publication: try EPUBFixtures.reflowSpread(.none))
         XCTAssertEqual(try setupOptions(of: noneView)["spread"] as? Bool, false)
     }
 

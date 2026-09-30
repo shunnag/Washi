@@ -14,6 +14,13 @@ import XCTest
 // ChainedMovePageCoverTests(5)に分け、共通の道具立てをここに置く。
 
 extension XCTestCase {
+    /// spine 遷移のテストが開く縦組み小説。`name` は displayURL の区別用
+    func spineTransitionPublication(_ name: String = "washi-spine-transition") throws
+        -> EPUBPublication
+    {
+        try EPUBFixtures.verticalNovel(name: name)
+    }
+
     /// 2 番目の項目(ch2)を text/html と宣言し、描画可能な fallback の無い項目にする
     @MainActor
     func makePublicationWithUnrenderableSecondItem() throws -> EPUBPublication {

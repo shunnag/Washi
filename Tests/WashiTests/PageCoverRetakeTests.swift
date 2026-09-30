@@ -40,18 +40,12 @@ private final class HeldChapterNavigation: NSObject, WKNavigationDelegate {
 
 @MainActor
 final class PageCoverRetakeTests: XCTestCase {
-    private func makePublication(_ name: String = "washi-spine-transition") throws
-        -> EPUBPublication
-    {
-        try EPUBFixtures.verticalNovel(name: name)
-    }
-
     // MARK: - 控えのカバー
 
     func testThemeChangeRetakesTheCoverInTheNewColors() async throws {
         let (view, window) = makeCoverReader()
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, try makePublication(), delegate: ReaderObservationSpy())
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: ReaderObservationSpy())
         let initial = try await waitForCover(view)
         XCTAssertGreaterThan(meanLuminance(initial.image), 0.6, "初回の控えは明るい配色で撮る")
 
@@ -67,7 +61,7 @@ final class PageCoverRetakeTests: XCTestCase {
     func testAppearanceOnlyChangesRetakeTheCover() async throws {
         let (view, window) = makeCoverReader()
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, try makePublication(), delegate: ReaderObservationSpy())
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: ReaderObservationSpy())
         var current = try await waitForCover(view)
         let stages: [(name: String, dropsCover: Bool, change: @MainActor () -> Void)] = [
             ("コントラストの強調", true, { view.accessibilityIncreaseContrastOverride = true }),
@@ -98,7 +92,7 @@ final class PageCoverRetakeTests: XCTestCase {
     func testHighlightOnAnotherItemKeepsTheCoverForTheNextMove() async throws {
         let (view, window) = makeCoverReader()
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, try makePublication(), delegate: ReaderObservationSpy())
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: ReaderObservationSpy())
         let a = try await waitForCover(view)
 
         view.highlights = [EPUBHighlight(
@@ -114,7 +108,7 @@ final class PageCoverRetakeTests: XCTestCase {
         let (view, window) = makeCoverReader()
         defer { closeReader(view, in: window, teardown: .unload) }
         let delegate = ReaderObservationSpy()
-        try await openAndSettle(view, try makePublication(), delegate: delegate)
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: delegate)
         var current = try await settledCover(view, delegate: delegate)
         let moves = delegate.moveCount
         let stages: [(name: String, fragmentID: String?)] = [
@@ -140,7 +134,7 @@ final class PageCoverRetakeTests: XCTestCase {
     func testChapterAdvanceBeforeTheRetakeKeepsThePreviousCover() async throws {
         let (view, window) = makeCoverReader()
         defer { closeReader(view, in: window, teardown: .unload) }
-        try await openAndSettle(view, try makePublication(), delegate: ReaderObservationSpy())
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: ReaderObservationSpy())
         let a = try await waitForCover(view)
 
         view.mediaOverlayHighlight(fragmentID: "sec1", cssClass: EPUBReaderView.defaultActiveClass)
@@ -196,7 +190,7 @@ final class PageCoverRetakeTests: XCTestCase {
     func testBackingScaleChangeRetakesTheCover() async throws {
         let (view, window) = makeCoverReader()
         defer { closeReader(view, in: window, teardown: .unload) }
-        try await openAndSettle(view, try makePublication(), delegate: ReaderObservationSpy())
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: ReaderObservationSpy())
         let a = try await waitForCover(view)
         view.setPrefetchedPageCoverForTesting(EPUBReaderView.PrefetchedPageCover(
             image: a.image, rect: a.rect,
@@ -215,7 +209,7 @@ final class PageCoverRetakeTests: XCTestCase {
     func testSameBackingScaleKeepsTheCover() async throws {
         let (view, window) = makeCoverReader()
         defer { closeReader(view, in: window, teardown: .unload) }
-        try await openAndSettle(view, try makePublication(), delegate: ReaderObservationSpy())
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: ReaderObservationSpy())
         let a = try await waitForCover(view)
 
         view.viewDidChangeBackingProperties()
@@ -225,7 +219,7 @@ final class PageCoverRetakeTests: XCTestCase {
     func testNonAppearanceSettingKeepsTheCover() async throws {
         let (view, window) = makeCoverReader()
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, try makePublication(), delegate: ReaderObservationSpy())
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: ReaderObservationSpy())
         let a = try await waitForCover(view)
 
         view.settings.handlesKeyboardNavigation.toggle()
@@ -236,7 +230,7 @@ final class PageCoverRetakeTests: XCTestCase {
     func testLayoutAndThemeChangeDoesNotUseTheOldCover() async throws {
         let (view, window) = makeCoverReader()
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, try makePublication(), delegate: ReaderObservationSpy())
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: ReaderObservationSpy())
         let initial = try await waitForCover(view)
 
         var settings = view.settings
@@ -251,7 +245,7 @@ final class PageCoverRetakeTests: XCTestCase {
     func testCoverIsRetakenWhenTheWindowIsVisibleAgain() async throws {
         let (view, window) = makeCoverReader()
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, try makePublication(), delegate: ReaderObservationSpy())
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: ReaderObservationSpy())
         var current = try await waitForCover(view)
         for notification in [NSWindow.didChangeOcclusionStateNotification,
                              NSWindow.didDeminiaturizeNotification] {
@@ -291,7 +285,7 @@ final class PageCoverRetakeTests: XCTestCase {
     func testSwitchingOffPageTurnAnimationTakesTheCover() async throws {
         let (view, window) = makeCoverReader(pageTurnStyle: .slide)
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-        try await openAndSettle(view, try makePublication(), delegate: ReaderObservationSpy())
+        try await openAndSettle(view, try spineTransitionPublication(), delegate: ReaderObservationSpy())
         // setup の撮影予約が設定変更後に走ると、修正前でも控えができてしまう。
         // 既存の差し替え口で目印を置き、演出ありの撮影処理が捨てるまで待つ。
         view.setPrefetchedPageCoverForTesting(cover(for: view, rect: view.bounds))
@@ -344,7 +338,7 @@ final class PageCoverRetakeTests: XCTestCase {
 
     /// 用意された控えは didCommit で撮った矩形に貼られ、表示が戻ると畳まれる
     func testPreparedCoverIsInstalledAtCommitAndFoldedAfterDisplay() async throws {
-        let publication = try makePublication()
+        let publication = try spineTransitionPublication()
         try await withSettledReader(publication: publication, configure: { view in
             var settings = view.settings
             settings.pageTurnStyle = .none
@@ -379,7 +373,7 @@ final class PageCoverRetakeTests: XCTestCase {
 
     /// 演出ありの送り(既定の slide)では控えを使わない
     func testCoverIsNotUsedWithAnimatedPageTurns() async throws {
-        let publication = try makePublication()
+        let publication = try spineTransitionPublication()
         try await withSettledReader(publication: publication, configure: { view in
             // CI ランナーには視差効果を減らす設定が有効なものがあるので、OS 設定に依存させない
             view.accessibilityReduceMotionOverride = false
@@ -395,7 +389,7 @@ final class PageCoverRetakeTests: XCTestCase {
 
     /// 視差効果を減らす設定では演出が省かれるので、slide でも控えを使う
     func testCoverIsUsedWithAnimatedPageTurnsWhenReducingMotion() async throws {
-        let publication = try makePublication()
+        let publication = try spineTransitionPublication()
         try await withSettledReader(publication: publication, configure: { view in
             view.accessibilityReduceMotionOverride = true
         }) { view, _ in
@@ -414,9 +408,9 @@ final class PageCoverRetakeTests: XCTestCase {
         var settings = view.settings
         settings.pageTurnStyle = .none
         view.settings = settings
-        view.load(publication: try makePublication("washi-book-a"))
+        view.load(publication: try spineTransitionPublication("washi-book-a"))
         view.setPrefetchedPageCoverForTesting(cover(for: view, rect: view.bounds))
-        view.load(publication: try makePublication("washi-book-b"))
+        view.load(publication: try spineTransitionPublication("washi-book-b"))
         XCTAssertNil(view.pageCover.prefetchedPageCover)
         XCTAssertNil(view.pageCover.armedSpineCover)
 
@@ -428,7 +422,7 @@ final class PageCoverRetakeTests: XCTestCase {
 
     /// 控えが無い遷移はカバー無しで最後まで進む
     func testTransitionWithoutAPrefetchedCoverFallsBack() async throws {
-        let publication = try makePublication()
+        let publication = try spineTransitionPublication()
         try await withSettledReader(publication: publication, configure: { view in
             var settings = view.settings
             settings.pageTurnStyle = .none

@@ -8,12 +8,6 @@ import XCTest
 
 @MainActor
 final class SpineTransitionVisibilityTests: XCTestCase {
-    private func makePublication(_ name: String = "washi-spine-transition") throws
-        -> EPUBPublication
-    {
-        try EPUBFixtures.verticalNovel(name: name)
-    }
-
     // MARK: - 描画フレームの待ち
 
     func testFrameWaitGivesUpAtTheTimeout() async {
@@ -53,7 +47,7 @@ final class SpineTransitionVisibilityTests: XCTestCase {
             let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
             let window = makeOffscreenWindow(containing: view)
             defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
-            try await openAndSettle(view, try makePublication(), delegate: ReaderObservationSpy())
+            try await openAndSettle(view, try spineTransitionPublication(), delegate: ReaderObservationSpy())
             let web = try view.firstWebView()
             views.add(web)
             let completed = await TimeoutRace.run({
@@ -72,7 +66,7 @@ final class SpineTransitionVisibilityTests: XCTestCase {
 
     /// 描画フレームが進まなくても、表示は打ち切り時間の後に必ず戻る
     func testAlphaIsRestoredWhenAnimationFramesNeverArrive() async throws {
-        try await withSettledReader(publication: try makePublication(), configure: { view in
+        try await withSettledReader(publication: try spineTransitionPublication(), configure: { view in
             view.animationFrameWait = { _ in try? await Task.sleep(for: .seconds(30)) }
             view.animationFrameWaitTimeout = .milliseconds(100)
         }) { _, _ in }
@@ -82,7 +76,7 @@ final class SpineTransitionVisibilityTests: XCTestCase {
 
     /// 読み込みの開始では透明にしない(透明にするのは didCommit)
     func testLoadingTheNextItemDoesNotHideThePreviousPage() async throws {
-        let publication = try makePublication()
+        let publication = try spineTransitionPublication()
         try await withSettledReader(publication: publication) { view, _ in
             XCTAssertGreaterThan(publication.readingOrder.count, 1)
             view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
@@ -92,7 +86,7 @@ final class SpineTransitionVisibilityTests: XCTestCase {
 
     /// 置き換えた読み込みのコミットでも、ページ割り前の文書を隠す(Washi-7ct)
     func testSupersededLoadCommitHidesTheUnpaginatedDocument() async throws {
-        let publication = try makePublication()
+        let publication = try spineTransitionPublication()
         try await withSettledReader(publication: publication, configure: { view in
             view.accessibilityReduceMotionOverride = false
         }) { view, delegate in
@@ -122,7 +116,7 @@ final class SpineTransitionVisibilityTests: XCTestCase {
     /// 修正の前後とも成功する、ガードの広げすぎを防ぐテスト。
     /// 表示が落ち着いた後の古いコミットは、今のページを隠さない。
     func testLateCommitOfAnEarlierLoadDoesNotHideASettledPage() async throws {
-        let publication = try makePublication()
+        let publication = try spineTransitionPublication()
         try await withSettledReader(publication: publication, configure: { view in
             view.accessibilityReduceMotionOverride = false
         }) { view, delegate in
@@ -143,7 +137,7 @@ final class SpineTransitionVisibilityTests: XCTestCase {
 
     /// コミットまでは前のページが見えているので、新しい項目のノンブルを出さない
     func testPageNumbersAreHiddenUntilTheNextItemCommits() async throws {
-        let publication = try makePublication()
+        let publication = try spineTransitionPublication()
         try await withSettledReader(publication: publication) { view, _ in
             let labels = view.subviews.compactMap { $0 as? NSTextField }
             XCTAssertTrue(labels.contains { !$0.isHidden }, "ノンブルが見えている前提")
@@ -172,7 +166,7 @@ final class SpineTransitionVisibilityTests: XCTestCase {
 
     /// 読み込みの失敗後は移動元を読み込み直し、その表示とノンブルを戻す。
     func testPageNumbersReturnWhenLoadingTheNextItemFails() async throws {
-        let publication = try makePublication()
+        let publication = try spineTransitionPublication()
         let (view, window) = makeChainReader()
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         let delegate = ReaderObservationSpy()
