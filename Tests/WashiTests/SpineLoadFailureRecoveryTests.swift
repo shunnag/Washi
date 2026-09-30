@@ -64,7 +64,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
                       _ delegate: ReaderObservationSpy, at index: Int = 0) async throws {
         view.load(publication: book, at: book.locator(forSpineIndex: index))
         guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(5), { !delegate.moves.isEmpty }) else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
         let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { (try? view.firstWebView().alphaValue) == 1 }
         XCTAssertTrue(shown)
@@ -550,7 +550,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         view.load(publication: book, at: book.locator(forSpineIndex: 1))
         view.go(to: book.locator(forSpineIndex: 0))
         let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { !delegate.moves.isEmpty && (try? view.firstWebView().alphaValue) == 1 }
-        guard shown else { return try skipOrFailIfWebKitUnavailable() }
+        guard shown else { return try failOrSkipIfWebKitUnavailable() }
         XCTAssertTrue(view.canGoBack)
         let failures = delegate.failures.count
         let context = view.mediaOverlayDocumentContext()
@@ -569,7 +569,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         view.load(publication: book, at: book.locator(forSpineIndex: 1))
         view.go(to: book.locator(forSpineIndex: 0))
         let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { !delegate.moves.isEmpty && (try? view.firstWebView().alphaValue) == 1 }
-        guard shown else { return try skipOrFailIfWebKitUnavailable() }
+        guard shown else { return try failOrSkipIfWebKitUnavailable() }
         XCTAssertTrue(view.canGoBack)
         let failures = delegate.failures.count
         delegate.onFailure = { $0.unload() }
@@ -590,7 +590,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         view.go(to: book.locator(forSpineIndex: 1))
         view.go(to: book.locator(forSpineIndex: 2))
         let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { !delegate.moves.isEmpty && (try? view.firstWebView().alphaValue) == 1 }
-        guard shown else { return try skipOrFailIfWebKitUnavailable() }
+        guard shown else { return try failOrSkipIfWebKitUnavailable() }
         XCTAssertTrue(view.canGoBack)
         let failures = delegate.failures.count
         var historyAvailability: [Bool] = []

@@ -42,7 +42,7 @@ func waitUntil(timeout: Duration, poll: Duration = .milliseconds(20),
 func waitUntilShown(_ web: WKWebView, _ delegate: ReaderObservationSpy, after moves: Int,
                     file: StaticString = #filePath, line: UInt = #line) async throws {
     guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(10), { delegate.moveCount > moves }) else {
-        return try skipOrFailIfWebKitUnavailable(file: file, line: line)
+        return try failOrSkipIfWebKitUnavailable(file: file, line: line)
     }
     let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(10)) { web.alphaValue == 1 }
     XCTAssertTrue(shown, "表示が戻らない", file: file, line: line)
@@ -82,7 +82,7 @@ func closeReader(_ view: EPUBReaderView, in window: NSWindow,
 
 /// この環境で WKWebView のナビゲーションが動かなかったときの共通の打ち切り
 /// (CI では失敗、ローカルでは skip)
-func skipOrFailIfWebKitUnavailable(
+func failOrSkipIfWebKitUnavailable(
     file: StaticString = #filePath, line: UInt = #line
 ) throws {
     try failOrSkipWebKitTest(

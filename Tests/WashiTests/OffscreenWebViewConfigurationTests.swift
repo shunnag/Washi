@@ -91,7 +91,7 @@ final class OffscreenWebViewConfigurationTests: XCTestCase {
         do {
             try await waiter.wait(timeout: .seconds(15))
         } catch {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
 
         let expected = Array(repeating: "undefined", count: 6).joined(separator: ",")

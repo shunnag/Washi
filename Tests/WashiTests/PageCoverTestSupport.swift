@@ -61,7 +61,7 @@ extension XCTestCase {
         view.delegate = delegate
         view.load(publication: publication)
         guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(5), { delegate.moveCount > 0 }) else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
         let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { (try? view.firstWebView().alphaValue) == 1 }
         XCTAssertTrue(shown)

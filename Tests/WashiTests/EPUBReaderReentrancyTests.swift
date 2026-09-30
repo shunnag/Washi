@@ -231,7 +231,7 @@ final class EPUBReaderReentrancyTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         guard delegate.moveCount > 0 else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
         XCTAssertGreaterThan(view.pageCountInItem, 1)
         var sawInFlightCover = false
@@ -266,7 +266,7 @@ final class EPUBReaderReentrancyTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         guard delegate.moveCount > 0 else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
         let replacement = try publication("replacement-fxl", fixed: true)
 
@@ -307,7 +307,7 @@ final class EPUBReaderReentrancyTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         guard delegate.moveCount > 0 else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
 
         view.goForward()

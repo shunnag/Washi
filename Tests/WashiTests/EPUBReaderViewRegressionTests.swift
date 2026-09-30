@@ -285,7 +285,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
 
         let didFinishInitialSetup = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) { delegate.moveCount > 0 }
         guard didFinishInitialSetup else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
         let originalCount = view.pageCountInItem
         var updated = view.settings
@@ -312,7 +312,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         view.load(publication: publication)
         let didFinishInitialSetup = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) { delegate.moveCount > 0 }
         guard didFinishInitialSetup else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
 
         var updated = view.settings
@@ -392,7 +392,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
         guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
         // 最初の表示は描画フレームを待ってから戻り、その間は setup 中の扱いになる。
         // 表示が戻る(setup が終わる)まで待ってから設定を変える

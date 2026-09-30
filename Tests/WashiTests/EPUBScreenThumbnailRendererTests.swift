@@ -19,7 +19,7 @@ final class EPUBScreenThumbnailRendererTests: XCTestCase {
         guard await renderer.thumbnail(
             spineIndex: 0, pageInItem: 0, optionsJSON: options,
             contentSize: metrics.contentSize, snapshotWidth: 120) != nil else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
 
         XCTAssertTrue(renderer.hasLiveWebView)
@@ -80,7 +80,7 @@ final class EPUBScreenThumbnailRendererTests: XCTestCase {
         guard await renderer.thumbnail(
             spineIndex: 0, pageInItem: 0, optionsJSON: options,
             contentSize: metrics.contentSize, snapshotWidth: 120) != nil else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
         let staleIdle = try XCTUnwrap(scheduler.lastActiveEntry)
 
