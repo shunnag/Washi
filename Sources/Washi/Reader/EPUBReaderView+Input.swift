@@ -322,6 +322,9 @@ extension EPUBReaderView {
     /// 余白と WebView の上(ページ表示)のホイールを「1 ジェスチャ = 1 ページ」に
     /// 量子化して送る(250ms 静穏で解除・軸は最初のイベントで確定)。慣性はラッチが飲み込む
     func turnPageByWheel(_ event: NSEvent) {
+        // ホストが「ホイールでページを送る」を切っている。ページ表示のイベントは
+        // 呼び出し元が WebKit に渡さずに捨てる(スクロールして戻る動きを出さない)
+        guard settings.wheelTurnsPages else { return }
         // トラックパッドは指を置いた時点で移動量 0 のイベント(mayBegin)を送る。
         // これで軸を決めると縦になり、続く横スワイプを取りこぼす(WebKit は
         // 移動量 0 のイベントを DOM に渡さないので、JS 経路では起きなかった)
