@@ -1476,28 +1476,6 @@ enum ReaderScripts {
             return drawn;
         };
 
-        // cooViewer-oxr.46 C26: 表示中のページに見えている要素 id のうち、
-        // 先頭に近いものを返す(音声同期を現在ページから始めるため)。
-        // candidates は SMIL の par が指す id を文書順に並べたもの。
-        washi.firstVisibleIdentifier = function (candidates) {
-            if (!ready || !Array.isArray(candidates)) { return null; }
-            for (const id of candidates) {
-                let element = null;
-                try { element = document.getElementById(id); } catch (e) { element = null; }
-                if (!element) { continue; }
-                const rect = element.getClientRects()[0]
-                    || element.getBoundingClientRect();
-                if (!rect || (rect.width === 0 && rect.height === 0)) { continue; }
-                // 現在のスプレッドに載っているか(pageForRect は表示中の
-                // ページ計算と同じ校正式を使う)
-                const page = pageForRect(rect);
-                if (page >= currentPage && page < currentPage + pagesPerScreen) {
-                    return id;
-                }
-            }
-            return null;
-        };
-
         // DOMRect を native へ渡す素の { x, y, w, h } に写す。
         function plainRect(rect) {
             return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
@@ -1581,6 +1559,28 @@ enum ReaderScripts {
         };
 
         // ---- 音声同期 ----
+
+        // cooViewer-oxr.46 C26: 表示中のページに見えている要素 id のうち、
+        // 先頭に近いものを返す(音声同期を現在ページから始めるため)。
+        // candidates は SMIL の par が指す id を文書順に並べたもの。
+        washi.firstVisibleIdentifier = function (candidates) {
+            if (!ready || !Array.isArray(candidates)) { return null; }
+            for (const id of candidates) {
+                let element = null;
+                try { element = document.getElementById(id); } catch (e) { element = null; }
+                if (!element) { continue; }
+                const rect = element.getClientRects()[0]
+                    || element.getBoundingClientRect();
+                if (!rect || (rect.width === 0 && rect.height === 0)) { continue; }
+                // 現在のスプレッドに載っているか(pageForRect は表示中の
+                // ページ計算と同じ校正式を使う)
+                const page = pageForRect(rect);
+                if (page >= currentPage && page < currentPage + pagesPerScreen) {
+                    return id;
+                }
+            }
+            return null;
+        };
 
         // メディアオーバーレイ再生: 直前の active を外して id 要素へ付け直し、
         // その要素が現在のスプレッドに無ければそのページへめくる(ページ計数は
