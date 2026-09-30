@@ -3,8 +3,11 @@ import WebKit
 import XCTest
 @testable import Washi
 
+/// 方針を返すメソッド(shouldConsumeKey・didReceiveDroppedFileURL)も実装する
+/// delegate の記録係。観測だけで足りるテストは ReaderObservationSpy を使う。
+/// ReaderViewCensusTests・ReaderViewKeyForwardingTests・WebContentReloadTests も共有する
 @MainActor
-private final class ReaderViewDelegateSpy: EPUBReaderViewDelegate {
+final class ReaderViewDelegateSpy: EPUBReaderViewDelegate {
     var keys: [EPUBKeyEvent] = []
     var consumeQuery: [EPUBKeyEvent] = []
     var onShouldConsumeKey: ((EPUBKeyEvent) -> Bool)?
@@ -43,14 +46,10 @@ private final class ReaderViewDelegateSpy: EPUBReaderViewDelegate {
     }
 }
 
-@MainActor
-private final class KeyDownResponderSpy: NSResponder {
-    var events: [NSEvent] = []
-
-    override func keyDown(with event: NSEvent) {
-        events.append(event)
-    }
-}
+// EPUBReaderView の回帰: 読み込み方針・読み込み中の移動先・設定の反映・ドロップ。
+// 見開きの setup は ReaderViewSpreadSetupTests、テキストアンカーは
+// ReaderViewTextAnchorLandingTests、census は ReaderViewCensusTests、キー転送は
+// ReaderViewKeyForwardingTests、WebContent の再読み込みは WebContentReloadTests に分けた
 
 @MainActor
 final class EPUBReaderViewRegressionTests: XCTestCase {
@@ -66,130 +65,14 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             name: "washi-reader-\(spread.rawValue)")
     }
 
-    private func makePublication(
-        spread: RenditionSpread, itemProperties: String
-    ) throws -> EPUBPublication {
-        var entries = EPUBFixtures.reflowSpreadEntries(
-            renditionSpread: spread,
-            bodyHTML: "<p>\(String(repeating: "本文。", count: 200))</p>")
-        entries = try EPUBFixtures.replacing(
-            entries, in: "OEBPS/package.opf",
-            of: #"<itemref idref="c"/>"#,
-            with: #"<itemref idref="c" properties="\#(itemProperties)"/>"#)
-        return try EPUBFixtures.publication(entries, name: "washi-reader-item-spread")
+    private static func documentToken(fromOptionsJSON json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any] else { return nil }
+        return dictionary["documentToken"] as? String
     }
 
-    private func makeSpreadTransitionPublication() throws -> EPUBPublication {
-        var entries = EPUBFixtures.reflowSpreadEntries(
-            renditionSpread: .both,
-            bodyHTML: "<p>first</p>")
-        entries = try EPUBFixtures.replacing(
-            entries, in: "OEBPS/package.opf",
-            of: #"<manifest><item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/></manifest>"#,
-            with: #"<manifest><item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/><item id="c2" href="text/c2.xhtml" media-type="application/xhtml+xml"/></manifest>"#)
-        entries = try EPUBFixtures.replacing(
-            entries, in: "OEBPS/package.opf",
-            of: #"<spine><itemref idref="c"/></spine>"#,
-            with: #"<spine><itemref idref="c"/><itemref idref="c2" properties="rendition:spread-none"/></spine>"#)
-        entries.append((
-            "OEBPS/text/c2.xhtml",
-            Data("<html xmlns=\"http://www.w3.org/1999/xhtml\"><body>second</body></html>".utf8)))
-        return try EPUBFixtures.publication(entries, name: "washi-reader-spread-transition")
-    }
-
-    private func setupOptions(of view: EPUBReaderView) throws -> [String: Any] {
-        let data = try XCTUnwrap(view.setupOptionsJSON().data(using: .utf8))
-        return try XCTUnwrap(
-            JSONSerialization.jsonObject(with: data) as? [String: Any])
-    }
-
-    /// cooViewer-oxr.27: Swift API の既定値と setup JSON の opt-in 配線を検証する。
-    func testSetupOptionsPassesTapDeferralPreference() throws {
-        var settings = EPUBReaderSettings()
-        XCTAssertFalse(settings.defersTapsForDoubleClick)
-
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        view.settings = settings
-        var options = try setupOptions(of: view)
-        XCTAssertEqual(options["deferTaps"] as? Bool, false)
-        XCTAssertNil(options["doubleClickDelayMS"])
-
-        settings.defersTapsForDoubleClick = true
-        view.settings = settings
-        options = try setupOptions(of: view)
-        XCTAssertEqual(options["deferTaps"] as? Bool, true)
-        XCTAssertGreaterThan(options["doubleClickDelayMS"] as? Double ?? 0, 0)
-    }
-
-    /// spreadInsets 適用後の狭い実幅ではなく、基準余白の幅でライブ側も
-    /// census と同じ見開き判定をする
-    func testSetupSpreadMatchesScreenMetricsAcrossMismatchWindow() throws {
-        var settings = EPUBReaderSettings()
-        settings.insets = EPUBReaderInsets(
-            top: 24, left: 56, bottom: 24, right: 56)
-        settings.spreadInsets = EPUBReaderInsets(
-            top: 24, left: 100, bottom: 24, right: 100)
-
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 812, height: 900))
-        view.settings = settings
-        for width in [CGFloat(812), 850, 899] {
-            view.frame.size.width = width
-            let options = try setupOptions(of: view)
-            let liveSpread = try XCTUnwrap(options["spread"] as? Bool)
-            let metrics = EPUBScreenMetrics(
-                viewportSize: view.bounds.size, settings: settings)
-            XCTAssertEqual(liveSpread, metrics.pagesPerScreen == 2,
-                           "viewport width: \(width)")
-        }
-    }
-
-    func testSetupSpreadHonorsPublicationRenditionSpread() throws {
-        let bothView = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 640, height: 900))
-        bothView.load(publication: try makePublication(spread: .both))
-        XCTAssertEqual(try setupOptions(of: bothView)["spread"] as? Bool, true)
-
-        let noneView = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 1_200, height: 900))
-        noneView.load(publication: try makePublication(spread: .none))
-        XCTAssertEqual(try setupOptions(of: noneView)["spread"] as? Bool, false)
-    }
-
-    /// cooViewer-oxr.51: 文書既定が見開きでも、現在 itemref の override が
-    /// ライブ setup を単ページへ切り替える。
-    func testSetupSpreadHonorsCurrentItemOverride() throws {
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 1_200, height: 900))
-        view.load(publication: try makePublication(
-            spread: .both, itemProperties: "rendition:spread-none"))
-
-        XCTAssertEqual(try setupOptions(of: view)["spread"] as? Bool, false)
-        XCTAssertEqual(view.plannedPagesPerScreen, 1)
-    }
-
-    /// cooViewer-oxr.51: 単ページ override の spine を直接開く場合、旧項目の
-    /// 見開き余白を WebView の初期フレームへ残さない。
-    func testSpineTransitionUpdatesFrameForItemSpreadInsets() throws {
-        var settings = EPUBReaderSettings()
-        settings.insets = EPUBReaderInsets(
-            top: 20, left: 20, bottom: 20, right: 20)
-        settings.spreadInsets = EPUBReaderInsets(
-            top: 20, left: 100, bottom: 20, right: 100)
-        let publication = try makeSpreadTransitionPublication()
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 1_200, height: 900))
-        view.settings = settings
-
-        view.load(
-            publication: publication,
-            at: EPUBLocator(spineIndex: 1, progression: 0, idref: "c2"))
-
-        let webView = try view.firstWebView()
-        XCTAssertEqual(webView.frame.width, 1_160)
-        XCTAssertEqual(try setupOptions(of: view)["spread"] as? Bool, false)
-    }
+    // MARK: - 読み込み方針(SpineNavigationGate)
 
     /// meta refresh などの .other は期待外なら reader 経由へ戻し、直前に
     /// 記録した loadSpineItem 自身の .other は一度だけ通す
@@ -225,127 +108,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             .allowExpectedLoad)
     }
 
-    /// 完了待ち要求のない go(locator:) と goBack() も保存した文字を探す。
-    /// ページ割りを変え、進行率への移動だけでは成功とみなさない。
-    func testSavedTextAnchorAndHistoryUseExactLandingWithoutContinuation() async throws {
-        let publication = try makePublication()
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        view.preparePublication(publication)
-        defer { view.unload() }
-        var saved = publication.locator(forSpineIndex: 0, progression: 0.25)
-        saved.textOffset = 420
-        view.settings.fontScale = 1.5
-        view.frame.size.width = 800
-        var offsets: [Int] = []
-        var scripts: [String] = []
-        view.textRangeLocationHandler = { offset, length in
-            offsets.append(offset)
-            XCTAssertEqual(length, 1)
-            return EPUBTextRangeLanding(pageInItem: 7, text: "保存した文",
-                                       rects: [CGRect(x: 10, y: 20, width: 40, height: 20)])
-        }
-        view.scriptEvaluationHandler = { scripts.append($0) }
-
-        view.go(to: saved)
-        await view.textRangeTask?.value
-
-        XCTAssertEqual(offsets, [420])
-        XCTAssertTrue(scripts.isEmpty)
-        XCTAssertEqual(view.currentLocator.textOffset, 420)
-        XCTAssertNil(view.textRangeTask)
-
-        view.go(to: publication.locator(forSpineIndex: 0, progression: 0.9))
-        XCTAssertEqual(scripts, ["__washi.showProgression(0.9);"])
-        scripts.removeAll()
-        view.goBack()
-        await view.textRangeTask?.value
-
-        XCTAssertEqual(offsets, [420, 420])
-        XCTAssertTrue(scripts.isEmpty)
-        XCTAssertEqual(view.currentLocator.textOffset, 420)
-    }
-
-    /// アンカーを探した結果が nil のときだけ、保存済みの進行率へ戻す。
-    func testMissingTextAnchorFallsBackAfterAttemptingExactLanding() async throws {
-        let publication = try makePublication()
-        let view = EPUBReaderView(frame: .zero)
-        view.preparePublication(publication)
-        defer { view.unload() }
-        var saved = publication.locator(forSpineIndex: 0, progression: 0.625)
-        saved.textOffset = 999
-        var attempted = false
-        var scripts: [String] = []
-        view.textRangeLocationHandler = { offset, _ in
-            XCTAssertEqual(offset, 999)
-            attempted = true
-            return nil
-        }
-        view.scriptEvaluationHandler = { script in
-            XCTAssertTrue(attempted)
-            scripts.append(script)
-        }
-
-        view.go(to: saved)
-        await view.textRangeTask?.value
-
-        XCTAssertTrue(attempted)
-        XCTAssertEqual(scripts, ["__washi.showProgression(0.625);"])
-    }
-
-    /// 継続を持つ既存の async API は、正確な着地結果を引き続き返す。
-    func testAsyncTextRangeNavigationStillCompletesWithLanding() async throws {
-        let publication = try makePublication()
-        let view = EPUBReaderView(frame: .zero)
-        view.preparePublication(publication)
-        defer { view.unload() }
-        let landing = EPUBTextRangeLanding(
-            pageInItem: 3, text: "本文", rects: [CGRect(x: 0, y: 0, width: 20, height: 20)])
-        view.textRangeLocationHandler = { offset, length in
-            XCTAssertEqual(offset, 12)
-            XCTAssertEqual(length, 2)
-            return landing
-        }
-        view.scriptEvaluationHandler = { _ in XCTFail("正確に着地できた場合は進行率へ戻さない") }
-
-        let result = await view.go(
-            to: publication.locator(forSpineIndex: 0, progression: 0.4),
-            textRange: (utf16Offset: 12, utf16Length: 2))
-
-        XCTAssertEqual(result?.pageInItem, landing.pageInItem)
-        XCTAssertEqual(result?.text, landing.text)
-        XCTAssertEqual(result?.rects, landing.rects)
-        XCTAssertNil(view.textRangeTask)
-    }
-
-    /// unload より後に返った旧アンカーの応答は、次の本へ fallback を送らない。
-    func testUnloadCancelsInFlightTextAnchorBeforeFallback() async throws {
-        let publication = try makePublication()
-        let view = EPUBReaderView(frame: .zero)
-        view.preparePublication(publication)
-        var saved = publication.locator(forSpineIndex: 0, progression: 0.75)
-        saved.textOffset = 42
-        let started = expectation(description: "アンカー解決を開始")
-        var continuation: CheckedContinuation<EPUBTextRangeLanding?, Never>?
-        var scripts: [String] = []
-        view.textRangeLocationHandler = { _, _ in
-            await withCheckedContinuation {
-                continuation = $0
-                started.fulfill()
-            }
-        }
-        view.scriptEvaluationHandler = { scripts.append($0) }
-        view.go(to: saved)
-        let task = try XCTUnwrap(view.textRangeTask)
-        await fulfillment(of: [started], timeout: 1)
-
-        view.unload()
-        continuation?.resume(returning: nil)
-        await task.value
-
-        XCTAssertTrue(scripts.isEmpty)
-        XCTAssertNil(view.textRangeTask)
-        XCTAssertNil(view.publication)
-    }
+    // MARK: - 読み込み失敗の分類
 
     /// 102 のうち、文書の遷移を policy で拒否したものだけを無通知で畳む。
     /// 現在の読み込みに対応する 102 と他の失敗は通知対象に残す。
@@ -416,6 +179,8 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - 読み込み中の移動先
 
     /// JS へ復元先を適用した直後、最初の pageChanged より前に保存位置を
     /// 読んでも progression を失わない
@@ -510,6 +275,8 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         XCTAssertEqual(delegate.moveCount, 0)
     }
 
+    // MARK: - 設定と表示の反映
+
     /// cooViewer-oxr.20: 画像ページの実測 1 面ではなく、画面計画 2 面を
     /// 基準に columnMode を反転する。
     func testToggleColumnModeUsesPlannedPagesForImageItem() throws {
@@ -547,127 +314,6 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             view.subviews.firstIndex(where: { $0 is WKWebView }))
         let overlayIndex = try XCTUnwrap(view.subviews.firstIndex(of: overlay))
         XCTAssertLessThan(rebuiltWebView, overlayIndex)
-    }
-
-    /// 0 始まりの census ページと locator の相互変換は全ページで可逆になる
-    func testCensusGlobalPageRoundTripsEveryPage() throws {
-        let publication = try makePublication()
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 900, height: 900))
-        view.load(publication: publication)
-        let counts = [1, 4, 3]
-        let metricsKey = EPUBScreenMetrics(
-            viewportSize: view.bounds.size, settings: view.settings).censusOptionsJSON
-        XCTAssertTrue(view.importCensus(EPUBCensusRecord(
-            metricsKey: metricsKey, counts: counts,
-            releaseIdentifier: publication.metadata.releaseIdentifier)))
-
-        for page in 0..<counts.reduce(0, +) {
-            let locator = try XCTUnwrap(view.censusLocator(forGlobalPage: page))
-            XCTAssertEqual(view.censusGlobalPage(for: locator), page,
-                           "0 始まり page=\(page)")
-        }
-    }
-
-    /// cooViewer-oxr.73: 公開 locator setter に入った巨大値を、trap する
-    /// Double → Int 変換まで到達させない。
-    func testCensusGlobalPageClampsHostileLocatorProgression() throws {
-        let publication = try makePublication()
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 900, height: 900))
-        view.load(publication: publication)
-        let metricsKey = EPUBScreenMetrics(
-            viewportSize: view.bounds.size, settings: view.settings).censusOptionsJSON
-        XCTAssertTrue(view.importCensus(EPUBCensusRecord(
-            metricsKey: metricsKey, counts: [4, 3, 2],
-            releaseIdentifier: publication.metadata.releaseIdentifier)))
-
-        var hostile = EPUBLocator(spineIndex: 0)
-        hostile.progression = 1e300
-        XCTAssertEqual(view.censusGlobalPage(for: hostile), 3)
-    }
-
-    /// cooViewer-oxr.21: A 成功→B 二回失敗→A cache hit→B skip でも、
-    /// B 表示中に A の総ページ数を残さない。
-    func testSkippedCensusKeyInvalidatesCachedDisplayCounts() throws {
-        let publication = try makePublication()
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 900, height: 900))
-        let delegate = ReaderViewDelegateSpy()
-        view.delegate = delegate
-        let window = makeOffscreenWindow(containing: view)
-        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
-        view.load(publication: publication)
-        view.cancelPageCensus()
-
-        let keyA = EPUBScreenMetrics(
-            viewportSize: view.bounds.size, settings: view.settings,
-            renditionSpread: publication.metadata.rendition.spread).cacheKey
-        XCTAssertTrue(view.importCensus(EPUBCensusRecord(
-            metricsKey: keyA, counts: [2, 3, 1],
-            releaseIdentifier: publication.metadata.releaseIdentifier)))
-
-        var settingsB = view.settings
-        settingsB.userCSS = "body { line-height: 3; }"
-        let keyB = EPUBScreenMetrics(
-            viewportSize: view.bounds.size, settings: settingsB,
-            renditionSpread: publication.metadata.rendition.spread).cacheKey
-        view.recordCensusFailure(forKey: keyB)
-        view.recordCensusFailure(forKey: keyB)
-
-        view.settings = settingsB
-        view.scheduleCensusIfNeeded()
-        XCTAssertNil(view.censusTotalPages)
-
-        var settingsA = settingsB
-        settingsA.userCSS = nil
-        view.settings = settingsA
-        view.scheduleCensusIfNeeded()
-        XCTAssertEqual(view.censusTotalPages, 6)
-
-        view.settings = settingsB
-        view.scheduleCensusIfNeeded()
-        XCTAssertNil(view.censusTotalPages)
-        XCTAssertGreaterThanOrEqual(delegate.censusUpdateCount, 4)
-    }
-
-    /// cooViewer-oxr.72: stale spineIndex より idref を優先し、通常 go と
-    /// census の逆写像が同じ spine を使う。
-    func testGoAndCensusGlobalPageResolveLocatorIDRef() throws {
-        let publication = try makePublication()
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 900, height: 900))
-        view.load(publication: publication)
-        let metricsKey = EPUBScreenMetrics(
-            viewportSize: view.bounds.size, settings: view.settings,
-            renditionSpread: publication.metadata.rendition.spread).cacheKey
-        XCTAssertTrue(view.importCensus(EPUBCensusRecord(
-            metricsKey: metricsKey, counts: [2, 3, 1],
-            releaseIdentifier: publication.metadata.releaseIdentifier)))
-        let stale = EPUBLocator(
-            spineIndex: 0, progression: 0.5,
-            idref: publication.readingOrder[1].itemRef.idref)
-
-        XCTAssertEqual(view.censusGlobalPage(for: stale), 3)
-        view.go(to: stale)
-        XCTAssertEqual(view.currentSpineIndex, 1)
-        XCTAssertEqual(view.currentLocator.progression, 0.5, accuracy: 0.0001)
-    }
-
-    /// importCensus の照合キーが著者指定を反映した画面計画と決定的に一致する
-    func testImportedCensusUsesRenditionSpreadMetricsKey() throws {
-        let publication = try makePublication(spread: .both)
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 640, height: 900))
-        view.load(publication: publication)
-        let base = EPUBScreenMetrics(
-            viewportSize: view.bounds.size, settings: view.settings)
-        let openKey = base.applyingRenditionSpread(.both).cacheKey
-        XCTAssertNotEqual(openKey, base.cacheKey)
-        XCTAssertTrue(view.importCensus(EPUBCensusRecord(
-            metricsKey: openKey, counts: [7],
-            releaseIdentifier: publication.metadata.releaseIdentifier)))
-        XCTAssertEqual(view.pageCensusMetricsKey, openKey)
     }
 
     /// cooViewer-oxr.24: userCSS は色だけの差し替えでなく導出レイアウトキーを
@@ -832,178 +478,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         XCTAssertTrue(view.isFromCurrentDocument([:]))
     }
 
-    private static func documentToken(fromOptionsJSON json: String) -> String? {
-        guard let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data),
-              let dictionary = object as? [String: Any] else { return nil }
-        return dictionary["documentToken"] as? String
-    }
-
-    /// cooViewer-oxr.80: コンテナ自身が keyDown を受けても、host 優先設定なら
-    /// DOM 往復なしで didReceiveKey へ配送する。
-    func testReaderViewKeyDownForwardsWhenKeyboardNavigationDisabled() throws {
-        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        let delegate = ReaderViewDelegateSpy()
-        view.delegate = delegate
-        var settings = view.settings
-        settings.handlesKeyboardNavigation = false
-        view.settings = settings
-        let event = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown, location: .zero, modifierFlags: [.shift],
-            timestamp: 1, windowNumber: 0, context: nil,
-            characters: "X", charactersIgnoringModifiers: "x",
-            isARepeat: false, keyCode: 7))
-
-        view.keyDown(with: event)
-
-        XCTAssertEqual(delegate.keys.count, 1)
-        XCTAssertEqual(delegate.keys.first?.key, "x")
-        XCTAssertEqual(delegate.keys.first?.shift, true)
-    }
-
-    /// Washi #3(コメント): host 優先設定でも、ホストが扱わなかったキーは
-    /// responder チェーンへ流す。既定(true)では従来どおりここで止まる。
-    func testUnconsumedForwardedKeyReachesNextResponder() throws {
-        let view = EPUBReaderView(frame: .zero)
-        let delegate = ReaderViewDelegateSpy()
-        view.delegate = delegate
-        let responder = KeyDownResponderSpy()
-        view.nextResponder = responder
-        defer { view.nextResponder = nil }
-        var settings = view.settings
-        settings.handlesKeyboardNavigation = false
-        view.settings = settings
-        func event(_ characters: String, _ keyCode: UInt16) throws -> NSEvent {
-            try XCTUnwrap(NSEvent.keyEvent(
-                with: .keyDown, location: .zero, modifierFlags: [],
-                timestamp: 1, windowNumber: 0, context: nil,
-                characters: characters, charactersIgnoringModifiers: characters,
-                isARepeat: false, keyCode: keyCode))
-        }
-
-        // 既定: 配送だけで上位へは流さない(1.16.x までと同じ)。
-        let consumed = try event("x", 7)
-        view.keyDown(with: consumed)
-        XCTAssertEqual(delegate.keys.count, 1)
-        XCTAssertEqual(delegate.consumeQuery.count, 1)
-        XCTAssertTrue(responder.events.isEmpty)
-
-        // false を返したキーだけ、元の NSEvent のまま上位へ渡る。
-        delegate.onShouldConsumeKey = { $0.key != "x" ? false : true }
-        for (characters, keyCode) in [("-", UInt16(27)), ("\u{1b}", 53), ("+", 24)] {
-            let unhandled = try event(characters, keyCode)
-            view.keyDown(with: unhandled)
-            XCTAssertTrue(responder.events.last === unhandled)
-        }
-        XCTAssertEqual(responder.events.count, 3)
-        XCTAssertEqual(delegate.keys.count, 4)
-        XCTAssertEqual(delegate.consumeQuery.count, 4)
-        // 判定は配送済みのキーについて行う。
-        XCTAssertEqual(delegate.keys.map(\.key), delegate.consumeQuery.map(\.key))
-    }
-
-    /// 既定実装(shouldConsumeKey 未実装)は 1.16.x と同じく握り潰す。
-    func testDefaultDelegateStillConsumesForwardedKeys() throws {
-        final class KeyOnlyDelegate: EPUBReaderViewDelegate {
-            var keys: [EPUBKeyEvent] = []
-            func readerView(_ view: EPUBReaderView, didReceiveKey event: EPUBKeyEvent) {
-                keys.append(event)
-            }
-        }
-        let view = EPUBReaderView(frame: .zero)
-        let delegate = KeyOnlyDelegate()
-        view.delegate = delegate
-        let responder = KeyDownResponderSpy()
-        view.nextResponder = responder
-        defer { view.nextResponder = nil }
-        var settings = view.settings
-        settings.handlesKeyboardNavigation = false
-        view.settings = settings
-        let event = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown, location: .zero, modifierFlags: [],
-            timestamp: 1, windowNumber: 0, context: nil,
-            characters: "-", charactersIgnoringModifiers: "-",
-            isARepeat: false, keyCode: 27))
-
-        view.keyDown(with: event)
-
-        XCTAssertEqual(delegate.keys.count, 1)
-        XCTAssertTrue(responder.events.isEmpty)
-    }
-
-    /// Washi #3: WebKit の未処理キー返却を同期的に再現する。
-    /// 再入を上位へ一度だけ通し、次のキーでは転送が再び有効になる。
-    func testUnhandledKeyReentryForwardsOnceAndResetsForNextEvent() throws {
-        let view = EPUBReaderView(frame: .zero)
-        let delegate = ReaderViewDelegateSpy()
-        view.delegate = delegate
-        let responder = KeyDownResponderSpy()
-        view.nextResponder = responder
-        defer { view.nextResponder = nil }
-        var forwardCount = 0
-
-        for (characters, keyCode) in [("-", UInt16(27)), ("\u{1b}", 53), ("+", 24)] {
-            let event = try XCTUnwrap(NSEvent.keyEvent(
-                with: .keyDown, location: .zero, modifierFlags: [],
-                timestamp: 1, windowNumber: 0, context: nil,
-                characters: characters, charactersIgnoringModifiers: characters,
-                isARepeat: false, keyCode: keyCode))
-            let count = responder.events.count
-            view.routeKeyDown(with: event) { forwarded in
-                forwardCount += 1
-                XCTAssertTrue(forwarded === event)
-                view.routeKeyDown(with: forwarded) { _ in
-                    XCTFail("An unhandled key must not be sent back to WebKit")
-                }
-            }
-            XCTAssertEqual(responder.events.count, count + 1)
-            XCTAssertTrue(responder.events.last === event)
-        }
-        XCTAssertEqual(forwardCount, 3)
-        XCTAssertTrue(delegate.keys.isEmpty)
-    }
-
-    /// WebKit から返るまでに設定が変わっても、再入を delegate へ重複配送しない。
-    func testKeyReentryDoesNotRedispatchAfterKeyboardSettingChanges() throws {
-        let view = EPUBReaderView(frame: .zero)
-        let delegate = ReaderViewDelegateSpy()
-        view.delegate = delegate
-        let responder = KeyDownResponderSpy()
-        view.nextResponder = responder
-        defer { view.nextResponder = nil }
-        let event = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown, location: .zero, modifierFlags: [],
-            timestamp: 1, windowNumber: 0, context: nil,
-            characters: "-", charactersIgnoringModifiers: "-",
-            isARepeat: false, keyCode: 27))
-
-        view.routeKeyDown(with: event) { forwarded in
-            view.settings.handlesKeyboardNavigation = false
-            view.keyDown(with: forwarded)
-        }
-        XCTAssertEqual(responder.events.count, 1)
-        XCTAssertTrue(delegate.keys.isEmpty)
-
-        view.keyDown(with: event)
-        XCTAssertEqual(delegate.keys.count, 1)
-    }
-
-    func testKeyDownBeforeLoadingPublicationReachesNextResponder() throws {
-        let view = EPUBReaderView(frame: .zero)
-        let responder = KeyDownResponderSpy()
-        view.nextResponder = responder
-        defer { view.nextResponder = nil }
-        let event = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown, location: .zero, modifierFlags: [],
-            timestamp: 1, windowNumber: 0, context: nil,
-            characters: "-", charactersIgnoringModifiers: "-",
-            isARepeat: false, keyCode: 27))
-
-        view.keyDown(with: event)
-
-        XCTAssertEqual(responder.events.count, 1)
-        XCTAssertTrue(responder.events.first === event)
-    }
+    // MARK: - ドロップ
 
     /// cooViewer-oxr.84: URL pasteboard が http URL を返しても、ファイル drop の
     /// delegate 契約へは流さない。
@@ -1030,98 +505,5 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
             URL(fileURLWithPath: "/tmp/local.epub")))
         XCTAssertEqual(delegate.droppedURLs,
                        [URL(fileURLWithPath: "/tmp/local.epub")])
-    }
-
-    /// cooViewer-oxr.47: 三回の再試行は 0/250ms/1s と増加し、同じ 60 秒窓の
-    /// 四回目以降は一度だけ失敗通知を要求する。
-    func testWebContentReloadLimiterCapsAndBacksOff() {
-        var limiter = WebContentReloadLimiter()
-        let now = Date(timeIntervalSinceReferenceDate: 1_000)
-
-        XCTAssertEqual(limiter.register(spineIndex: 2, at: now),
-                       .reload(after: .zero))
-        XCTAssertEqual(limiter.register(spineIndex: 2, at: now),
-                       .reload(after: .milliseconds(250)))
-        XCTAssertEqual(limiter.register(spineIndex: 2, at: now),
-                       .reload(after: .seconds(1)))
-        XCTAssertEqual(limiter.register(spineIndex: 2, at: now),
-                       .suppress(reportFailure: true))
-        XCTAssertEqual(limiter.register(spineIndex: 2, at: now),
-                       .suppress(reportFailure: false))
-        XCTAssertEqual(
-            limiter.register(spineIndex: 2, at: now.addingTimeInterval(61)),
-            .reload(after: .zero))
-    }
-
-    /// cooViewer-oxr.47: windowless 中の終了は reload せず同じ要求を延期し、
-    /// 短時間四回目で打ち切って delegate へ一度だけ失敗を返す。
-    func testWebContentTerminationDefersWhenWindowlessAndCapsReloads() throws {
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        let delegate = ReaderViewDelegateSpy()
-        view.delegate = delegate
-        view.load(publication: try makePublication())
-        let webView = try view.firstWebView()
-
-        for _ in 0..<4 {
-            view.webViewWebContentProcessDidTerminate(webView)
-        }
-
-        XCTAssertEqual(view.webContentReload.requestCount, 3)
-        XCTAssertEqual(view.webContentReload.attemptCount, 0)
-        XCTAssertEqual(delegate.failures.count, 1)
-        XCTAssertTrue(String(describing: delegate.failures[0]).contains(
-            "web content process terminated repeatedly"))
-    }
-
-    /// cooViewer-oxr.47: windowless で受理した一回の終了は、attach 時に新しい
-    /// termination として数え直さず一度だけ reload する。
-    func testDeferredWebContentReloadRunsOnceAfterAttach() throws {
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        view.load(publication: try makePublication())
-        let webView = try view.firstWebView()
-        view.webViewWebContentProcessDidTerminate(webView)
-        XCTAssertEqual(view.webContentReload.attemptCount, 0)
-
-        let window = makeOffscreenWindow(containing: view)
-        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
-        XCTAssertEqual(view.webContentReload.requestCount, 1)
-        XCTAssertEqual(view.webContentReload.attemptCount, 1)
-    }
-
-    /// cooViewer-oxr.47: spine A で予約したバックオフ reload は、B へ
-    /// 移動した後に発火して現在文書を再構築しない。
-    func testSpineNavigationCancelsDelayedWebContentReload() throws {
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        let window = makeOffscreenWindow(containing: view)
-        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
-        let publication = try makePublication()
-        view.load(publication: publication)
-        let now = Date(timeIntervalSinceReferenceDate: 4_000)
-        view.handleWebContentProcessTermination(at: now)
-        view.handleWebContentProcessTermination(at: now)
-        XCTAssertTrue(view.hasPendingWebContentReload)
-
-        view.goToBookEnd()
-
-        XCTAssertEqual(view.currentSpineIndex,
-                       publication.readingOrder.count - 1)
-        XCTAssertFalse(view.hasPendingWebContentReload)
-    }
-
-    /// cooViewer-oxr.47: 再構築前の WebView からの遅配終了通知は、現在の
-    /// spine の再試行回数へ数えない。
-    func testStaleWebContentTerminationDoesNotConsumeReloadBudget() throws {
-        let view = EPUBReaderView(
-            frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        view.load(publication: try makePublication())
-        let stale = WKWebView(frame: .zero)
-
-        view.webViewWebContentProcessDidTerminate(stale)
-
-        XCTAssertEqual(view.webContentReload.requestCount, 0)
-        XCTAssertEqual(view.webContentReload.attemptCount, 0)
     }
 }
