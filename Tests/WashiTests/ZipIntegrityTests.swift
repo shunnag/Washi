@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 @testable import WashiCore
 
-/// The declared size and CRC must describe the entire deflate stream, not just
-/// the prefix that happened to fit in the caller's output buffer.
+/// 宣言された大きさと CRC は deflate ストリーム全体を表していなければならず、
+/// 呼び出し側の出力バッファにたまたま収まった先頭部分だけでは足りない。
 final class ZipIntegrityTests: XCTestCase {
     private func archive(stream: Data, declared: Data) throws -> ZipArchive {
         let name = "payload.bin"
