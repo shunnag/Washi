@@ -7,9 +7,7 @@ final class WashiCoreHeadlessTests: XCTestCase {
     /// WashiCore の公開 API だけで EPUB を開き、メタデータ・本文検索・
     /// 表紙デコード・読書位置解決まで一通り使える
     func testParseLayerIsSelfSufficient() throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/headless.epub"))
+        let publication = try EPUBFixtures.verticalNovel(name: "headless")
         XCTAssertEqual(publication.metadata.mainTitle, "吾輩は猫である")
         XCTAssertEqual(publication.metadata.authors, ["夏目漱石"])
         XCTAssertFalse(publication.search("猫").isEmpty)
@@ -22,9 +20,7 @@ final class WashiCoreHeadlessTests: XCTestCase {
 
     /// 軽量ページ数見積り(WebKit 不要)。項目別と合計、charactersPerPage の効果
     func testEstimatedPageCount() throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/estimate.epub"))
+        let publication = try EPUBFixtures.verticalNovel(name: "estimate")
         let perItem = publication.estimatedPageCounts()
         XCTAssertEqual(perItem.count, publication.readingOrder.count)
         XCTAssertTrue(perItem.allSatisfy { $0 >= 1 })  // 各項目 1 ページ以上

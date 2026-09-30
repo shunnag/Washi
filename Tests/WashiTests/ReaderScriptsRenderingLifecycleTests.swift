@@ -41,18 +41,10 @@ private final class RenderingLifecycleScriptHarness {
     private let schemeHandler: EPUBSchemeHandler
 
     init(bodyHTML: String) throws {
-        publication = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.singleSpineEntries(bodyHTML: bodyHTML), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-rendering-lifecycle.epub"))
+        publication = try EPUBFixtures.singleSpine(bodyHTML: bodyHTML,
+            name: "washi-rendering-lifecycle")
 
         let size = NSSize(width: 640, height: 400)
-        window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000), size: size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
@@ -67,7 +59,7 @@ private final class RenderingLifecycleScriptHarness {
         }
         webView = WKWebView(frame: NSRect(origin: .zero, size: size),
                             configuration: configuration)
-        window.contentView = webView
+        window = makeOffscreenWindow(containing: webView)
     }
 
     func load() async throws {

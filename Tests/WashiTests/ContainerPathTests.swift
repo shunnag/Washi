@@ -24,9 +24,7 @@ final class ContainerPathTests: XCTestCase {
                     of: "OEBPS/", with: "OEBPS/literal%20folder/")
             }
         }
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/percent-folder.epub"))
+        let publication = try EPUBFixtures.publication(entries, name: "percent-folder")
         XCTAssertEqual(try publication.extractText(forSpineIndex: 0), "Percent folder text.")
     }
 

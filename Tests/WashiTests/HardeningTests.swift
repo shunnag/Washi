@@ -240,9 +240,7 @@ final class HardeningTests: XCTestCase {
             ("OEBPS/package.opf", Data(package.utf8)),
             ("OEBPS/chapter.xhtml", chapter),
         ]
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/\(name).epub"))
+        return try EPUBFixtures.publication(entries, name: name)
     }
 
     /// Shift_JIS 宣言の XML に名前付き HTML 実体があっても、実際の符号化で

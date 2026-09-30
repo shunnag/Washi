@@ -47,10 +47,8 @@ private final class ReentrantReaderDelegate: EPUBReaderViewDelegate {
 @MainActor
 final class EPUBReaderReentrancyTests: XCTestCase {
     private func publication(_ name: String, fixed: Bool = false) throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(fixed ? EPUBFixtures.fxlComicEntries()
-                                  : EPUBFixtures.verticalNovelEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/\(name).epub"))
+        try EPUBFixtures.publication(fixed ? EPUBFixtures.fxlComicEntries()
+                                  : EPUBFixtures.verticalNovelEntries(), name: name)
     }
 
     func testHistoryCallbackLoadingAnotherBookSupersedesOriginalJump() throws {
@@ -118,11 +116,11 @@ final class EPUBReaderReentrancyTests: XCTestCase {
         let delegate = ReentrantReaderDelegate()
         view.delegate = delegate
         view.load(publication: try publication("original"))
-        let detached = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let detached = try view.firstWebView()
         let replacement = try publication("replacement")
         let latest = replacement.locator(forSpineIndex: 1, progression: 0.75)
         view.load(publication: replacement, at: latest)
-        let current = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let current = try view.firstWebView()
 
         view.webView(detached, didFail: nil,
                      withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost))
@@ -141,7 +139,7 @@ final class EPUBReaderReentrancyTests: XCTestCase {
         let delegate = ReentrantReaderDelegate()
         view.delegate = delegate
         view.load(publication: original)
-        let oldWebView = try XCTUnwrap(view.subviews.first { $0 is WKWebView })
+        let oldWebView = try view.firstWebView()
         view.go(to: original.locator(forSpineIndex: 1, progression: 0.2))
         let latest = replacement.locator(forSpineIndex: 1, progression: 0.75)
         delegate.onHistoryChanged = { view in
@@ -217,32 +215,23 @@ final class EPUBReaderReentrancyTests: XCTestCase {
 
     func testPageChangeCallbackOpeningAnotherBookCancelsInFlightAnimation() async throws {
         // CI の Reduce Motion 設定は変更せず、このビューだけで演出を検証する。
-        let original = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.singleSpineEntries(
-                bodyHTML: String(repeating: "<p>ページめくり中の本の差し替えを検証する本文です。</p>", count: 150)), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/in-flight-reflow.epub"))
+        let original = try EPUBFixtures.singleSpine(
+            bodyHTML: String(repeating: "<p>ページめくり中の本の差し替えを検証する本文です。</p>", count: 150),
+            name: "in-flight-reflow")
         let replacement = try publication("replacement-fxl", fixed: true)
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         view.settings.pageTurnStyle = .fade
         view.accessibilityReduceMotionOverride = false
         let delegate = ReentrantReaderDelegate()
         view.delegate = delegate
-        let window = NSWindow(contentRect: view.frame.offsetBy(dx: -20_000, dy: -20_000),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = view
-        defer {
-            view.cancelPageCensus()
-            view.delegate = nil
-            window.contentView = nil
-            window.close()
-        }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: original)
         for _ in 0..<250 where delegate.moveCount == 0 {
             try await Task.sleep(for: .milliseconds(20))
         }
         guard delegate.moveCount > 0 else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+            return try skipOrFailIfWebKitUnavailable()
         }
         XCTAssertGreaterThan(view.pageCountInItem, 1)
         var sawInFlightCover = false
@@ -270,22 +259,14 @@ final class EPUBReaderReentrancyTests: XCTestCase {
         view.accessibilityReduceMotionOverride = false
         let delegate = ReentrantReaderDelegate()
         view.delegate = delegate
-        let window = NSWindow(contentRect: view.frame.offsetBy(dx: -20_000, dy: -20_000),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = view
-        defer {
-            view.cancelPageCensus()
-            view.delegate = nil
-            window.contentView = nil
-            window.close()
-        }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: try publication("original-fxl", fixed: true))
         for _ in 0..<250 where delegate.moveCount == 0 {
             try await Task.sleep(for: .milliseconds(20))
         }
         guard delegate.moveCount > 0 else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+            return try skipOrFailIfWebKitUnavailable()
         }
         let replacement = try publication("replacement-fxl", fixed: true)
 
@@ -319,21 +300,14 @@ final class EPUBReaderReentrancyTests: XCTestCase {
         view.accessibilityReduceMotionOverride = true
         let delegate = ReentrantReaderDelegate()
         view.delegate = delegate
-        let window = NSWindow(contentRect: view.frame.offsetBy(dx: -20_000, dy: -20_000),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = view
-        defer {
-            view.unload()
-            window.contentView = nil
-            window.close()
-        }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .unload) }
         view.load(publication: try publication("reduced-motion-fxl", fixed: true))
         for _ in 0..<250 where delegate.moveCount == 0 {
             try await Task.sleep(for: .milliseconds(20))
         }
         guard delegate.moveCount > 0 else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+            return try skipOrFailIfWebKitUnavailable()
         }
 
         view.goForward()

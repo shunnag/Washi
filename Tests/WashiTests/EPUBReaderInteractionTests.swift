@@ -51,40 +51,7 @@ private final class ReaderInteractionDelegate: EPUBReaderViewDelegate {
 @MainActor
 final class EPUBReaderInteractionTests: XCTestCase {
     private func makePublication(body: String) throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.singleSpineEntries(bodyHTML: body), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-reader-interaction.epub"))
-    }
-
-    private func makeWindow(containing view: NSView) -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000),
-                                size: view.frame.size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-        window.contentView = view
-        return window
-    }
-
-    private func close(_ window: NSWindow, view: EPUBReaderView) {
-        view.cancelPageCensus()
-        view.delegate = nil
-        window.contentView = nil
-        window.close()
-    }
-
-    private func waitUntil(
-        timeout: Duration = .seconds(5),
-        _ condition: @MainActor () -> Bool
-    ) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return condition()
+        try EPUBFixtures.singleSpine(bodyHTML: body, name: "washi-reader-interaction")
     }
 
     /// cooViewer-oxr.34: DOM 選択を検索と同じ正規化本文へ写し、view 矩形へ
@@ -102,14 +69,13 @@ final class EPUBReaderInteractionTests: XCTestCase {
         view.settings = settings
         let delegate = ReaderInteractionDelegate()
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
-        guard await waitUntil({ delegate.moves > 0 }) else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+        guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), { delegate.moves > 0 }) else {
+            return try skipOrFailIfWebKitUnavailable()
         }
-        let webView = try XCTUnwrap(
-            view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let webView = try view.firstWebView()
         let selected = try await Task(priority: .userInitiated) { @MainActor in
             let result = try await webView.callAsyncJavaScript(
                 """
@@ -121,7 +87,7 @@ final class EPUBReaderInteractionTests: XCTestCase {
             return result as? Bool ?? false
         }.value
         XCTAssertTrue(selected)
-        let didPublishSelection = await waitUntil {
+        let didPublishSelection = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) {
             view.currentSelection != nil
         }
         XCTAssertTrue(didPublishSelection)
@@ -145,7 +111,7 @@ final class EPUBReaderInteractionTests: XCTestCase {
 
         view.clearSelection()
         XCTAssertNil(view.currentSelection)
-        let didPublishClearedSelection = await waitUntil {
+        let didPublishClearedSelection = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) {
             guard let last = delegate.selections.last else { return false }
             return last == nil && delegate.selections.count >= 2
         }
@@ -160,11 +126,10 @@ final class EPUBReaderInteractionTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 400, height: 400))
         let delegate = ReaderInteractionDelegate()
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
-        let webView = try XCTUnwrap(
-            view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let webView = try view.firstWebView()
         XCTAssertEqual(view.contentFrame, webView.frame)
 
         let point = CGPoint(x: 20, y: 200)
@@ -210,11 +175,10 @@ final class EPUBReaderInteractionTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 400, height: 400))
         let delegate = ReaderInteractionDelegate()
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: try makePublication(body: "<p>本文</p>"))
-        let webView = try XCTUnwrap(
-            view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let webView = try view.firstWebView()
 
         let point = CGPoint(x: 20, y: 200)
         let event = try XCTUnwrap(NSEvent.mouseEvent(
@@ -280,8 +244,8 @@ final class EPUBReaderInteractionTests: XCTestCase {
             frame: NSRect(x: 0, y: 0, width: 400, height: 400))
         let delegate = ReaderInteractionDelegate()
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: try makePublication(body: "<p>本文</p>"))
 
         let furniture = try XCTUnwrap(view.subviews.compactMap {
@@ -327,7 +291,7 @@ final class EPUBReaderInteractionTests: XCTestCase {
         ]
         view.handleScriptMessage(page0)
         view.handleScriptMessage(page0)
-        let didAnnounceFirstPage = await waitUntil {
+        let didAnnounceFirstPage = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) {
             announcements.count == 1
         }
         XCTAssertTrue(didAnnounceFirstPage)
@@ -337,7 +301,7 @@ final class EPUBReaderInteractionTests: XCTestCase {
             "type": "pageChanged", "page": 1, "pageCount": 5,
             "pagesPerScreen": 1,
         ])
-        let didAnnounceSecondPage = await waitUntil {
+        let didAnnounceSecondPage = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) {
             announcements.count == 2
         }
         XCTAssertTrue(didAnnounceSecondPage)
@@ -381,28 +345,28 @@ final class EPUBReaderInteractionTests: XCTestCase {
         view.settings = settings
         let delegate = ReaderInteractionDelegate()
         view.delegate = delegate
-        let window = makeWindow(containing: view)
-        defer { close(window, view: view) }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
         XCTAssertEqual(view.printPageLabels, ["1", "3", "4", "5"])
-        guard await waitUntil({ delegate.moves > 0 }) else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+        guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), { delegate.moves > 0 }) else {
+            return try skipOrFailIfWebKitUnavailable()
         }
 
         XCTAssertTrue(view.go(toPrintPage: "3"))
         XCTAssertFalse(view.go(toPrintPage: "missing"))
-        let didReachPrintPage3 = await waitUntil {
+        let didReachPrintPage3 = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) {
             view.currentPrintPage == "3"
         }
         XCTAssertTrue(didReachPrintPage3)
         view.goForward()
-        let didReachPrintPage4 = await waitUntil {
+        let didReachPrintPage4 = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) {
             view.currentPrintPage == "4"
         }
         XCTAssertTrue(didReachPrintPage4)
 
         view.go(to: publication.navigation.toc[1])
-        let didCarryPrintPageIntoSecondSpine = await waitUntil {
+        let didCarryPrintPageIntoSecondSpine = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) {
             view.currentSpineIndex == 1 && view.currentPrintPage == "4"
         }
         XCTAssertTrue(didCarryPrintPageIntoSecondSpine)
@@ -477,8 +441,6 @@ final class EPUBReaderInteractionTests: XCTestCase {
             ("OEBPS/text/c1.xhtml", Data(c1.utf8)),
             ("OEBPS/text/c2.xhtml", Data(c2.utf8)),
         ]
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-print-pages.epub"))
+        return try EPUBFixtures.publication(entries, name: "washi-print-pages")
     }
 }

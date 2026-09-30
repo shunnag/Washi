@@ -76,8 +76,7 @@ final class MediaOverlaySkippingTests: XCTestCase {
             }
             return (name: entry.name, data: Data(smil.utf8))
         }
-        return try EPUBPublication(data: ZipBuilder.build(entries, method: 8),
-                                   displayURL: URL(fileURLWithPath: "/tmp/washi-skipped-overlay.epub"))
+        return try EPUBFixtures.publication(entries, name: "washi-skipped-overlay")
     }
 
     private func reader(for book: EPUBPublication) -> EPUBReaderView {
@@ -105,9 +104,7 @@ final class MediaOverlaySkippingTests: XCTestCase {
         """
         entries[smilIndex].data = Data(smil.utf8)
         entries.append(("OEBPS/text/narration.wav", silentPCM()))
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-skipped-audio.epub"))
+        return try EPUBFixtures.publication(entries, name: "washi-skipped-audio")
     }
 
     private func bookWithSkippedOverlays(_ skippedOverlayCount: Int,
@@ -148,9 +145,7 @@ final class MediaOverlaySkippingTests: XCTestCase {
         </package>
         """
         entries.append(("OEBPS/package.opf", Data(opf.utf8)))
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-many-skipped-overlays.epub"))
+        return try EPUBFixtures.publication(entries, name: "washi-many-skipped-overlays")
     }
 
     func testAllSkippedOverlayFinishesInsteadOfBecomingPlayingAgain() throws {
@@ -261,10 +256,8 @@ final class MediaOverlaySkippingTests: XCTestCase {
     }
 
     func testSharedOverlayStartsAtCurrentSpineDocument() throws {
-        let book = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-shared-overlay-start.epub"))
+        let book = try EPUBFixtures.publication(EPUBFixtures.multiDocumentMediaOverlayEntries(),
+            name: "washi-shared-overlay-start")
         let reader = EPUBReaderView(frame: .zero)
         reader.load(publication: book)
         reader.go(to: book.locator(forSpineIndex: 1, progression: 0))
@@ -286,9 +279,7 @@ final class MediaOverlaySkippingTests: XCTestCase {
             """
             return (entry.name, Data(smil.utf8))
         }
-        let book = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-incomplete-shared-overlay.epub"))
+        let book = try EPUBFixtures.publication(entries, name: "washi-incomplete-shared-overlay")
         let reader = EPUBReaderView(frame: .zero)
         reader.load(publication: book)
         reader.go(to: book.locator(forSpineIndex: 1, progression: 0))
@@ -299,10 +290,8 @@ final class MediaOverlaySkippingTests: XCTestCase {
     }
 
     func testManualSpineNavigationIsNotUndoneByNextSharedOverlayPar() throws {
-        let book = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-shared-overlay-leave.epub"))
+        let book = try EPUBFixtures.publication(EPUBFixtures.multiDocumentMediaOverlayEntries(),
+            name: "washi-shared-overlay-leave")
         let reader = EPUBReaderView(frame: .zero)
         reader.load(publication: book)
         let controller = MediaOverlayController(
@@ -325,23 +314,14 @@ final class MediaOverlaySkippingTests: XCTestCase {
         let book = try bookWithSkippedOverlays(1)
         let reader = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 480, height: 360))
-        let window = NSWindow(
-            contentRect: reader.frame.offsetBy(dx: -20_000, dy: -20_000),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = reader
+        let window = makeOffscreenWindow(containing: reader, ignoresMouseEvents: false)
         let delegate = MediaOverlayNavigationReentryDelegate()
         delegate.redirect = book.locator(forSpineIndex: 0, progression: 0)
         reader.delegate = delegate
-        defer {
-            reader.stopMediaOverlay()
-            window.contentView = nil
-            window.close()
-        }
+        defer { reader.stopMediaOverlay(); closeReader(reader, in: window, teardown: .none) }
 
         reader.load(publication: book)
-        let web = try XCTUnwrap(
-            reader.subviews.first { $0 is WKWebView } as? WKWebView)
+        let web = try reader.firstWebView()
         for _ in 0..<300 where web.alphaValue == 0 {
             try await Task.sleep(for: .milliseconds(20))
         }

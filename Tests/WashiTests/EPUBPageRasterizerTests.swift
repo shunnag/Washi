@@ -7,9 +7,7 @@ import XCTest
 @MainActor
 final class EPUBPageRasterizerTests: XCTestCase {
     func testSingleImageFixedLayoutPageReturns() async throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.fxlComicEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-rasterizer-image.epub"))
+        let publication = try EPUBFixtures.fxlComic(name: "washi-rasterizer-image")
         let info = try publication.fixedLayoutInfo(forSpineIndex: 0)
         XCTAssertNotNil(info.simpleImagePath)
         try await assertRasterizedPage(publication: publication,
@@ -17,9 +15,8 @@ final class EPUBPageRasterizerTests: XCTestCase {
     }
 
     func testComplexFixedLayoutPageReturns() async throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(Self.complexFixedLayoutEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-rasterizer-complex.epub"))
+        let publication = try EPUBFixtures.publication(Self.complexFixedLayoutEntries(),
+            name: "washi-rasterizer-complex")
         let info = try publication.fixedLayoutInfo(forSpineIndex: 0)
         XCTAssertNil(info.simpleImagePath)
         try await assertRasterizedPage(publication: publication,
@@ -29,9 +26,8 @@ final class EPUBPageRasterizerTests: XCTestCase {
     /// cooViewer-oxr.50: device-* viewport は従来の 1200x1600 既定値でなく、
     /// 呼び出し元が要求した描画先の縦横比へ従う。
     func testDeviceSizedViewportUsesRequestedRenderSize() async throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(Self.deviceSizedFixedLayoutEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-rasterizer-device.epub"))
+        let publication = try EPUBFixtures.publication(Self.deviceSizedFixedLayoutEntries(),
+            name: "washi-rasterizer-device")
         let info = try publication.fixedLayoutInfo(forSpineIndex: 0)
         XCTAssertTrue(info.viewportIsDeviceSized)
         XCTAssertNil(info.viewportSize)
@@ -43,10 +39,8 @@ final class EPUBPageRasterizerTests: XCTestCase {
     /// cooViewer-oxr.53: ナビゲーション開始直後の invalidate は、30 秒の
     /// NavigationWaiter タイムアウトを待たずレンダー要求を終了させる。
     func testInvalidateDuringRequestReturnsWithinOneSecond() async throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(Self.complexFixedLayoutEntries(), method: 8),
-            displayURL: URL(
-                fileURLWithPath: "/tmp/washi-rasterizer-invalidate.epub"))
+        let publication = try EPUBFixtures.publication(Self.complexFixedLayoutEntries(),
+            name: "washi-rasterizer-invalidate")
         let rasterizer = EPUBPageRasterizer(publication: publication)
         let task = Task { @MainActor in
             try? await rasterizer.renderPage(
@@ -65,9 +59,8 @@ final class EPUBPageRasterizerTests: XCTestCase {
     /// 初回描画が終わった後も、本の外への遅延遷移を許可しない。
     /// about:blank を使い、外部ネットワークなしで実際のナビゲーションを検証する。
     func testLateNavigationRemainsRestrictedAfterRendering() async throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(Self.complexFixedLayoutEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-rasterizer-policy.epub"))
+        let publication = try EPUBFixtures.publication(Self.complexFixedLayoutEntries(),
+            name: "washi-rasterizer-policy")
         let rasterizer = EPUBPageRasterizer(publication: publication)
         defer { rasterizer.invalidate() }
         do {
@@ -108,9 +101,8 @@ final class EPUBPageRasterizerTests: XCTestCase {
             }
         }
         func exerciseTimeout() async throws {
-            let publication = try EPUBPublication(
-                data: ZipBuilder.build(Self.complexFixedLayoutEntries(), method: 8),
-                displayURL: URL(fileURLWithPath: "/tmp/washi-rasterizer-readiness.epub"))
+            let publication = try EPUBFixtures.publication(Self.complexFixedLayoutEntries(),
+                name: "washi-rasterizer-readiness")
             let rasterizer = EPUBPageRasterizer(publication: publication)
             defer {
                 rasterizer.invalidate()

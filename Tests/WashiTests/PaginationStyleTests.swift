@@ -16,23 +16,12 @@ private final class PaginationStyleHarness {
          headCSS: String = "") throws {
         self.size = size
         var entries = EPUBFixtures.singleSpineEntries(bodyHTML: bodyHTML)
-        if !headCSS.isEmpty,
-           let index = entries.firstIndex(where: { $0.name == "OEBPS/text/c.xhtml" }) {
-            let source = String(decoding: entries[index].data, as: UTF8.self)
-            entries[index].data = Data(source.replacingOccurrences(
-                of: "</head>",
-                with: "<style id=\"book-head-css\">\(headCSS)</style></head>").utf8)
+        if !headCSS.isEmpty {
+            entries = try EPUBFixtures.replacing(
+                entries, in: "OEBPS/text/c.xhtml", of: "</head>",
+                with: "<style id=\"book-head-css\">\(headCSS)</style></head>")
         }
-        publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-pagination-style.epub"))
-
-        window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000),
-                                size: size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
+        publication = try EPUBFixtures.publication(entries, name: "washi-pagination-style")
 
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
@@ -48,7 +37,7 @@ private final class PaginationStyleHarness {
         }
         webView = WKWebView(
             frame: NSRect(origin: .zero, size: size), configuration: configuration)
-        window.contentView = webView
+        window = makeOffscreenWindow(containing: webView)
     }
 
     func load() async throws {

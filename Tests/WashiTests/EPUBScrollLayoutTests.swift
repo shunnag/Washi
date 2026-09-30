@@ -37,8 +37,7 @@ func scrollPublication(flow: String = "scrolled-doc", layout: String = "reflowab
         <body>\(paragraphs)</body></html>
         """.utf8)))
     }
-    return try EPUBPublication(data: ZipBuilder.build(entries, method: 8),
-                               displayURL: URL(fileURLWithPath: "/tmp/scroll-tests.epub"))
+    return try EPUBFixtures.publication(entries, name: "scroll-tests")
 }
 
 @MainActor
@@ -50,21 +49,15 @@ final class ScrollReaderHarness: EPUBReaderViewDelegate {
     var edges: [Bool] = []
 
     init() {
-        window = NSWindow(contentRect: reader.frame.offsetBy(dx: -20_000, dy: -20_000),
-                          styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
         reader.settings.insets = .zero
         reader.settings.columnMode = .double
         reader.settings.pageTurnStyle = .none
+        window = makeOffscreenWindow(containing: reader, ignoresMouseEvents: false)
         reader.delegate = self
-        window.contentView = reader
     }
 
     func close() {
-        reader.unload()
-        reader.delegate = nil
-        window.contentView = nil
-        window.close()
+        closeReader(reader, in: window, teardown: .unload, clearsDelegate: true)
     }
 
     func load(_ book: EPUBPublication, at locator: EPUBLocator? = nil) async throws {
@@ -115,7 +108,7 @@ final class EPUBScrollLayoutTests: XCTestCase {
             isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         for (name, type, data) in [("page.svg", "image/svg+xml", svg), ("page.png", "image/png", png)] {
-            let book = try EPUBPublication(data: ZipBuilder.build([
+            let book = try EPUBFixtures.publication([
                 ("mimetype", Data("application/epub+zip".utf8)),
                 ("META-INF/container.xml", Data("""
                 <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
@@ -129,7 +122,7 @@ final class EPUBScrollLayoutTests: XCTestCase {
                 <manifest><item id="page" href="\(name)" media-type="\(type)"/></manifest>
                 <spine><itemref idref="page"/></spine></package>
                 """.utf8)), (name, data)
-            ], method: 8), displayURL: URL(fileURLWithPath: "/tmp/roll-media.epub"))
+            ], name: "roll-media")
             let harness = ScrollReaderHarness()
             defer { harness.close() }
             try await harness.load(book)
@@ -325,7 +318,7 @@ final class EPUBScrollLayoutTests: XCTestCase {
         defer { harness.close() }
         try await harness.load(book)
         let reader = harness.reader
-        let webView = try XCTUnwrap(reader.subviews.first { $0 is WKWebView })
+        let webView = try reader.firstWebView()
         let initial = try await harness.metrics()
         let items = try XCTUnwrap(initial["items"] as? [[String: Any]])
         XCTAssertEqual(items.count, 2)
