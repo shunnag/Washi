@@ -68,6 +68,7 @@ Navigation positions and table-of-contents entries use the re-exported
 - ``EPUBColumnMode``
 - ``EPUBRGBAColor``
 - ``EPUBContextMenuPolicy``
+- ``EPUBReadingSystem``
 
 ### アクセシビリティ / Accessibility
 
