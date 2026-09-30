@@ -17,7 +17,7 @@ final class ImagePageLayoutTests: XCTestCase {
     /// cooViewer-oxr.15: spine 直下のラスター画像を合成 XHTML wrapper で配信し、
     /// 既存の image-page 配置へ到達させる。
     func testImageSpineWrapperIsDetectedAsImagePage() async throws {
-        let harness = try ReaderScriptTestHarness(entries: Self.imageSpineEntries())
+        let harness = try ReaderScriptHarness(entries: Self.imageSpineEntries())
         defer { harness.close() }
         try await harness.load()
         let decoded: Bool = try await harness.evaluate("""
@@ -50,7 +50,7 @@ final class ImagePageLayoutTests: XCTestCase {
     }
 
     private func checkLayout(body: String, isSVG: Bool) async throws {
-        let harness = try ReaderScriptTestHarness(entries: EPUBFixtures.imagePageEntries(bodyHTML: body))
+        let harness = try ReaderScriptHarness(entries: EPUBFixtures.imagePageEntries(bodyHTML: body))
         defer { harness.close() }
         try await harness.load()
         if !isSVG {
@@ -83,7 +83,7 @@ final class ImagePageLayoutTests: XCTestCase {
         }
     }
 
-    private func assertImageRect(_ harness: ReaderScriptTestHarness, width: Double, height: Double,
+    private func assertImageRect(_ harness: ReaderScriptHarness, width: Double, height: Double,
                                  file: StaticString = #filePath, line: UInt = #line) async throws {
         let rect: [String: Double] = try await harness.evaluate("""
             // cooViewer-oxr.3: 非表示 WKWebView のフレーム反映を有限時間だけ待つ。
@@ -113,7 +113,7 @@ final class ImagePageLayoutTests: XCTestCase {
     // cooViewer-oxr.6: Core と共有する入力で、可視本文と隠された代替文を区別する。
     func testVisibleTextDetectionAgreesWithCoreFixtures() async throws {
         for fixture in EPUBFixtures.imagePageDetectionCases {
-            let harness = try ReaderScriptTestHarness(entries:
+            let harness = try ReaderScriptHarness(entries:
                 EPUBFixtures.imagePageEntries(bodyHTML: fixture.body))
             defer { harness.close() }
             try await harness.load()
@@ -128,7 +128,7 @@ final class ImagePageLayoutTests: XCTestCase {
     }
 
     func testDetectionIgnoresStylesheetHiddenText() async throws {
-        let harness = try ReaderScriptTestHarness(entries: EPUBFixtures.imagePageEntries(bodyHTML:
+        let harness = try ReaderScriptHarness(entries: EPUBFixtures.imagePageEntries(bodyHTML:
             "<style>.alt { display:none }</style><div class=\"alt\"><p>代替文</p></div>"
                 + "<img src=\"../images/page.png\"/>"))
         defer { harness.close() }
@@ -139,7 +139,7 @@ final class ImagePageLayoutTests: XCTestCase {
 
     // cooViewer-oxr.3: 未ロード時の属性比率と、一度だけ登録した load 後の自然寸法。
     func testPendingImageUpdatesRatioOnLoad() async throws {
-        let harness = try ReaderScriptTestHarness(entries: EPUBFixtures.imagePageEntries(bodyHTML:
+        let harness = try ReaderScriptHarness(entries: EPUBFixtures.imagePageEntries(bodyHTML:
             "<img src=\"../images/page.png\" width=\"40\" height=\"10\"/>"))
         defer { harness.close() }
         try await harness.load()

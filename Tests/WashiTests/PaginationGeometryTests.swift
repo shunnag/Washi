@@ -13,7 +13,7 @@ final class PaginationGeometryTests: XCTestCase {
     /// cooViewer-oxr.58 / cooViewer-oxr.61: document-start の基礎 CSS 注入が
     /// head:first-child / body:nth-child(2) を壊す root 直下要素を作らない。
     func testBaseCSSInjectionPreservesHeadBodyRootStructureAfterLoad() async throws {
-        let harness = try PaginationGeometryHarness(
+        let harness = try ReaderScriptHarness(
             bodyHTML: "<p>本文</p>", size: NSSize(width: 640, height: 400))
         defer { harness.close() }
         try await harness.load()
@@ -50,7 +50,7 @@ final class PaginationGeometryTests: XCTestCase {
     /// cooViewer-oxr.61: viewport の最小 scrollExtent ではなく本文末尾で数え、
     /// 短章を1ページに戻しつつ、多カラム本文を切り詰めない。
     func testContentEndpointCountsShortSpreadAsOneAndPreservesLongChapterCount() async throws {
-        let shortHarness = try PaginationGeometryHarness(
+        let shortHarness = try ReaderScriptHarness(
             bodyHTML: "<p>短い章</p>", size: NSSize(width: 640, height: 400))
         defer { shortHarness.close() }
         try await shortHarness.load()
@@ -59,7 +59,7 @@ final class PaginationGeometryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(short["pageCount"]), 1)
         XCTAssertEqual(try XCTUnwrap(short["paddedPageCount"]), 2)
 
-        let verticalShortHarness = try PaginationGeometryHarness(
+        let verticalShortHarness = try ReaderScriptHarness(
             bodyHTML: "<style>html{writing-mode:vertical-rl}</style><p>短い章</p>",
             size: NSSize(width: 641, height: 400))
         defer { verticalShortHarness.close() }
@@ -72,7 +72,7 @@ final class PaginationGeometryTests: XCTestCase {
 
         // 末尾計測用 marker 自身の line box で、満杯の実ページを 2 枚へ
         // 押し出さないことも固定する(cooViewer-oxr.61)。
-        let exactPageHarness = try PaginationGeometryHarness(
+        let exactPageHarness = try ReaderScriptHarness(
             bodyHTML: "<div style=\"height:400px;margin:0\">満杯の一ページ</div>",
             size: NSSize(width: 640, height: 400))
         defer { exactPageHarness.close() }
@@ -88,7 +88,7 @@ final class PaginationGeometryTests: XCTestCase {
               p + p { break-before:column; -webkit-column-break-before:always; }
             </style>
             """ + (1...44).map { "<p>第\($0)カラム</p>" }.joined()
-        let longHarness = try PaginationGeometryHarness(
+        let longHarness = try ReaderScriptHarness(
             bodyHTML: longBody, size: NSSize(width: 640, height: 400))
         defer { longHarness.close() }
         try await longHarness.load()
@@ -106,7 +106,7 @@ final class PaginationGeometryTests: XCTestCase {
             "<span style=\"display:contents\"><em>末尾の contents 子孫</em></span>",
         ]
         for tail in tails {
-            let harness = try PaginationGeometryHarness(
+            let harness = try ReaderScriptHarness(
                 bodyHTML: "<div style=\"height:400px;margin:0\">先頭</div>\(tail)",
                 size: NSSize(width: 640, height: 400))
             defer { harness.close() }
@@ -131,7 +131,7 @@ final class PaginationGeometryTests: XCTestCase {
             ("", "rtl", "horizontal RTL"),
         ]
         for mode in modes {
-            let generatedTail = try PaginationGeometryHarness(
+            let generatedTail = try ReaderScriptHarness(
                 bodyHTML: pages, size: NSSize(width: 640, height: 400),
                 htmlDirection: mode.direction,
                 headCSS: """
@@ -153,7 +153,7 @@ final class PaginationGeometryTests: XCTestCase {
                            mode.context)
         }
 
-        let empty = try PaginationGeometryHarness(
+        let empty = try ReaderScriptHarness(
             bodyHTML: "", size: NSSize(width: 640, height: 400),
             headCSS: "body:empty::after { content:\"空本文の生成内容\"; }")
         defer { empty.close() }
@@ -181,7 +181,7 @@ final class PaginationGeometryTests: XCTestCase {
             ("display:table-cell;", 1),
         ]
         for item in cases {
-            let harness = try PaginationGeometryHarness(
+            let harness = try ReaderScriptHarness(
                 bodyHTML: "<p>一ページ本文</p>",
                 size: NSSize(width: 640, height: 400),
                 headCSS: """
@@ -208,7 +208,7 @@ final class PaginationGeometryTests: XCTestCase {
     /// cooViewer-oxr.61: float pseudo は normal-flow の本文端点ではないため、
     /// 空の body fragment を実ページへ昇格させない。
     func testFloatedBodyPseudoDoesNotPromoteBlankBodyFragmentsToContent() async throws {
-        let harness = try PaginationGeometryHarness(
+        let harness = try ReaderScriptHarness(
             bodyHTML: "<p>短い本文</p>", size: NSSize(width: 640, height: 400),
             headCSS: """
                 body { height:1200px; }
@@ -232,7 +232,7 @@ final class PaginationGeometryTests: XCTestCase {
             "<p id=\"paragraph-\($0)\">فقرة \($0) لاختبار انتقال الصفحات من اليمين إلى اليسار.</p>"
         }.joined()
         for (width, spread) in [(400, false), (800, true)] {
-            let harness = try PaginationGeometryHarness(
+            let harness = try ReaderScriptHarness(
                 bodyHTML: body, size: NSSize(width: CGFloat(width), height: 400),
                 htmlDirection: "rtl")
             defer { harness.close() }
@@ -270,7 +270,7 @@ final class PaginationGeometryTests: XCTestCase {
             <p id="geometry-page-1">乙</p>
             <p id="geometry-page-2">丙</p>
             """
-        let harness = try PaginationGeometryHarness(
+        let harness = try ReaderScriptHarness(
             bodyHTML: body, size: NSSize(width: CGFloat(width), height: 400))
         defer { harness.close() }
         try await harness.load()
@@ -336,7 +336,7 @@ final class PaginationGeometryTests: XCTestCase {
         }
     }
 
-    private func visibleParagraphIDs(in harness: PaginationGeometryHarness) async throws -> String {
+    private func visibleParagraphIDs(in harness: ReaderScriptHarness) async throws -> String {
         try await harness.evaluate("""
             return Array.from(document.querySelectorAll('p')).filter(element =>
                 Array.from(element.getClientRects()).some(rect =>

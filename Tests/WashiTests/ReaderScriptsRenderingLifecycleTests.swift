@@ -32,66 +32,26 @@ private final class RenderingLifecycleMessageRecorder: NSObject, WKScriptMessage
     }
 }
 
-@MainActor
-private final class RenderingLifecycleScriptHarness {
-    let window: NSWindow
-    let webView: WKWebView
-    let messages = RenderingLifecycleMessageRecorder()
-    private let publication: EPUBPublication
-    private let schemeHandler: EPUBSchemeHandler
+extension ReaderScriptHarness {
+    /// "washi" メッセージを RenderingLifecycleMessageRecorder で記録するハーネスを組む
+    fileprivate static func renderingLifecycle(bodyHTML: String) throws -> ReaderScriptHarness {
+        try ReaderScriptHarness(
+            bodyHTML: bodyHTML,
+            messageHandler: (name: "washi", handler: RenderingLifecycleMessageRecorder()))
+    }
 
-    init(bodyHTML: String) throws {
-        publication = try EPUBFixtures.singleSpine(bodyHTML: bodyHTML,
-            name: "washi-rendering-lifecycle")
-
-        let size = NSSize(width: 640, height: 400)
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        schemeHandler = EPUBSchemeHandler(publication: publication, allowsScripts: false)
-        configuration.setURLSchemeHandler(schemeHandler, forURLScheme: EPUBSchemeHandler.scheme)
-        let controller = configuration.userContentController
-        controller.add(messages, contentWorld: WashiContentWorld.world, name: "washi")
-        for source in [ReaderScripts.pageScript, ReaderScripts.baseCSSInjector] {
-            controller.addUserScript(WKUserScript(
-                source: source, injectionTime: .atDocumentStart,
-                forMainFrameOnly: true, in: WashiContentWorld.world))
+    /// `renderingLifecycle(bodyHTML:)` で登録した記録係
+    fileprivate var messages: RenderingLifecycleMessageRecorder {
+        guard let recorder = scriptMessageHandler as? RenderingLifecycleMessageRecorder else {
+            preconditionFailure("renderingLifecycle(bodyHTML:) で組んだハーネスだけが messages を持つ")
         }
-        webView = WKWebView(frame: NSRect(origin: .zero, size: size),
-                            configuration: configuration)
-        window = makeOffscreenWindow(containing: webView)
+        return recorder
     }
 
-    func load() async throws {
-        let entry = try XCTUnwrap(publication.readingOrder.first)
-        let url = try XCTUnwrap(schemeHandler.url(forReadingOrderItem: entry))
-        let waiter = NavigationWaiter()
-        webView.navigationDelegate = waiter
-        webView.load(URLRequest(url: url))
-        try await waiter.wait(timeout: .seconds(15))
-        withExtendedLifetime(waiter) {}
-    }
-
-    func close() {
-        webView.stopLoading()
-        webView.navigationDelegate = nil
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: "washi", contentWorld: WashiContentWorld.world)
-        window.contentView = nil
-        window.close()
-    }
-
-    func evaluate<T: Sendable>(_ body: String, as type: T.Type = T.self) async throws -> T {
-        try await Task(priority: .userInitiated) { @MainActor in
-            let result = try await webView.callAsyncJavaScript(
-                body, in: nil, contentWorld: WashiContentWorld.world)
-            return try XCTUnwrap(result as? T)
-        }.value
-    }
-
-    func setup(spread: Bool = false, keysEnabled: Bool = false,
-               fixedLayout: Bool = false,
-               deferTaps: Bool = false) async throws {
+    /// ライフサイクル検証用の setup(タップ保留と doubleClickDelayMS を含む)
+    fileprivate func setupLifecycle(spread: Bool = false, keysEnabled: Bool = false,
+                                    fixedLayout: Bool = false,
+                                    deferTaps: Bool = false) async throws {
         let _: Int = try await evaluate("""
             const result = __washi.setup({width:640,height:400,gap:24,
                 spread:\(spread),gutter:48,fixedLayout:\(fixedLayout),
@@ -101,11 +61,11 @@ private final class RenderingLifecycleScriptHarness {
             """)
     }
 
-    func settleMessages() async throws {
+    fileprivate func settleMessages() async throws {
         try await Task.sleep(for: .milliseconds(350))
     }
 
-    func waitForMessage(type: String) async throws -> Bool {
+    fileprivate func waitForMessage(type: String) async throws -> Bool {
         for _ in 0..<50 {
             if messages.count(type: type) > 0 { return true }
             try await Task.sleep(for: .milliseconds(20))
@@ -113,7 +73,7 @@ private final class RenderingLifecycleScriptHarness {
         return false
     }
 
-    func waitForMessageCount(type: String, count: Int) async throws -> Bool {
+    fileprivate func waitForMessageCount(type: String, count: Int) async throws -> Bool {
         for _ in 0..<50 {
             if messages.count(type: type) >= count { return true }
             try await Task.sleep(for: .milliseconds(20))
@@ -282,10 +242,10 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
     func testScrollGuardFollowsLargeScrollAndReportsLandedPage() async throws {
         let body = (0..<400).map { "<p>本文の段落 \($0) です。ここは検証用の文章。</p>" }
             .joined()
-        let harness = try RenderingLifecycleScriptHarness(bodyHTML: body)
+        let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: body)
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup()
+        try await harness.setupLifecycle()
         try await harness.settleMessages()
         harness.messages.reset()
 
@@ -318,11 +278,11 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
     }
 
     func testVisibleMediaOverlayHighlightDoesNotPostPageChanged() async throws {
-        let harness = try RenderingLifecycleScriptHarness(
+        let harness = try ReaderScriptHarness.renderingLifecycle(
             bodyHTML: "<p id=\"visible\">現在ページの読み上げ範囲</p>")
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup()
+        try await harness.setupLifecycle()
         harness.messages.reset()
 
         let page: Int = try await harness.evaluate(
@@ -333,10 +293,10 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
     }
 
     func testSetKeysEnabledChangesLiveKeyDispatch() async throws {
-        let harness = try RenderingLifecycleScriptHarness(bodyHTML: "<p>キー入力</p>")
+        let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: "<p>キー入力</p>")
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup(keysEnabled: true)
+        try await harness.setupLifecycle(keysEnabled: true)
         harness.messages.reset()
 
         let disabled: Bool = try await harness.evaluate("""
@@ -366,10 +326,10 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
 
     /// cooViewer-oxr.81: FXL の組み込みキーも項目境界のめくりとして通知する。
     func testFixedLayoutBuiltInKeysPostBoundaryTurns() async throws {
-        let harness = try RenderingLifecycleScriptHarness(bodyHTML: "<p>固定レイアウト</p>")
+        let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: "<p>固定レイアウト</p>")
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup(keysEnabled: true, fixedLayout: true)
+        try await harness.setupLifecycle(keysEnabled: true, fixedLayout: true)
         harness.messages.reset()
 
         let prevented: String = try await harness.evaluate("""
@@ -411,10 +371,10 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
             </style>
             <p id="first">第一段</p><p id="second">第二段</p><p>第三段</p>
             """
-        let harness = try RenderingLifecycleScriptHarness(bodyHTML: body)
+        let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: body)
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup(spread: true)
+        try await harness.setupLifecycle(spread: true)
 
         let constraints: String = try await harness.evaluate("""
             const style = getComputedStyle(document.documentElement);
@@ -433,11 +393,11 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
     }
 
     func testSynthesizedAnchorClickPostsLinkButNeverTap() async throws {
-        let harness = try RenderingLifecycleScriptHarness(
+        let harness = try ReaderScriptHarness.renderingLifecycle(
             bodyHTML: "<a id=\"link\" href=\"#chapter\">章へ</a><p id=\"plain\">本文</p>")
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup()
+        try await harness.setupLifecycle()
         harness.messages.reset()
 
         let _: Bool = try await harness.evaluate("""
@@ -474,10 +434,10 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
               </aside>
             </div>
             """
-        let harness = try RenderingLifecycleScriptHarness(bodyHTML: body)
+        let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: body)
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup()
+        try await harness.setupLifecycle()
         harness.messages.reset()
 
         let expectedJSON: String = try await harness.evaluate("""
@@ -517,11 +477,11 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
     }
 
     func testClickThatClearsExistingSelectionDoesNotPostTap() async throws {
-        let harness = try RenderingLifecycleScriptHarness(
+        let harness = try ReaderScriptHarness.renderingLifecycle(
             bodyHTML: "<p id=\"text\">選択中の本文をクリックする</p>")
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup()
+        try await harness.setupLifecycle()
         harness.messages.reset()
 
         let _: Bool = try await harness.evaluate("""
@@ -562,10 +522,10 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
             <div contenteditable="true"><span id="editableChild">編集可能</span></div>
             <p id="plain">本文</p>
             """
-        let harness = try RenderingLifecycleScriptHarness(bodyHTML: body)
+        let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: body)
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup()
+        try await harness.setupLifecycle()
         harness.messages.reset()
 
         let defaultsPreserved: Bool = try await harness.evaluate("""
@@ -600,10 +560,10 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
 
     /// cooViewer-oxr.27: 既定は detail にかかわらず各 click を遅延なしで通知する。
     func testRapidClicksPostOneTapEachImmediately() async throws {
-        let harness = try RenderingLifecycleScriptHarness(bodyHTML: "<p id=\"text\">本文</p>")
+        let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: "<p id=\"text\">本文</p>")
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup()
+        try await harness.setupLifecycle()
         harness.messages.reset()
 
         let scheduledTimers: Int = try await harness.evaluate("""
@@ -642,10 +602,10 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
     }
 
     func testOptInDoubleClickEventDoesNotPostTap() async throws {
-        let harness = try RenderingLifecycleScriptHarness(bodyHTML: "<p id=\"text\">本文</p>")
+        let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: "<p id=\"text\">本文</p>")
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup(deferTaps: true)
+        try await harness.setupLifecycle(deferTaps: true)
         harness.messages.reset()
 
         let _: Bool = try await harness.evaluate("""
@@ -668,11 +628,11 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
     }
 
     func testDoubleClickedAnchorPreventsDefaultWithoutDuplicateLink() async throws {
-        let harness = try RenderingLifecycleScriptHarness(
+        let harness = try ReaderScriptHarness.renderingLifecycle(
             bodyHTML: "<a id=\"link\" href=\"#chapter\">章へ</a>")
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup()
+        try await harness.setupLifecycle()
         harness.messages.reset()
 
         let prevented: String = try await harness.evaluate("""
@@ -694,10 +654,10 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
     }
 
     func testOptInPlainSingleClickPostsTapAfterDoubleClickWindow() async throws {
-        let harness = try RenderingLifecycleScriptHarness(bodyHTML: "<p id=\"text\">本文</p>")
+        let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: "<p id=\"text\">本文</p>")
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup(deferTaps: true)
+        try await harness.setupLifecycle(deferTaps: true)
         harness.messages.reset()
 
         let _: Bool = try await harness.evaluate("""
@@ -712,10 +672,10 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
     }
 
     func testOptInRapidIndependentSingleClicksBothPostTaps() async throws {
-        let harness = try RenderingLifecycleScriptHarness(bodyHTML: "<p id=\"text\">本文</p>")
+        let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: "<p id=\"text\">本文</p>")
         defer { harness.close() }
         try await harness.load()
-        try await harness.setup(deferTaps: true)
+        try await harness.setupLifecycle(deferTaps: true)
         harness.messages.reset()
 
         let _: Bool = try await harness.evaluate("""
@@ -737,7 +697,7 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
     func testColumnAxisDetectionAndForcedFallback() async throws {
         let body = "<style>html{writing-mode:vertical-rl}</style>"
             + (1...80).map { "<p>縦書きの本文 \($0)</p>" }.joined()
-        let harness = try RenderingLifecycleScriptHarness(bodyHTML: body)
+        let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: body)
         defer { harness.close() }
         try await harness.load()
 
