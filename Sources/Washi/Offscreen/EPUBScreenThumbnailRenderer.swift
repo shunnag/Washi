@@ -12,12 +12,7 @@ import WebKit
 @MainActor
 final class EPUBScreenThumbnailRenderer {
     private let publication: EPUBPublication
-    private var window: NSWindow?
-    private var webView: WKWebView?
-    private var schemeHandler: EPUBSchemeHandler?
-    // navigationDelegate は弱参照なので、解決後も保持して外部遷移を遮断する。
-    private var pendingNavigationWaiter: NavigationWaiter?
-    private var configuredAllowsScriptedContent: Bool?
+    private let host = EPUBOffscreenWebViewHost()
     private var fxlRasterizer: EPUBPageRasterizer?
     private var fxlAllowsScriptedContent: Bool?
     private let idleReleaseTimer: EPUBOffscreenIdleReleaseTimer
@@ -31,7 +26,7 @@ final class EPUBScreenThumbnailRenderer {
 
     /// cooViewer-oxr.68: リフロー用または FXL 用の WebKit が生存中かを示す。
     var hasLiveWebView: Bool {
-        webView != nil || fxlRasterizer?.hasLiveWebView == true
+        host.hasLiveWebView || fxlRasterizer?.hasLiveWebView == true
     }
 
     init(
@@ -59,18 +54,7 @@ final class EPUBScreenThumbnailRenderer {
     private func releaseOffscreenResources() {
         // cooViewer-oxr.62: delegate を外す前に現在の待機を解決し、
         // 15 秒タイムアウトまでサムネイル要求を残さない。
-        pendingNavigationWaiter?.cancel()
-        pendingNavigationWaiter = nil
-        webView?.stopLoading()
-        webView?.navigationDelegate = nil
-        // NSWindow の解放は AppKit の都合で遅れうるので、WebView をウインドウから
-        // 外してから手放す(WebView と WebContent プロセスの寿命をウインドウに預けない)
-        window?.contentView = nil
-        webView = nil
-        schemeHandler = nil
-        configuredAllowsScriptedContent = nil
-        window?.orderOut(nil)
-        window = nil
+        host.release()
         loadedSpineIndex = nil
         loadedOptionsJSON = nil
         fxlRasterizer?.invalidate()
@@ -176,40 +160,29 @@ final class EPUBScreenThumbnailRenderer {
         }
         prepareIfNeeded(contentSize: contentSize,
                         allowsScriptedContent: allowsScriptedContent)
-        guard let webView, let schemeHandler else { return nil }
+        guard let webView = host.webView, let schemeHandler = host.schemeHandler
+        else { return nil }
         if loadedSpineIndex != spineIndex || loadedOptionsJSON != optionsJSON {
             guard let url = flow == .scrolledContinuous ? schemeHandler.scrollDocumentURL
                     : schemeHandler.url(forReadingOrderItem: entry)
             else { return nil }
             loadedSpineIndex = nil  // 途中失敗時に半端な状態を再利用しない
             loadedOptionsJSON = nil
-            window?.setContentSize(contentSize)
-            webView.frame = NSRect(origin: .zero, size: contentSize)
-            let waiter = NavigationWaiter()
-            pendingNavigationWaiter = waiter
-            webView.navigationDelegate = waiter
-            waiter.expect(webView.load(URLRequest(url: url)))
-            do {
-                try await waiter.wait(timeout: .seconds(15))
-            } catch {
-                if error is CancellationError || Task.isCancelled {
-                    webView.stopLoading()
-                }
-                return nil
-            }
-            guard !Task.isCancelled, !isInvalidated else { return nil }
+            host.setContentSize(contentSize)
             let setupJSON = EPUBScrollDocument.options(
                 optionsJSON, publication: publication, index: spineIndex, handler: schemeHandler)
             // census と同じく didFinish 直後に測る(ページ数の一致が最優先。
-            // 描画の確定は takeSnapshot(afterScreenUpdates: true)が担う)
-            let didSetup = await waitForOffscreenResult { completion in
-                webView.callAsyncJavaScript(
-                    "return __washi.setup(\(setupJSON));",
-                    arguments: [:], in: nil, in: WashiContentWorld.world,
-                    completionHandler: { result in
-                        completion((try? result.get()) != nil)
-                    })
+            // 描画の確定は takeSnapshot(afterScreenUpdates: true)が担う)。
+            // invalidate は実行中のジョブを cancel するので、読み込み直後の
+            // 判定は host 側の Task.isCancelled で足りる。
+            let setup: Result<EPUBOffscreenWebViewHost.SetupResult, any Error>?
+            do {
+                setup = try await host.loadAndSetup(
+                    url: url, optionsJSON: setupJSON, timeout: .seconds(15))
+            } catch {
+                return nil
             }
+            let didSetup = setup.map { (try? $0.get()) != nil }
             guard didSetup == true, !Task.isCancelled, !isInvalidated else {
                 return nil
             }
@@ -306,45 +279,22 @@ final class EPUBScreenThumbnailRenderer {
 
     private func prepareIfNeeded(contentSize: NSSize,
                                  allowsScriptedContent: Bool) {
-        if let configuredAllowsScriptedContent,
-           configuredAllowsScriptedContent != allowsScriptedContent {
+        // 画面外・非表示・クリック不可(census/ラスタライザと同じ方式)。
+        // 寸法は新しい spine 項目を読み込むときにだけそろえる。
+        let didRebuildWebView = host.prepare(
+            size: contentSize, allowsScriptedContent: allowsScriptedContent,
+            makeSchemeHandler: {
+                EPUBSchemeHandler(publication: publication,
+                                  allowsScripts: allowsScriptedContent)
+            },
+            installUserScripts: { controller, handler in
+                EPUBScrollDocument.install(in: controller, handler: handler)
+            })
+        if didRebuildWebView {
             // cooViewer-oxr.75: 著者スクリプト許可が変われば、構成が不変の
             // WKWebView と scheme handler を同じ条件で作り直す。
-            pendingNavigationWaiter?.cancel()
-            pendingNavigationWaiter = nil
-            webView?.stopLoading()
-            webView?.navigationDelegate = nil
-            webView = nil
-            schemeHandler = nil
-            self.configuredAllowsScriptedContent = nil
             loadedSpineIndex = nil
             loadedOptionsJSON = nil
-        }
-        if window == nil {
-            // 画面外・非表示・クリック不可(census/ラスタライザと同じ方式)
-            let window = NSWindow(
-                contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000),
-                                    size: contentSize),
-                styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.ignoresMouseEvents = true
-            self.window = window
-        }
-        if webView == nil {
-            let handler = EPUBSchemeHandler(publication: publication,
-                                            allowsScripts: allowsScriptedContent)
-            schemeHandler = handler
-            let configuration = EPUBOffscreenWebViewConfiguration.make(
-                allowsScriptedContent: allowsScriptedContent)
-            configuration.setURLSchemeHandler(handler,
-                                              forURLScheme: EPUBSchemeHandler.scheme)
-            let controller = configuration.userContentController
-            EPUBScrollDocument.install(in: controller, handler: handler)
-            let webView = WKWebView(frame: NSRect(origin: .zero, size: contentSize),
-                                    configuration: configuration)
-            window?.contentView = webView
-            self.webView = webView
-            configuredAllowsScriptedContent = allowsScriptedContent
         }
     }
 }

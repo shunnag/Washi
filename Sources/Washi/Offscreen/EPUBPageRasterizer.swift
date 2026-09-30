@@ -27,9 +27,10 @@ public final class EPUBPageRasterizer {
     private let publication: EPUBPublication
     private let schemeHandler: EPUBSchemeHandler
     private let allowsScriptedContent: Bool
+    private let host = EPUBOffscreenWebViewHost()
     // Washi-cfm: テストから画面外ウインドウの寿命を弱参照で観測する。
-    private(set) var window: NSWindow?
-    private(set) var webView: WKWebView?
+    var window: NSWindow? { host.window }
+    var webView: WKWebView? { host.webView }
     // Washi-cfm: 描画中の停止箇所を調べる時刻だけを残し、WebView は保持しない。
     struct RenderTrace {
         var prepared: ContinuousClock.Instant?
@@ -39,10 +40,8 @@ public final class EPUBPageRasterizer {
         var readinessTimedOut: Bool?
     }
     private(set) var lastRenderTrace = RenderTrace()
-    // navigationDelegate は弱参照なので、描画完了後も保持して外部遷移を遮断する。
-    private var pendingNavigationWaiter: NavigationWaiter?
     /// cooViewer-oxr.68: 所有するサムネイルレンダラのアイドル診断用。
-    var hasLiveWebView: Bool { webView != nil }
+    var hasLiveWebView: Bool { host.hasLiveWebView }
     /// 直列化: 直前の要求が終わるまで次を待たせる
     private var lastJob: Task<Void, Never>?
     private var renderJobs: [UUID: Task<CGImage, any Error>] = [:]
@@ -109,16 +108,7 @@ public final class EPUBPageRasterizer {
         renderJobs.removeAll()
         // cooViewer-oxr.53: delegate を外す前に現在の待機を解決し、
         // 30 秒タイムアウトを待たず FIFO を終了させる。
-        pendingNavigationWaiter?.cancel()
-        pendingNavigationWaiter = nil
-        webView?.stopLoading()
-        webView?.navigationDelegate = nil
-        // NSWindow の解放は AppKit の都合で遅れうるので、WebView をウインドウから
-        // 外してから手放す(WebView と WebContent プロセスの寿命をウインドウに預けない)
-        window?.contentView = nil
-        webView = nil
-        window?.orderOut(nil)
-        window = nil
+        host.release()
     }
 
     /// spine 項目を描画して結果を返す。maxPixelSize は長辺のピクセル数の
@@ -229,7 +219,7 @@ public final class EPUBPageRasterizer {
         let frameSize = NSSize(width: viewport.width * zoom,
                                height: viewport.height * zoom)
 
-        let webView = prepareWebView(size: frameSize)
+        let webView = try prepareWebView(size: frameSize)
         webView.pageZoom = zoom
         lastRenderTrace.prepared = .now
 
@@ -252,47 +242,18 @@ public final class EPUBPageRasterizer {
         return image
     }
 
-    private func prepareWebView(size: NSSize) -> WKWebView {
-        if window == nil {
-            // 画面外・非表示・クリックされないウインドウ(orderFront はしない。
-            // ウインドウに載っていること自体が描画のブロック解除条件)
-            let window = NSWindow(
-                contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size),
-                styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.ignoresMouseEvents = true
-            self.window = window
-        }
-        if webView == nil {
-            let configuration = EPUBOffscreenWebViewConfiguration.make(
-                allowsScriptedContent: allowsScriptedContent)
-            configuration.setURLSchemeHandler(schemeHandler,
-                                              forURLScheme: EPUBSchemeHandler.scheme)
-            let webView = WKWebView(frame: NSRect(origin: .zero, size: size),
-                                    configuration: configuration)
-            window?.contentView = webView
-            self.webView = webView
-        }
-        window?.setContentSize(size)
-        webView?.frame = NSRect(origin: .zero, size: size)
-        return webView!
+    private func prepareWebView(size: NSSize) throws -> WKWebView {
+        // scheme handler は init で作った 1 つを使い続ける(allowsScriptedContent
+        // は不変なので、host が WKWebView を作り直すことはない)。
+        host.prepare(size: size, allowsScriptedContent: allowsScriptedContent,
+                     makeSchemeHandler: { schemeHandler })
+        host.setContentSize(size)
+        guard let webView = host.webView else { throw RasterizeError.loadFailed }
+        return webView
     }
 
     private func loadAndWait(webView: WKWebView, url: URL) async throws {
-        let delegate = NavigationWaiter()
-        pendingNavigationWaiter = delegate
-        webView.navigationDelegate = delegate
-        delegate.expect(webView.load(URLRequest(url: url)))
-        // オフスクリーンの WebContent プロセスはジェットサム候補のため、
-        // 落ちた/固まったときに永久待ちしないようタイムアウト付きで待つ
-        do {
-            try await delegate.wait(timeout: .seconds(30))
-        } catch {
-            if error is CancellationError || Task.isCancelled {
-                webView.stopLoading()
-            }
-            throw error
-        }
+        try await host.load(url: url, timeout: .seconds(30))
         lastRenderTrace.didFinish = .now
         // didFinish 直後はフォント・画像のデコードが残っていることがある。
         // cooViewer-oxr.2: 一度も表示しないウインドウでは rAF が発火しないため
