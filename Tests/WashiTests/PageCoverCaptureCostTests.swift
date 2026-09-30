@@ -4,21 +4,6 @@ import XCTest
 @testable import Washi
 
 @MainActor
-private final class PageCoverCaptureMoveDelegate: EPUBReaderViewDelegate {
-    var moves = 0
-    var failure: (any Error)?
-
-    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
-                    pageInItem: Int, pageCountInItem: Int) {
-        moves += 1
-    }
-
-    func readerView(_ view: EPUBReaderView, didFailWith error: any Error) {
-        failure = error
-    }
-}
-
-@MainActor
 final class PageCoverCaptureCostTests: XCTestCase {
     func testMeasurePageCoverCaptureCost() async throws {
         guard ProcessInfo.processInfo.environment["WASHI_MEASURE_PAGE_COVER"] == "1" else {
@@ -85,21 +70,6 @@ final class PageCoverCaptureCostTests: XCTestCase {
         return window
     }
 
-    private func webView(of view: EPUBReaderView) throws -> WKWebView {
-        try XCTUnwrap(view.subviews.compactMap { $0 as? WKWebView }.first)
-    }
-
-    private func waitUntil(
-        timeout: Duration = .seconds(10), _ condition: @MainActor () -> Bool
-    ) async throws -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        return condition()
-    }
-
     private func measureBook(_ name: String, entries: [(name: String, data: Data)],
                              size: NSSize, screen: NSScreen) async throws {
         // PNG を再圧縮せず格納し、本の生成を撮影時間に含めない。
@@ -117,15 +87,15 @@ final class PageCoverCaptureCostTests: XCTestCase {
             view.unload()
         }
 
-        let delegate = PageCoverCaptureMoveDelegate()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         view.load(publication: publication)
         view.layoutSubtreeIfNeeded()
-        let web = try webView(of: view)
-        let shown = try await waitUntil {
-            delegate.failure != nil || (delegate.moves > 0 && web.alphaValue == 1)
+        let web = try view.firstWebView()
+        let shown = await waitUntil(timeout: .seconds(10), poll: .milliseconds(10)) {
+            delegate.failures.last != nil || (delegate.moveCount > 0 && web.alphaValue == 1)
         }
-        if let failure = delegate.failure { throw failure }
+        if let failure = delegate.failures.last { throw failure }
         guard shown else {
             XCTFail("\(name): 10 秒以内にページが画面上へ表示されませんでした")
             return

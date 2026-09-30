@@ -4,96 +4,32 @@ import XCTest
 @testable import Washi
 
 /// pagination CSS と書籍 CSS の cascade を実 WKWebView で検証する。
-@MainActor
-private final class PaginationStyleHarness {
-    let window: NSWindow
-    let webView: WKWebView
-    private let publication: EPUBPublication
-    private let schemeHandler: EPUBSchemeHandler
-    private let size: NSSize
-
-    init(bodyHTML: String, size: NSSize = NSSize(width: 400, height: 400),
-         headCSS: String = "") throws {
-        self.size = size
-        var entries = EPUBFixtures.singleSpineEntries(bodyHTML: bodyHTML)
-        if !headCSS.isEmpty,
-           let index = entries.firstIndex(where: { $0.name == "OEBPS/text/c.xhtml" }) {
-            let source = String(decoding: entries[index].data, as: UTF8.self)
-            entries[index].data = Data(source.replacingOccurrences(
-                of: "</head>",
-                with: "<style id=\"book-head-css\">\(headCSS)</style></head>").utf8)
-        }
-        publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-pagination-style.epub"))
-
-        window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000),
-                                size: size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        schemeHandler = EPUBSchemeHandler(publication: publication,
-                                           allowsScripts: false)
-        configuration.setURLSchemeHandler(
-            schemeHandler, forURLScheme: EPUBSchemeHandler.scheme)
-        for source in [ReaderScripts.pageScript, ReaderScripts.baseCSSInjector] {
-            configuration.userContentController.addUserScript(WKUserScript(
-                source: source, injectionTime: .atDocumentStart,
-                forMainFrameOnly: true, in: WashiContentWorld.world))
-        }
-        webView = WKWebView(
-            frame: NSRect(origin: .zero, size: size), configuration: configuration)
-        window.contentView = webView
+extension ReaderScriptHarness {
+    /// 400x400 の箱に、書籍の head CSS を `book-head-css` の id で入れる
+    fileprivate static func paginationStyle(
+        bodyHTML: String, size: NSSize = NSSize(width: 400, height: 400),
+        headCSS: String = ""
+    ) throws -> ReaderScriptHarness {
+        try ReaderScriptHarness(bodyHTML: bodyHTML, size: size,
+                                headCSS: headCSS, headStyleID: "book-head-css")
     }
 
-    func load() async throws {
-        let entry = try XCTUnwrap(publication.readingOrder.first)
-        let url = try XCTUnwrap(schemeHandler.url(forReadingOrderItem: entry))
-        let waiter = NavigationWaiter()
-        webView.navigationDelegate = waiter
-        webView.load(URLRequest(url: url))
-        try await waiter.wait(timeout: .seconds(15))
-        withExtendedLifetime(waiter) {}
-    }
-
-    func close() {
-        webView.stopLoading()
-        webView.navigationDelegate = nil
-        window.contentView = nil
-        window.close()
-    }
-
-    func evaluate<T: Sendable>(
-        _ body: String, as type: T.Type = T.self
-    ) async throws -> T {
-        try await Task(priority: .userInitiated) { @MainActor in
-            let result = try await webView.callAsyncJavaScript(
-                body, in: nil, contentWorld: WashiContentWorld.world)
-            return try XCTUnwrap(result as? T)
-        }.value
-    }
-
-    func setup(with settings: EPUBReaderSettings) async throws {
+    fileprivate func setup(with settings: EPUBReaderSettings) async throws {
         _ = try await setupPageCount(with: settings)
     }
 
-    func setupPageCount(with settings: EPUBReaderSettings) async throws -> Int {
+    fileprivate func setupPageCount(with settings: EPUBReaderSettings) async throws -> Int {
         let options = EPUBScreenMetrics(
             viewportSize: size, settings: settings).censusOptionsJSON
         return try await evaluate(
             "return __washi.setup(\(options)).pageCount;")
     }
 
-    func repaginate(with settings: EPUBReaderSettings) async throws {
+    fileprivate func repaginate(with settings: EPUBReaderSettings) async throws {
         _ = try await repaginatedPageCount(with: settings)
     }
 
-    func repaginatedPageCount(with settings: EPUBReaderSettings) async throws -> Int {
+    fileprivate func repaginatedPageCount(with settings: EPUBReaderSettings) async throws -> Int {
         let options = EPUBScreenMetrics(
             viewportSize: size, settings: settings).censusOptionsJSON
         return try await evaluate(
@@ -118,7 +54,7 @@ final class PaginationStyleTests: XCTestCase {
     /// cooViewer-oxr.59: 高い画像の上限は figure 自体でなく子メディアに
     /// 適用し、figcaption と後続段落のレイアウト領域を重ねない。
     func testTallFigureCaptionDoesNotOverlapFollowingParagraph() async throws {
-        let harness = try PaginationStyleHarness(bodyHTML: """
+        let harness = try ReaderScriptHarness.paginationStyle(bodyHTML: """
             <style>
               figure { margin: 0; }
               figure svg, figcaption, p { margin: 0; padding: 0; }
@@ -169,7 +105,7 @@ final class PaginationStyleTests: XCTestCase {
     /// cooViewer-oxr.60/76: 14pt と指定した書籍 root の計算済み px 値に
     /// 倍率を乗じ、固定 px の body も root 相対へ正規化する。
     func testFontScaleMultipliesBookAbsoluteRootFontSize() async throws {
-        let harness = try PaginationStyleHarness(bodyHTML: """
+        let harness = try ReaderScriptHarness.paginationStyle(bodyHTML: """
             <style>html { font-size: 14pt; }</style>
             <p id="probe">絶対サイズの本文</p>
             """)
@@ -192,7 +128,7 @@ final class PaginationStyleTests: XCTestCase {
     /// cooViewer-oxr.60/76: px/pt で固定された body だけを root 相対へ
     /// 正規化し、倍率を本文まで届かせる。倍率 1.0 では著者値へ戻す。
     func testFontScaleNormalizesAbsoluteBodySizeOnlyWhileScaled() async throws {
-        let harness = try PaginationStyleHarness(bodyHTML: """
+        let harness = try ReaderScriptHarness.paginationStyle(bodyHTML: """
             <style>
               html { font-size: 14pt; }
               body { font-size: 12pt; }
@@ -216,7 +152,7 @@ final class PaginationStyleTests: XCTestCase {
     /// cooViewer-oxr.60/76: 同じ倍率で再ページ割りしても実 px 値へ倍率を
     /// 再乗算せず、1.0 へ戻せば著者 root 値へ正確に復帰する。
     func testFontScaleRepaginationIsIdempotentAndRestoresAuthorRootSize() async throws {
-        let harness = try PaginationStyleHarness(bodyHTML: """
+        let harness = try ReaderScriptHarness.paginationStyle(bodyHTML: """
             <style>html { font-size: 14pt; }</style>
             <p>再ページ割りする本文</p>
             """)
@@ -239,7 +175,7 @@ final class PaginationStyleTests: XCTestCase {
     /// cooViewer-oxr.60/76: 62.5% root + rem の書籍は WebKit 既定 16px で
     /// 置き換えず、書籍の 10px root を基準に連続的に拡大する。
     func testFontScalePreservesRemBasedBookSizing() async throws {
-        let harness = try PaginationStyleHarness(bodyHTML: """
+        let harness = try ReaderScriptHarness.paginationStyle(bodyHTML: """
             <style>
               html { font-size: 62.5%; }
               body { font-size: 125%; }
@@ -274,7 +210,7 @@ final class PaginationStyleTests: XCTestCase {
     /// cooViewer-oxr.77: 書籍自身の html-level font-family は、既定
     /// フォントの後置注入に上書きされない。
     func testBookHTMLFontFamilyOverridesDefaultFontFamily() async throws {
-        let harness = try PaginationStyleHarness(
+        let harness = try ReaderScriptHarness.paginationStyle(
             bodyHTML: "<p>書籍指定のフォント</p>",
             headCSS: """
                 @layer book-root {
@@ -302,7 +238,7 @@ final class PaginationStyleTests: XCTestCase {
     /// cooViewer-oxr.77: 書籍が font-family を指定しない場合は既定値を
     /// html から継承する。
     func testDefaultFontFamilyAppliesWhenBookOmitsFamily() async throws {
-        let harness = try PaginationStyleHarness(
+        let harness = try ReaderScriptHarness.paginationStyle(
             bodyHTML: "<p>既定フォントの本文</p>")
         defer { harness.close() }
         try await harness.load()
@@ -320,7 +256,7 @@ final class PaginationStyleTests: XCTestCase {
         let body = (1...90).map {
             "<p>段落 \($0) は、十分に長い本文を含みます。本文本文本文本文本文。</p>"
         }.joined()
-        let harness = try PaginationStyleHarness(
+        let harness = try ReaderScriptHarness.paginationStyle(
             bodyHTML: body, size: NSSize(width: 320, height: 240))
         defer { harness.close() }
         try await harness.load()
@@ -339,7 +275,7 @@ final class PaginationStyleTests: XCTestCase {
         var spaced = settings()
         spaced.letterSpacingEm = 0.2
 
-        let horizontal = try PaginationStyleHarness(
+        let horizontal = try ReaderScriptHarness.paginationStyle(
             bodyHTML: "<p>\(text)</p>",
             size: NSSize(width: 300, height: 240))
         defer { horizontal.close() }
@@ -349,7 +285,7 @@ final class PaginationStyleTests: XCTestCase {
         XCTAssertNotEqual(horizontalSpaced, horizontalBase,
                           "horizontal letter spacing must affect pagination")
 
-        let vertical = try PaginationStyleHarness(
+        let vertical = try ReaderScriptHarness.paginationStyle(
             bodyHTML: "<p>\(text)</p>", size: NSSize(width: 300, height: 240),
             headCSS: "html { writing-mode: vertical-rl; }")
         defer { vertical.close() }

@@ -184,8 +184,6 @@ final class FontDeobfuscationTests: XCTestCase {
             ("OEBPS/text/c.xhtml", Data(xhtml.utf8)),
             ("OEBPS/fonts/f.otf", fontData),
         ]
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-obfuscation.epub"))
+        return try EPUBFixtures.publication(entries, name: "washi-obfuscation")
     }
 }

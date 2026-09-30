@@ -3,75 +3,6 @@ import WebKit
 import XCTest
 @testable import Washi
 
-// cooViewer-oxr.3 / cooViewer-oxr.5 / cooViewer-oxr.6: 実際の setup を呼ぶ
-// オフスクリーン環境。描画フレーム通知に依存せず、非表示ウインドウでも計測する。
-@MainActor
-final class ReaderScriptTestHarness {
-    let window: NSWindow
-    let webView: WKWebView
-    private let publication: EPUBPublication
-    private let schemeHandler: EPUBSchemeHandler
-
-    init(entries: [(name: String, data: Data)]) throws {
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-batch3.epub"))
-        self.publication = publication
-        let size = NSSize(width: 640, height: 400)
-        window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        schemeHandler = EPUBSchemeHandler(publication: publication, allowsScripts: false)
-        configuration.setURLSchemeHandler(schemeHandler, forURLScheme: EPUBSchemeHandler.scheme)
-        for source in [ReaderScripts.pageScript, ReaderScripts.baseCSSInjector] {
-            configuration.userContentController.addUserScript(WKUserScript(
-                source: source, injectionTime: .atDocumentStart,
-                forMainFrameOnly: true, in: WashiContentWorld.world))
-        }
-        webView = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: configuration)
-        window.contentView = webView
-    }
-
-    func load() async throws {
-        let entry = try XCTUnwrap(publication.readingOrder.first)
-        let url = try XCTUnwrap(schemeHandler.url(forReadingOrderItem: entry))
-        let waiter = NavigationWaiter()
-        webView.navigationDelegate = waiter
-        webView.load(URLRequest(url: url))
-        try await waiter.wait(timeout: .seconds(15))
-        withExtendedLifetime(waiter) {}
-    }
-
-    func close() {
-        webView.stopLoading()
-        webView.navigationDelegate = nil
-        window.contentView = nil
-        window.close()
-    }
-
-    func evaluate<T: Sendable>(_ body: String, as type: T.Type = T.self) async throws -> T {
-        try await Task(priority: .userInitiated) { @MainActor in
-            let result = try await webView.callAsyncJavaScript(
-                body, in: nil, contentWorld: WashiContentWorld.world)
-            return try XCTUnwrap(result as? T)
-        }.value
-    }
-
-    func setup() async throws -> [String: Double] {
-        try await evaluate("""
-            const s = __washi.setup({width:640,height:400,gap:24,spread:true,
-                gutter:48,fixedLayout:false,keysEnabled:false,userCSS:''});
-            return {imagePage: Number(s.imagePage), pageCount:s.pageCount,
-                    pagesPerScreen:s.pagesPerScreen, verticalRL:Number(s.mode === 'vrl')};
-            """)
-    }
-}
-
 @MainActor
 final class ImagePageLayoutTests: XCTestCase {
     // cooViewer-oxr.3 / ミラー issue #1: SVG の高さ潰れ・歪み・再計算待ちを再現する。
@@ -86,7 +17,7 @@ final class ImagePageLayoutTests: XCTestCase {
     /// cooViewer-oxr.15: spine 直下のラスター画像を合成 XHTML wrapper で配信し、
     /// 既存の image-page 配置へ到達させる。
     func testImageSpineWrapperIsDetectedAsImagePage() async throws {
-        let harness = try ReaderScriptTestHarness(entries: Self.imageSpineEntries())
+        let harness = try ReaderScriptHarness(entries: Self.imageSpineEntries())
         defer { harness.close() }
         try await harness.load()
         let decoded: Bool = try await harness.evaluate("""
@@ -119,7 +50,7 @@ final class ImagePageLayoutTests: XCTestCase {
     }
 
     private func checkLayout(body: String, isSVG: Bool) async throws {
-        let harness = try ReaderScriptTestHarness(entries: EPUBFixtures.imagePageEntries(bodyHTML: body))
+        let harness = try ReaderScriptHarness(entries: EPUBFixtures.imagePageEntries(bodyHTML: body))
         defer { harness.close() }
         try await harness.load()
         if !isSVG {
@@ -152,7 +83,7 @@ final class ImagePageLayoutTests: XCTestCase {
         }
     }
 
-    private func assertImageRect(_ harness: ReaderScriptTestHarness, width: Double, height: Double,
+    private func assertImageRect(_ harness: ReaderScriptHarness, width: Double, height: Double,
                                  file: StaticString = #filePath, line: UInt = #line) async throws {
         let rect: [String: Double] = try await harness.evaluate("""
             // cooViewer-oxr.3: 非表示 WKWebView のフレーム反映を有限時間だけ待つ。
@@ -182,7 +113,7 @@ final class ImagePageLayoutTests: XCTestCase {
     // cooViewer-oxr.6: Core と共有する入力で、可視本文と隠された代替文を区別する。
     func testVisibleTextDetectionAgreesWithCoreFixtures() async throws {
         for fixture in EPUBFixtures.imagePageDetectionCases {
-            let harness = try ReaderScriptTestHarness(entries:
+            let harness = try ReaderScriptHarness(entries:
                 EPUBFixtures.imagePageEntries(bodyHTML: fixture.body))
             defer { harness.close() }
             try await harness.load()
@@ -197,7 +128,7 @@ final class ImagePageLayoutTests: XCTestCase {
     }
 
     func testDetectionIgnoresStylesheetHiddenText() async throws {
-        let harness = try ReaderScriptTestHarness(entries: EPUBFixtures.imagePageEntries(bodyHTML:
+        let harness = try ReaderScriptHarness(entries: EPUBFixtures.imagePageEntries(bodyHTML:
             "<style>.alt { display:none }</style><div class=\"alt\"><p>代替文</p></div>"
                 + "<img src=\"../images/page.png\"/>"))
         defer { harness.close() }
@@ -208,7 +139,7 @@ final class ImagePageLayoutTests: XCTestCase {
 
     // cooViewer-oxr.3: 未ロード時の属性比率と、一度だけ登録した load 後の自然寸法。
     func testPendingImageUpdatesRatioOnLoad() async throws {
-        let harness = try ReaderScriptTestHarness(entries: EPUBFixtures.imagePageEntries(bodyHTML:
+        let harness = try ReaderScriptHarness(entries: EPUBFixtures.imagePageEntries(bodyHTML:
             "<img src=\"../images/page.png\" width=\"40\" height=\"10\"/>"))
         defer { harness.close() }
         try await harness.load()

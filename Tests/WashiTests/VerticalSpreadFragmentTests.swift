@@ -8,7 +8,7 @@ extension VerticalSpreadPagingTests {
             + "<div id=\"sec\"><p id=\"long\">"
             + String(repeating: "縦書きの長い段落と章の先頭断片を検証します。", count: 350)
             + "</p></div>"
-        let harness = try ReaderScriptTestHarness(entries: EPUBFixtures.singleSpineEntries(bodyHTML: body))
+        let harness = try ReaderScriptHarness(entries: EPUBFixtures.singleSpineEntries(bodyHTML: body))
         defer { harness.close() }
         try await harness.load()
         let setup = try await harness.setup()

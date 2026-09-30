@@ -46,9 +46,7 @@ final class LegacyFixedLayoutTests: XCTestCase {
             entries.append(("META-INF/com.apple.ibooks.display-options.xml",
                             Data(displayOptions.utf8)))
         }
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-legacy-fxl.epub"))
+        return try EPUBFixtures.publication(entries, name: "washi-legacy-fxl")
     }
 
     func testKoboStyleFixedLayoutMeta() throws {

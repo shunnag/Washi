@@ -11,15 +11,9 @@ final class VerticalSpreadPagingTests: XCTestCase {
             + (1...80).map {
                 "<p>\u{884C}\(String(format: "%02d", $0)) \u{7E26}\u{66F8}\u{304D}\u{672C}\u{6587}\u{3002}\u{7E26}\u{66F8}\u{304D}\u{898B}\u{958B}\u{304D}\u{306E}\u{30DA}\u{30FC}\u{30B8}\u{9001}\u{308A}\u{3092}\u{691C}\u{8A3C}\u{3059}\u{308B}\u{3002}</p>"
             }.joined()
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(EPUBFixtures.singleSpineEntries(bodyHTML: body), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-vertical-spread.epub"))
+        let publication = try EPUBFixtures.singleSpine(bodyHTML: body,
+            name: "washi-vertical-spread")
         let size = NSSize(width: 640, height: 400)
-        let window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
@@ -34,7 +28,7 @@ final class VerticalSpreadPagingTests: XCTestCase {
             forMainFrameOnly: true, in: WashiContentWorld.world))
         let webView = WKWebView(frame: NSRect(origin: .zero, size: size),
                                 configuration: configuration)
-        window.contentView = webView
+        let window = makeOffscreenWindow(containing: webView)
         defer { webView.navigationDelegate = nil; window.contentView = nil; window.orderOut(nil) }
 
         let entry = publication.readingOrder[0]

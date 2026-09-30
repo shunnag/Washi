@@ -3,16 +3,6 @@ import WebKit
 import XCTest
 @testable import Washi
 
-@MainActor
-private final class TrailingSpreadDelegateSpy: EPUBReaderViewDelegate {
-    var moveCount = 0
-
-    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
-                    pageInItem: Int, pageCountInItem: Int) {
-        moveCount += 1
-    }
-}
-
 /// cooViewer-oxr.58: 奇数末尾を空列で補い、単独ページとして表示する。
 @MainActor
 final class TrailingSpreadPageTests: XCTestCase {
@@ -55,7 +45,7 @@ final class TrailingSpreadPageTests: XCTestCase {
             """ + (0..<5).map {
                 "<p class=\"fixture-page\" id=\"page-\($0)\">第\($0)ページ</p>"
             }.joined()
-        let harness = try PaginationGeometryHarness(
+        let harness = try ReaderScriptHarness(
             bodyHTML: body, size: NSSize(width: 640, height: 400),
             htmlDirection: htmlDirection)
         defer { harness.close() }
@@ -109,7 +99,7 @@ final class TrailingSpreadPageTests: XCTestCase {
             """ + (0..<5).map {
                 "<p class=\"fixture-page\" id=\"page-\($0)\">第\($0)ページ</p>"
             }.joined()
-        let harness = try PaginationGeometryHarness(
+        let harness = try ReaderScriptHarness(
             bodyHTML: body, size: NSSize(width: 640, height: 400))
         defer { harness.close() }
         try await harness.load()
@@ -155,7 +145,7 @@ final class TrailingSpreadPageTests: XCTestCase {
             ("", "rtl", .right, "horizontal RTL"),
         ]
         for mode in modes {
-            let harness = try PaginationGeometryHarness(
+            let harness = try ReaderScriptHarness(
                 bodyHTML: pages, size: NSSize(width: 640, height: 400),
                 htmlDirection: mode.direction,
                 headCSS: """
@@ -201,7 +191,7 @@ final class TrailingSpreadPageTests: XCTestCase {
         let pages = (0..<5).map {
             "<p class=\"fixture-page\" id=\"page-\($0)\">第\($0)ページ</p>"
         }.joined()
-        let harness = try PaginationGeometryHarness(
+        let harness = try ReaderScriptHarness(
             bodyHTML: pages, size: NSSize(width: 640, height: 400),
             headCSS: """
                 html::before, html::after, body::before, body::after {
@@ -302,17 +292,13 @@ final class TrailingSpreadPageTests: XCTestCase {
                 "<p class=\"fixture-page\" id=\"page-\($0)\">第\($0)ページ</p>"
             }.joined()
         var entries = EPUBFixtures.singleSpineEntries(bodyHTML: body)
-        if let htmlDirection,
-           let index = entries.firstIndex(where: { $0.name == "OEBPS/text/c.xhtml" }) {
-            let source = String(decoding: entries[index].data, as: UTF8.self)
-            entries[index].data = Data(source.replacingOccurrences(
-                of: "xml:lang=\"ja\">",
-                with: "xml:lang=\"ja\" dir=\"\(htmlDirection)\">").utf8)
+        if let htmlDirection {
+            entries = try EPUBFixtures.replacing(
+                entries, in: "OEBPS/text/c.xhtml", of: "xml:lang=\"ja\">",
+                with: "xml:lang=\"ja\" dir=\"\(htmlDirection)\">")
         }
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath:
-                "/tmp/washi-native-folio-\(context.replacingOccurrences(of: " ", with: "-")).epub"))
+        let publication = try EPUBFixtures.publication(
+            entries, name: "washi-native-folio-\(context.replacingOccurrences(of: " ", with: "-"))")
         // 既定 inset を差し引いた WebView が spec と同じ 640 x 400 になる寸法。
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 752, height: 508))
@@ -320,30 +306,18 @@ final class TrailingSpreadPageTests: XCTestCase {
         settings.columnMode = .double
         settings.pageTurnStyle = .none
         view.settings = settings
-        let delegate = TrailingSpreadDelegateSpy()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
-        let window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000),
-                                size: view.frame.size),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-        window.contentView = view
-        defer {
-            view.cancelPageCensus()
-            view.delegate = nil
-            window.contentView = nil
-            window.close()
-        }
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
-        guard await waitUntil({ delegate.moveCount > 0 }) else {
-            return try failOrSkipWebKitTest("WKWebView navigation is unavailable in this sandbox")
+        guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
+            return try skipOrFailIfWebKitUnavailable()
         }
         XCTAssertEqual(view.pageCountInItem, 5, context)
         XCTAssertEqual(view.pagesPerScreen, 2, context)
 
-        let webView = try XCTUnwrap(
-            view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let webView = try view.firstWebView()
         let measurement = try await Task(priority: .userInitiated) { @MainActor in
             let raw = try await webView.callAsyncJavaScript(
                 """
@@ -365,7 +339,7 @@ final class TrailingSpreadPageTests: XCTestCase {
         }.value
         XCTAssertEqual(measurement.landed, 4, context)
         XCTAssertEqual(measurement.ids, "page-4", context)
-        let didLand = await waitUntil { view.pageInItem == 4 }
+        let didLand = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) { view.pageInItem == 4 }
         XCTAssertTrue(didLand, context)
 
         let labels = view.subviews.compactMap { $0 as? NSTextField }
@@ -380,19 +354,7 @@ final class TrailingSpreadPageTests: XCTestCase {
                        firstSlot == .right ? [nil, 5] : [5, nil], context)
     }
 
-    private func waitUntil(
-        timeout: Duration = .seconds(5),
-        _ condition: @MainActor () -> Bool
-    ) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return condition()
-    }
-
-    private func visibleFixturePages(in harness: PaginationGeometryHarness) async throws -> String {
+    private func visibleFixturePages(in harness: ReaderScriptHarness) async throws -> String {
         try await harness.evaluate("""
             return Array.from(document.querySelectorAll('.fixture-page')).filter(element =>
                 Array.from(element.getClientRects()).some(rect =>

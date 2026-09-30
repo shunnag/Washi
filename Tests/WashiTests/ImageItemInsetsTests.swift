@@ -6,16 +6,6 @@ import XCTest
 // 画像 1 枚だけの項目(表紙・挿絵)は余白なしの全面、文字の項目は余白の内側。
 // census・画面サムネイルも同じ判断(EPUBScreenMetrics.fillsViewport)を使う。
 
-/// ページ割りが終わるたびに数える(読み込み完了の待ちに使う)
-@MainActor
-private final class LayoutCountingDelegate: EPUBReaderViewDelegate {
-    var moves = 0
-    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
-                    pageInItem: Int, pageCountInItem: Int) {
-        moves += 1
-    }
-}
-
 @MainActor
 final class ImageItemInsetsTests: XCTestCase {
     /// 画像 1 枚だけの項目 `imageItems` 個と、文字の項目 `textItems` 個
@@ -68,9 +58,7 @@ final class ImageItemInsetsTests: XCTestCase {
         entries.append(("OEBPS/package.opf", Data(opf
             .replacingOccurrences(of: "MANIFEST", with: manifest)
             .replacingOccurrences(of: "SPINE", with: spine).utf8)))
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-image-only-items.epub"))
+        return try EPUBFixtures.publication(entries, name: "washi-image-only-items")
     }
 
     /// ライトノベル型: 挿絵 27 項目＋文字の章 13 項目。
@@ -87,10 +75,6 @@ final class ImageItemInsetsTests: XCTestCase {
         return view
     }
 
-    private func webView(of view: EPUBReaderView) throws -> NSView {
-        try XCTUnwrap(view.subviews.first { $0 is WKWebView })
-    }
-
     /// ノンブル(NSTextField)。cooViewer-oxr.35 の既存テストと同じ取り出し方。
     private func pageNumberLabels(of view: EPUBReaderView) -> [NSTextField] {
         view.subviews.compactMap { $0 as? NSTextField }
@@ -101,7 +85,7 @@ final class ImageItemInsetsTests: XCTestCase {
         let view = makeView()
         view.load(publication: try makePublication(),
                   at: EPUBLocator(spineIndex: 0, progression: 0))
-        XCTAssertEqual(try webView(of: view).frame, view.bounds)
+        XCTAssertEqual(try view.firstWebView().frame, view.bounds)
         XCTAssertEqual(view.contentFrame,
                        NSRect(origin: .zero, size: view.bounds.size))
     }
@@ -111,7 +95,7 @@ final class ImageItemInsetsTests: XCTestCase {
         // 先頭 27 項目が挿絵、その後ろが文字の章(makeBook の並び)
         view.load(publication: try makePublication(),
                   at: EPUBLocator(spineIndex: 27, progression: 0))
-        XCTAssertEqual(try webView(of: view).frame,
+        XCTAssertEqual(try view.firstWebView().frame,
                        NSRect(x: 40, y: 20, width: 1_200 - 80, height: 900 - 40))
     }
 
@@ -119,20 +103,16 @@ final class ImageItemInsetsTests: XCTestCase {
     func testScrolledImageOnlyItemKeepsTheInsets() throws {
         var entries = EPUBFixtures.imagePageEntries(
             bodyHTML: "<img src=\"../images/page.png\"/>")
-        let packageIndex = try XCTUnwrap(
-            entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        let package = String(decoding: entries[packageIndex].data, as: UTF8.self)
-            .replacingOccurrences(
-                of: #"<spine><itemref idref="c"/></spine>"#,
-                with: #"<spine><itemref idref="c" properties="rendition:flow-scrolled-doc"/></spine>"#)
-        entries[packageIndex].data = Data(package.utf8)
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-image-item-insets-scrolled.epub"))
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf",
+            of: #"<spine><itemref idref="c"/></spine>"#,
+            with: #"<spine><itemref idref="c" properties="rendition:flow-scrolled-doc"/></spine>"#)
+        let publication = try EPUBFixtures.publication(entries,
+            name: "washi-image-item-insets-scrolled")
         let view = makeView()
         view.load(publication: publication,
                   at: EPUBLocator(spineIndex: 0, progression: 0))
-        XCTAssertEqual(try webView(of: view).frame,
+        XCTAssertEqual(try view.firstWebView().frame,
                        NSRect(x: 40, y: 20, width: 1_200 - 80, height: 900 - 40))
     }
 
@@ -165,16 +145,6 @@ final class ImageItemInsetsTests: XCTestCase {
         }
     }
 
-    private func waitUntil(timeout: Duration = .seconds(8),
-                           _ condition: @MainActor () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return condition()
-    }
-
     /// 文字 → 画像 → 文字: 項目ごとに矩形が変わるが、当てるのはコミット時。
     /// 呼び出し直後は前の矩形のまま、読み込み後に新しい矩形になる。
     func testFrameMovesAtCommitAcrossTextAndImageItems() async throws {
@@ -182,24 +152,19 @@ final class ImageItemInsetsTests: XCTestCase {
         let publication = try makeBook(imageItems: 1, textItems: 2,
                                        charactersPerTextItem: 400)
         let view = makeView()
-        let delegate = LayoutCountingDelegate()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
-        let window = NSWindow(
-            contentRect: NSRect(x: -20_000, y: -20_000, width: 1_200, height: 900),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = view
-        defer { view.cancelPageCensus(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         view.load(publication: publication,
                   at: EPUBLocator(spineIndex: 1, progression: 0))
-        let web = try webView(of: view)
+        let web = try view.firstWebView()
         // ページ割りの通知と表示の復帰を待つ(透明なうちは即時に当てる扱いになるため)
         func waitUntilShown(after moves: Int) async throws {
-            guard await waitUntil({ delegate.moves > moves }) else {
-                return try failOrSkipWebKitTest(
-                    "WKWebView navigation is unavailable in this sandbox")
+            guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(10), { delegate.moveCount > moves }) else {
+                return try skipOrFailIfWebKitUnavailable()
             }
-            let shown = await waitUntil { web.alphaValue == 1 }
+            let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(10)) { web.alphaValue == 1 }
             XCTAssertTrue(shown)
         }
         let inset = NSRect(x: 40, y: 20, width: 1_200 - 80, height: 900 - 40)
@@ -207,13 +172,13 @@ final class ImageItemInsetsTests: XCTestCase {
         try await waitUntilShown(after: 0)
         XCTAssertEqual(web.frame, inset)
 
-        var moves = delegate.moves
+        var moves = delegate.moveCount
         view.go(to: EPUBLocator(spineIndex: 0, progression: 0))
         XCTAssertEqual(web.frame, inset, "Text to image: before the commit")
         try await waitUntilShown(after: moves)
         XCTAssertEqual(web.frame, full, "Text to image: after the load")
 
-        moves = delegate.moves
+        moves = delegate.moveCount
         view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
         XCTAssertEqual(web.frame, full, "Image to text: before the commit")
         try await waitUntilShown(after: moves)

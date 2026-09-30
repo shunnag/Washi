@@ -3,23 +3,14 @@ import XCTest
 @testable import Washi
 
 @MainActor
-private final class UnsupportedHTMLDelegate: EPUBReaderViewDelegate {
-    var moves = 0
-    var failures: [any Error] = []
-    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
-                    pageInItem: Int, pageCountInItem: Int) { moves += 1 }
-    func readerView(_ view: EPUBReaderView, didFailWith error: any Error) { failures.append(error) }
-}
-
-@MainActor
 final class UnsupportedHTMLSpineTests: XCTestCase {
     func testRejectedHTMLSpineKeepsPreviousXHTMLLocationsAndRejectsHTMLRanges() async throws {
         var entries = EPUBFixtures.singleSpineEntries(bodyHTML: "<p>和紙の本文</p>")
-        let package = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
-        entries[package].data = Data(String(decoding: entries[package].data, as: UTF8.self)
-            .replacingOccurrences(of: "</manifest>", with:
-                "<item id=\"html\" href=\"text/nonconforming.html\" media-type=\"text/html\"/></manifest>")
-            .replacingOccurrences(of: "</spine>", with: "<itemref idref=\"html\"/></spine>").utf8)
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf", of: "</manifest>",
+            with: "<item id=\"html\" href=\"text/nonconforming.html\" media-type=\"text/html\"/></manifest>")
+        entries = try EPUBFixtures.replacing(
+            entries, in: "OEBPS/package.opf", of: "</spine>", with: "<itemref idref=\"html\"/></spine>")
         entries.append(("OEBPS/text/nonconforming.html", Data("<html><body><p>和紙の別の本文</p></body></html>".utf8)))
         let book = try EPUBPublication(data: ZipBuilder.build(entries),
                                        displayURL: URL(fileURLWithPath: "/tmp/nonconforming-html.epub"))
@@ -28,17 +19,14 @@ final class UnsupportedHTMLSpineTests: XCTestCase {
         view.accessibilityReduceMotionOverride = false
         view.isWindowOnScreenOverride = false
         view.settings.pageTurnStyle = .none
-        let delegate = UnsupportedHTMLDelegate()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
-        let window = NSWindow(contentRect: view.frame.offsetBy(dx: -20_000, dy: -20_000),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = view
-        defer { view.unload(); window.contentView = nil; window.close() }
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
+        defer { closeReader(view, in: window, teardown: .unload) }
         view.load(publication: book)
         let deadline = ContinuousClock.now + .seconds(10)
-        while delegate.moves == 0 && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        XCTAssertGreaterThan(delegate.moves, 0)
+        while delegate.moveCount == 0 && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertGreaterThan(delegate.moveCount, 0)
         XCTAssertTrue(delegate.failures.isEmpty)
 
         view.go(to: book.locator(forSpineIndex: 1))

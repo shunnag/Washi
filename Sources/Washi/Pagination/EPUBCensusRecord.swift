@@ -39,8 +39,9 @@ public struct EPUBCensusRecord: Sendable, Codable, Equatable {
         self.releaseIdentifier = releaseIdentifier
     }
 
-    // Persisted host data can be corrupt even when book and metrics identities
-    // match. All page offsets require positive counts and a representable sum.
+    // ホストが保存したデータは、本とメトリクスの識別子が一致していても壊れて
+    // いることがある。ページオフセットの計算には、すべて正の件数と表現できる
+    // 合計が必要になる。
     var hasValidCounts: Bool {
         var total = 0
         for count in counts {

@@ -17,19 +17,21 @@ import WebKit
 /// (scheme handler が本に紐づくため)。
 @MainActor
 final class EPUBPaginationCensus {
-    private var window: NSWindow?
-    private var webView: WKWebView?
-    private var schemeHandler: EPUBSchemeHandler?
-    // navigationDelegate は弱参照なので、解決後も保持して外部遷移を遮断する。
-    private var pendingNavigationWaiter: NavigationWaiter?
-    private var configuredAllowsScriptedContent: Bool?
+    private let host = EPUBOffscreenWebViewHost()
     private let idleReleaseTimer: EPUBOffscreenIdleReleaseTimer
     private let javaScriptTimeoutScheduler: EPUBOffscreenIdleReleaseTimer.Scheduler
     private var pendingMeasurementCount = 0
+    /// Washi-z74.13: invalidate のたびに進む世代。実測は開始時の世代を控え、
+    /// await から戻るたびに照合する。NavigationWaiter の再開と MainActor での
+    /// 再開の間に invalidate が走っても、取得済みの WebView で続行したり
+    /// 次の項目でウインドウを作り直したりしない(EPUBPageRasterizer の
+    /// isInvalidated と同じ役目。census は invalidate 後も次の measure で
+    /// 作り直せるので、恒久フラグではなく世代で表す)。
+    private var invalidationGeneration: UInt = 0
 
     /// cooViewer-oxr.68: テストと所有者の診断用。アイドル解放後は false
     /// になり、次の measure が prepareIfNeeded を通ると再び true になる。
-    var hasLiveWebView: Bool { webView != nil }
+    var hasLiveWebView: Bool { host.hasLiveWebView }
 
     init(
         idleTimerScheduler: @escaping EPUBOffscreenIdleReleaseTimer.Scheduler =
@@ -42,13 +44,11 @@ final class EPUBPaginationCensus {
         self.javaScriptTimeoutScheduler = javaScriptTimeoutScheduler
     }
 
-    /// 各 spine 項目のページ数を実測する。cooViewer-oxr.22: 欠損などの
-    /// 決定的な項目失敗は 1 ページとして続行し、タイムアウト・WebContent
-    /// 終了・キャンセルのような一過性失敗では全体を nil にする。
     /// オフスクリーンリソース(不可視 NSWindow + WebContent プロセス)を
     /// 明示的に畳む。ホストが計測を使い終えたとき(ビューのウインドウ離脱・
     /// アトラスの破棄)に呼ぶ。以後 measure が呼ばれれば作り直される
     func invalidate() {
+        invalidationGeneration &+= 1
         idleReleaseTimer.cancel()
         releaseOffscreenResources()
     }
@@ -56,20 +56,12 @@ final class EPUBPaginationCensus {
     private func releaseOffscreenResources() {
         // cooViewer-oxr.53: delegate を外す前に待機を解決し、15 秒の
         // タイムアウトまで古い census を残さない。
-        pendingNavigationWaiter?.cancel()
-        pendingNavigationWaiter = nil
-        webView?.stopLoading()
-        webView?.navigationDelegate = nil
-        // NSWindow の解放は AppKit の都合で遅れうるので、WebView をウインドウから
-        // 外してから手放す(WebView と WebContent プロセスの寿命をウインドウに預けない)
-        window?.contentView = nil
-        webView = nil
-        schemeHandler = nil
-        configuredAllowsScriptedContent = nil
-        window?.orderOut(nil)
-        window = nil
+        host.release()
     }
 
+    /// 各 spine 項目のページ数を実測する。cooViewer-oxr.22: 欠損などの
+    /// 決定的な項目失敗は 1 ページとして続行し、タイムアウト・WebContent
+    /// 終了・キャンセルのような一過性失敗では全体を nil にする。
     func measure(publication: EPUBPublication, optionsJSON: String,
                  contentSize: NSSize) async -> [Int]? {
         // cooViewer-oxr.68: actor の再入可能区間へ入る前に busy とし、古い
@@ -81,12 +73,18 @@ final class EPUBPaginationCensus {
             pendingMeasurementCount -= 1
             scheduleIdleReleaseIfNeeded()
         }
+        // Washi-z74.13: 呼び出し元のキャンセルと同じく、この実測の開始後の
+        // invalidate も一過性の中断として nil で抜ける(部分結果は返さない)。
+        let generation = invalidationGeneration
+        func isAborted() -> Bool {
+            Task.isCancelled || generation != invalidationGeneration
+        }
         let allowsScriptedContent = EPUBScreenMetrics.allowsScriptedContent(
             in: optionsJSON)
         var counts: [Int] = []
         counts.reserveCapacity(publication.readingOrder.count)
         for (index, entry) in publication.readingOrder.enumerated() {
-            if Task.isCancelled { return nil }
+            if isAborted() { return nil }
             if publication.package.effectiveLayout(for: entry.itemRef) == .prePaginated,
                !EPUBScreenMetrics.isScrolled(publication.renderingFlow(at: index)) {
                 counts.append(1)  // FXL は本番(setup の fxl 分岐)と同じ 1 ページ
@@ -99,7 +97,7 @@ final class EPUBPaginationCensus {
             let fillsViewport = await Task.detached(priority: Task.currentPriority) {
                 EPUBScreenMetrics.fillsViewport(publication, spineIndex: index)
             }.value
-            if Task.isCancelled { return nil }
+            if isAborted() { return nil }
             // cooViewer-oxr.51: 同じ基底メトリクスから itemref ごとの
             // rendition:spread と実効余白を導出し、この項目だけへ渡す。
             let plan = EPUBScreenMetrics.setupPlan(
@@ -117,22 +115,29 @@ final class EPUBPaginationCensus {
             }
             prepareIfNeeded(publication: publication, contentSize: itemSize,
                             allowsScriptedContent: allowsScriptedContent)
-            guard let webView, let schemeHandler,
+            guard let webView = host.webView, let schemeHandler = host.schemeHandler,
                   let url = publication.renderingFlow(at: index) == .scrolledContinuous
                     ? schemeHandler.scrollDocumentURL : schemeHandler.url(forReadingOrderItem: entry)
             else {
                 counts.append(1)
                 continue
             }
-            let waiter = NavigationWaiter()
-            pendingNavigationWaiter = waiter
-            webView.navigationDelegate = waiter
-            waiter.expect(webView.load(URLRequest(url: url)))
+            let setupJSON = EPUBScrollDocument.options(
+                plan.optionsJSON, publication: publication, index: index,
+                handler: schemeHandler, onlyItem: true)
+            // 本番の runSetup と同タイミング(didFinish 直後)で測ることで、
+            // フォント・画像の遅延読み込みによる誤差の出方まで揃える
+            let result: Result<EPUBOffscreenWebViewHost.SetupResult, any Error>?
             do {
-                try await waiter.wait(timeout: .seconds(15))
+                result = try await host.loadAndSetup(
+                    url: url, optionsJSON: setupJSON, timeout: .seconds(15),
+                    timeoutScheduler: javaScriptTimeoutScheduler)
             } catch {
-                if error is CancellationError || Task.isCancelled
-                    || Self.mustAbortMeasurement(for: error) {
+                // キャンセル時の stopLoading は host.load が済ませている。
+                if error is CancellationError || isAborted() {
+                    return nil
+                }
+                if Self.mustAbortMeasurement(for: error) {
                     webView.stopLoading()
                     return nil
                 }
@@ -141,32 +146,14 @@ final class EPUBPaginationCensus {
                 counts.append(1)
                 continue
             }
-            if Task.isCancelled { return nil }
-            let setupJSON = EPUBScrollDocument.options(
-                plan.optionsJSON, publication: publication, index: index,
-                handler: schemeHandler, onlyItem: true)
-            // 本番の runSetup と同タイミング(didFinish 直後)で測ることで、
-            // フォント・画像の遅延読み込みによる誤差の出方まで揃える
-            let result = await waitForOffscreenResult(
-                timeoutScheduler: javaScriptTimeoutScheduler
-            ) { completion in
-                webView.callAsyncJavaScript(
-                    "return __washi.setup(\(setupJSON));",
-                    arguments: [:], in: nil, in: WashiContentWorld.world,
-                    completionHandler: { result in
-                        completion(result.map {
-                            ($0 as? [String: Any])?["pageCount"] as? Int
-                        })
-                    })
-            }
-            if Task.isCancelled { return nil }
+            if isAborted() { return nil }
             guard let result else {
                 // 一時的な無応答を 1 ページとして確定・保存しない。
                 // 応答しない WebKit も手放し、次回は新しいビューで再計測する。
                 releaseOffscreenResources()
                 return nil
             }
-            guard let count = try? result.get() else { return nil }
+            guard let count = (try? result.get())?.pageCount else { return nil }
             counts.append(max(1, count))
         }
         return counts
@@ -194,12 +181,12 @@ final class EPUBPaginationCensus {
                 return true
             }
         }
-        let nsError = error as NSError
         // cooViewer-oxr.22/53: policy change による load 中断(旧
         // WebKitErrorDomain の 102)と WebContent 終了は決定的な項目破損ではない。
-        if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
+        if NavigationWaiter.isCancellation(error) {
             return true
         }
+        let nsError = error as NSError
         if nsError.domain == WKError.errorDomain,
            nsError.code == WKError.Code.webContentProcessTerminated.rawValue {
             return true
@@ -210,49 +197,19 @@ final class EPUBPaginationCensus {
     private func prepareIfNeeded(publication: EPUBPublication,
                                  contentSize: NSSize,
                                  allowsScriptedContent: Bool) {
-        if let configuredAllowsScriptedContent,
-           configuredAllowsScriptedContent != allowsScriptedContent {
-            // cooViewer-oxr.75: WebKit の著者スクリプト設定は構成後に変えられない。
-            pendingNavigationWaiter?.cancel()
-            pendingNavigationWaiter = nil
-            webView?.stopLoading()
-            webView?.navigationDelegate = nil
-            webView = nil
-            schemeHandler = nil
-            self.configuredAllowsScriptedContent = nil
-        }
-        if window == nil {
-            // 画面外・非表示・クリック不可(orderFront はしない。ウインドウに
-            // 載っていること自体が WebKit の描画ブロック解除条件)
-            let window = NSWindow(
-                contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000),
-                                    size: contentSize),
-                styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.ignoresMouseEvents = true
-            self.window = window
-        }
-        if webView == nil {
-            let handler = EPUBSchemeHandler(publication: publication,
-                                            allowsScripts: allowsScriptedContent)
-            schemeHandler = handler
-            let configuration = EPUBOffscreenWebViewConfiguration.make(
-                allowsScriptedContent: allowsScriptedContent)
-            configuration.setURLSchemeHandler(handler,
-                                              forURLScheme: EPUBSchemeHandler.scheme)
-            // メッセージハンドラは登録しない: setup() は post しない。
-            // wheel/click 等の post 経路は不可視ウインドウでは発火しない
-            let controller = configuration.userContentController
-            EPUBScrollDocument.install(in: controller, handler: handler)
-            let webView = WKWebView(frame: NSRect(origin: .zero, size: contentSize),
-                                    configuration: configuration)
-            window?.contentView = webView
-            self.webView = webView
-            configuredAllowsScriptedContent = allowsScriptedContent
-        }
+        // cooViewer-oxr.75: 著者スクリプト許可が変われば host が WKWebView と
+        // scheme handler を作り直す(scheme handler は本に紐づくので毎回作る)。
+        host.prepare(
+            size: contentSize, allowsScriptedContent: allowsScriptedContent,
+            makeSchemeHandler: {
+                EPUBSchemeHandler(publication: publication,
+                                  allowsScripts: allowsScriptedContent)
+            },
+            installUserScripts: { controller, handler in
+                EPUBScrollDocument.install(in: controller, handler: handler)
+            })
         // 本番のリフロー時 contentFrame と同寸に保つ(innerWidth/Height 一致が
         // ページ割り一致の前提)
-        window?.setContentSize(contentSize)
-        webView?.frame = NSRect(origin: .zero, size: contentSize)
+        host.setContentSize(contentSize)
     }
 }

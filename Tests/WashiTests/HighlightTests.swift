@@ -41,16 +41,9 @@ final class HighlightRenderingTests: XCTestCase {
     func testHighlightsAreRegisteredForTheVisibleItem() async throws {
         let body = (0..<60).map { "<p>本文の段落 \($0) です。検証用の文章。</p>" }
             .joined()
-        let publication = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.singleSpineEntries(bodyHTML: body), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-highlight.epub"))
-        let window = NSWindow(
-            contentRect: NSRect(x: -20_000, y: -20_000, width: 480, height: 360),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let publication = try EPUBFixtures.singleSpine(bodyHTML: body, name: "washi-highlight")
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 480, height: 360))
-        window.contentView = view
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         window.makeKeyAndOrderFront(nil)
         defer { window.contentView = nil; window.orderOut(nil) }
 

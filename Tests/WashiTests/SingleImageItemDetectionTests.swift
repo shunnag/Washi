@@ -45,9 +45,7 @@ final class SingleImageItemDetectionTests: XCTestCase {
             </package>
             """
         entries.append(("OEBPS/package.opf", Data(opf.utf8)))
-        return try EPUBPublication(
-            data: ZipBuilder.build(entries, method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-single-image-detection.epub"))
+        return try EPUBFixtures.publication(entries, name: "washi-single-image-detection")
     }
 
     func testImageElementNamesAreFoundInASCIICompatibleBytes() {

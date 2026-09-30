@@ -10,10 +10,8 @@ import XCTest
 @MainActor
 final class MediaOverlayPlaybackTests: XCTestCase {
     private func publication(parCount: Int) throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.silentMediaOverlayEntries(parCount: parCount), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-silent-mo.epub"))
+        try EPUBFixtures.publication(EPUBFixtures.silentMediaOverlayEntries(parCount: parCount),
+            name: "washi-silent-mo")
     }
 
     /// 実行ループを追跡モード(.eventTracking)だけで回しても par が進むこと。
@@ -47,10 +45,8 @@ final class MediaOverlayPlaybackTests: XCTestCase {
     /// cooViewer-oxr.46 C07: 1 つの SMIL が複数の XHTML を束ねる本で、
     /// 別文書を指す par に来たらその文書へ移ってからハイライトする。
     func testParPointingAtAnotherDocumentMovesThere() throws {
-        let book = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-multi-mo.epub"))
+        let book = try EPUBFixtures.publication(EPUBFixtures.multiDocumentMediaOverlayEntries(),
+            name: "washi-multi-mo")
         XCTAssertEqual(book.readingOrder.count, 2)
         let overlay = try XCTUnwrap(book.mediaOverlay(forSpineIndex: 0))
         XCTAssertEqual(overlay.parallels.count, 4, "SMIL が 2 文書分の par を持つ")
@@ -78,10 +74,8 @@ final class MediaOverlayPlaybackTests: XCTestCase {
 
     /// 同じ SMIL を指す隣の項目へは連続再生で戻らない(頭から鳴らし直さない)。
     func testNextItemSkipsSpineItemsSharingTheSameOverlay() throws {
-        let book = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-multi-mo2.epub"))
+        let book = try EPUBFixtures.publication(EPUBFixtures.multiDocumentMediaOverlayEntries(),
+            name: "washi-multi-mo2")
         XCTAssertEqual(book.mediaOverlayPath(forSpineIndex: 0),
                        book.mediaOverlayPath(forSpineIndex: 1),
                        "2 項目が同じ SMIL を指す前提")
@@ -143,10 +137,8 @@ final class MediaOverlayUXTests: XCTestCase {
     }
 
     func testSkippedParsAreNotPlayed() throws {
-        let book = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-skip.epub"))
+        let book = try EPUBFixtures.publication(EPUBFixtures.multiDocumentMediaOverlayEntries(),
+            name: "washi-skip")
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
         view.load(publication: book)
         let controller = MediaOverlayController(
@@ -162,10 +154,8 @@ final class MediaOverlayUXTests: XCTestCase {
 
     /// 保存した位置から再開できる
     func testPlaybackResumesAtSavedPosition() throws {
-        let book = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-resume.epub"))
+        let book = try EPUBFixtures.publication(EPUBFixtures.multiDocumentMediaOverlayEntries(),
+            name: "washi-resume")
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
         view.load(publication: book)
         XCTAssertTrue(view.playMediaOverlay(atSpineIndex: 0, parIndex: 2))
@@ -180,16 +170,10 @@ final class MediaOverlayUXTests: XCTestCase {
 
     /// cooViewer-oxr.46 C26: 章頭ではなく、いま見えている区間から鳴らす。
     func testPlaybackStartsFromTheClipVisibleOnScreen() async throws {
-        let book = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-from-page.epub"))
-        let window = NSWindow(
-            contentRect: NSRect(x: -20_000, y: -20_000, width: 480, height: 360),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let book = try EPUBFixtures.publication(EPUBFixtures.multiDocumentMediaOverlayEntries(),
+            name: "washi-from-page")
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 480, height: 360))
-        window.contentView = view
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         window.makeKeyAndOrderFront(nil)
         defer { window.contentView = nil; window.orderOut(nil) }
 
@@ -210,16 +194,10 @@ final class MediaOverlayUXTests: XCTestCase {
     }
 
     func testCurrentPagePlaybackUsesCurrentDocumentInSharedOverlay() async throws {
-        let book = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-shared-current-page.epub"))
-        let window = NSWindow(
-            contentRect: NSRect(x: -20_000, y: -20_000, width: 480, height: 360),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let book = try EPUBFixtures.publication(EPUBFixtures.multiDocumentMediaOverlayEntries(),
+            name: "washi-shared-current-page")
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 480, height: 360))
-        window.contentView = view
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         window.makeKeyAndOrderFront(nil)
         defer {
             view.stopMediaOverlay()
@@ -228,7 +206,7 @@ final class MediaOverlayUXTests: XCTestCase {
         }
 
         view.load(publication: book)
-        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let web = try view.firstWebView()
         for _ in 0..<300 where web.alphaValue == 0 {
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -246,16 +224,10 @@ final class MediaOverlayUXTests: XCTestCase {
     }
 
     func testStopCancelsPendingCurrentPagePlaybackRequest() async throws {
-        let book = try EPUBPublication(
-            data: ZipBuilder.build(
-                EPUBFixtures.multiDocumentMediaOverlayEntries(), method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/washi-delayed-current-page.epub"))
-        let window = NSWindow(
-            contentRect: NSRect(x: -20_000, y: -20_000, width: 480, height: 360),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let book = try EPUBFixtures.publication(EPUBFixtures.multiDocumentMediaOverlayEntries(),
+            name: "washi-delayed-current-page")
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 480, height: 360))
-        window.contentView = view
+        let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         window.makeKeyAndOrderFront(nil)
         defer {
             view.stopMediaOverlay()
@@ -264,7 +236,7 @@ final class MediaOverlayUXTests: XCTestCase {
         }
 
         view.load(publication: book)
-        let web = try XCTUnwrap(view.subviews.first { $0 is WKWebView } as? WKWebView)
+        let web = try view.firstWebView()
         for _ in 0..<300 where web.alphaValue == 0 {
             try await Task.sleep(for: .milliseconds(20))
         }

@@ -46,7 +46,7 @@ final class DarkGlyphRenderingTests: XCTestCase {
               </svg>
             </div>
             """
-        let harness = try ReaderScriptTestHarness(
+        let harness = try ReaderScriptHarness(
             entries: EPUBFixtures.singleSpineEntries(bodyHTML: body))
         defer { harness.close() }
         try await harness.load()
@@ -129,7 +129,7 @@ final class DarkGlyphRenderingTests: XCTestCase {
         let glyphURL = try Self.dataURL(
             width: 32, height: 32, color: .black,
             fill: CGRect(x: 8, y: 4, width: 16, height: 24))
-        let harness = try ReaderScriptTestHarness(entries:
+        let harness = try ReaderScriptHarness(entries:
             EPUBFixtures.singleSpineEntries(bodyHTML:
                 "<p style=\"font-size:20px;margin:0\">前<img id=\"glyph\" src=\"\(glyphURL)\"/>後</p>"))
         defer { harness.close() }
@@ -160,7 +160,7 @@ final class DarkGlyphRenderingTests: XCTestCase {
         let glyphURL = try Self.dataURL(
             width: 32, height: 32, color: .black,
             fill: CGRect(x: 8, y: 4, width: 16, height: 24))
-        let harness = try ReaderScriptTestHarness(entries:
+        let harness = try ReaderScriptHarness(entries:
             EPUBFixtures.singleSpineEntries(bodyHTML:
                 "<p style=\"font-size:20px\">前<img id=\"glyph\" src=\"\(glyphURL)\"/>後</p>"))
         defer { harness.close() }
@@ -228,7 +228,7 @@ final class DarkGlyphRenderingTests: XCTestCase {
             "fill: currentColor"))
     }
 
-    private func setup(_ harness: ReaderScriptTestHarness, css: String) async throws {
+    private func setup(_ harness: ReaderScriptHarness, css: String) async throws {
         let _: Int = try await call(harness, """
             const result = __washi.setup({width:640,height:400,gap:24,
                 spread:false,gutter:48,fixedLayout:false,keysEnabled:false,
@@ -238,7 +238,7 @@ final class DarkGlyphRenderingTests: XCTestCase {
     }
 
     private func call<T: Sendable>(
-        _ harness: ReaderScriptTestHarness,
+        _ harness: ReaderScriptHarness,
         _ body: String,
         arguments: [String: Any] = [:]
     ) async throws -> T {
@@ -248,7 +248,7 @@ final class DarkGlyphRenderingTests: XCTestCase {
         return try XCTUnwrap(result as? T)
     }
 
-    private func snapshot(of harness: ReaderScriptTestHarness) async throws
+    private func snapshot(of harness: ReaderScriptHarness) async throws
         -> NSBitmapImageRep {
         // cooViewer-oxr.78: 画面外 window では requestAnimationFrame が
         // 発火しないため待たず、直前の image.decode と snapshot の
@@ -261,7 +261,7 @@ final class DarkGlyphRenderingTests: XCTestCase {
         return try XCTUnwrap(NSBitmapImageRep(data: data))
     }
 
-    private func rect(id: String, in harness: ReaderScriptTestHarness) async throws
+    private func rect(id: String, in harness: ReaderScriptHarness) async throws
         -> CGRect {
         let values: [String: Double] = try await call(harness, """
             const rect = document.getElementById(elementID).getBoundingClientRect();

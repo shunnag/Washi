@@ -159,13 +159,12 @@ final class PublicationTestsNavigationCache: XCTestCase {
         packageVersion: String = "3.0", contentCount: Int = 1,
         navPath: String = "nav.xhtml"
     ) throws -> EPUBPublication {
-        try EPUBPublication(
-            data: ZipBuilder.build(makeEntries(
+        try EPUBFixtures.publication(
+            makeEntries(
                 nav: nav, ncx: ncx, declaresSpineTOC: declaresSpineTOC,
                 packageVersion: packageVersion, contentCount: contentCount,
                 navPath: navPath),
-                method: 8),
-            displayURL: URL(fileURLWithPath: "/tmp/navigation-cache.epub"))
+            name: "navigation-cache")
     }
 
     private func makeEntries(
