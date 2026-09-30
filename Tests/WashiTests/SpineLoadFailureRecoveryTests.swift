@@ -4,34 +4,6 @@ import XCTest
 @testable import Washi
 
 @MainActor
-private final class SpineFailureDelegate: EPUBReaderViewDelegate {
-    var moves: [EPUBLocator] = []
-    var failures: [any Error] = []
-    var failureLocators: [EPUBLocator] = []
-    var printPages: [String?] = []
-    var edges: [Bool] = []
-    var events: [String] = []
-    var onFailure: ((EPUBReaderView) -> Void)?
-
-    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
-                    pageInItem: Int, pageCountInItem: Int) { moves.append(locator) }
-    func readerView(_ view: EPUBReaderView, didFailWith error: any Error) {
-        failures.append(error)
-        failureLocators.append(view.currentLocator)
-        events.append("failure")
-        onFailure?(view)
-    }
-    func readerView(_ view: EPUBReaderView, didChangePrintPage label: String?) {
-        printPages.append(label)
-    }
-    func readerView(_ view: EPUBReaderView, didReachBookEdge forward: Bool) { edges.append(forward) }
-    func readerView(_ view: EPUBReaderView, isPlayingMediaOverlayDidChange playing: Bool) {
-        events.append("playing:\(playing)")
-    }
-    func readerViewMediaOverlayDidFinish(_ view: EPUBReaderView) { events.append("finished") }
-}
-
-@MainActor
 final class SpineLoadFailureRecoveryTests: XCTestCase {
     private let failure = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotDecodeContentData)
 
@@ -74,7 +46,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
                             displayURL: URL(fileURLWithPath: "/tmp/washi-spine-failure.epub"))
     }
 
-    private func reader() -> (EPUBReaderView, NSWindow, SpineFailureDelegate) {
+    private func reader() -> (EPUBReaderView, NSWindow, ReaderObservationSpy) {
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 520, height: 400))
         view.settings.columnMode = .single
         view.settings.pageTurnStyle = .none
@@ -85,7 +57,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         // 自動撮影を止め、必要な控えは同期的に差し込む。
         view.isWindowOnScreenOverride = false
         view.animationFrameWait = { _ in }
-        let delegate = SpineFailureDelegate()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         return (view, window, delegate)
@@ -96,7 +68,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
     }
 
     private func open(_ view: EPUBReaderView, _ book: EPUBPublication,
-                      _ delegate: SpineFailureDelegate, at index: Int = 0) async throws {
+                      _ delegate: ReaderObservationSpy, at index: Int = 0) async throws {
         view.load(publication: book, at: book.locator(forSpineIndex: index))
         guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(5), { !delegate.moves.isEmpty }) else {
             return try skipOrFailIfWebKitUnavailable()
@@ -106,7 +78,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         XCTAssertTrue(delegate.failures.isEmpty)
     }
 
-    private func assertRestored(_ view: EPUBReaderView, _ delegate: SpineFailureDelegate,
+    private func assertRestored(_ view: EPUBReaderView, _ delegate: ReaderObservationSpy,
                                 after moves: Int, to index: Int) async throws {
         let web = try view.firstWebView()
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {

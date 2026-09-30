@@ -4,21 +4,6 @@ import XCTest
 @testable import Washi
 
 @MainActor
-private final class PageCoverCaptureMoveDelegate: EPUBReaderViewDelegate {
-    var moves = 0
-    var failure: (any Error)?
-
-    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
-                    pageInItem: Int, pageCountInItem: Int) {
-        moves += 1
-    }
-
-    func readerView(_ view: EPUBReaderView, didFailWith error: any Error) {
-        failure = error
-    }
-}
-
-@MainActor
 final class PageCoverCaptureCostTests: XCTestCase {
     func testMeasurePageCoverCaptureCost() async throws {
         guard ProcessInfo.processInfo.environment["WASHI_MEASURE_PAGE_COVER"] == "1" else {
@@ -102,15 +87,15 @@ final class PageCoverCaptureCostTests: XCTestCase {
             view.unload()
         }
 
-        let delegate = PageCoverCaptureMoveDelegate()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         view.load(publication: publication)
         view.layoutSubtreeIfNeeded()
         let web = try view.firstWebView()
         let shown = await waitUntil(timeout: .seconds(10), poll: .milliseconds(10)) {
-            delegate.failure != nil || (delegate.moves > 0 && web.alphaValue == 1)
+            delegate.failures.last != nil || (delegate.moveCount > 0 && web.alphaValue == 1)
         }
-        if let failure = delegate.failure { throw failure }
+        if let failure = delegate.failures.last { throw failure }
         guard shown else {
             XCTFail("\(name): 10 秒以内にページが画面上へ表示されませんでした")
             return

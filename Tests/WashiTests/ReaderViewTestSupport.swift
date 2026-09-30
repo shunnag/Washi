@@ -75,3 +75,67 @@ func skipOrFailIfWebKitUnavailable(
     try failOrSkipWebKitTest(
         "WKWebView navigation is unavailable in this sandbox", file: file, line: line)
 }
+
+/// 観測だけの delegate 呼び出しを記録する。方針を返すメソッド
+/// (shouldConsumeKey・didClick など)は実装しない: 実装するとリーダーの挙動が変わる
+@MainActor
+final class ReaderObservationSpy: EPUBReaderViewDelegate {
+    /// didMoveTo で受け取った locator(到着順)
+    private(set) var moves: [EPUBLocator] = []
+    var moveCount: Int { moves.count }
+    private(set) var failures: [any Error] = []
+    /// 失敗を受けた時点の currentLocator
+    private(set) var failureLocators: [EPUBLocator] = []
+    private(set) var edges: [Bool] = []
+    private(set) var printPages: [String?] = []
+    private(set) var playingChanges: [Bool] = []
+    private(set) var finishCount = 0
+    /// 履歴が変わるたびの canGoBack
+    private(set) var canGoBackChanges: [Bool] = []
+    private(set) var censusUpdateCount = 0
+    /// 失敗・再生状態・終了の前後関係("failure" / "playing:<Bool>" / "finished")
+    private(set) var events: [String] = []
+    var onMove: ((EPUBReaderView) -> Void)?
+    var onFailure: ((EPUBReaderView) -> Void)?
+    var onHistoryChanged: ((EPUBReaderView) -> Void)?
+
+    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
+                    pageInItem: Int, pageCountInItem: Int) {
+        moves.append(locator)
+        onMove?(view)
+    }
+
+    func readerView(_ view: EPUBReaderView, didFailWith error: any Error) {
+        failures.append(error)
+        failureLocators.append(view.currentLocator)
+        events.append("failure")
+        onFailure?(view)
+    }
+
+    func readerView(_ view: EPUBReaderView, didReachBookEdge forward: Bool) {
+        edges.append(forward)
+    }
+
+    func readerView(_ view: EPUBReaderView, didChangePrintPage label: String?) {
+        printPages.append(label)
+    }
+
+    func readerView(_ view: EPUBReaderView, isPlayingMediaOverlayDidChange playing: Bool) {
+        playingChanges.append(playing)
+        events.append("playing:\(playing)")
+    }
+
+    func readerViewMediaOverlayDidFinish(_ view: EPUBReaderView) {
+        finishCount += 1
+        events.append("finished")
+    }
+
+    func readerViewNavigationHistoryDidChange(_ view: EPUBReaderView) {
+        canGoBackChanges.append(view.canGoBack)
+        onHistoryChanged?(view)
+    }
+
+    func readerViewDidUpdatePageCensus(_ view: EPUBReaderView) {
+        censusUpdateCount += 1
+    }
+}

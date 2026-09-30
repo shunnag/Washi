@@ -3,15 +3,6 @@ import XCTest
 @testable import Washi
 
 @MainActor
-private final class NavigationHistoryDelegateSpy: EPUBReaderViewDelegate {
-    var availabilityChanges: [Bool] = []
-
-    func readerViewNavigationHistoryDidChange(_ view: EPUBReaderView) {
-        availabilityChanges.append(view.canGoBack)
-    }
-}
-
-@MainActor
 final class NavigationHistoryTests: XCTestCase {
     private func makeReflowablePublication(
         name: String = "navigation-history"
@@ -33,7 +24,7 @@ final class NavigationHistoryTests: XCTestCase {
         let origin = publication.locator(forSpineIndex: 0, progression: 0.375)
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 900, height: 700))
-        let delegate = NavigationHistoryDelegateSpy()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         view.load(publication: publication, at: origin)
 
@@ -46,7 +37,7 @@ final class NavigationHistoryTests: XCTestCase {
         XCTAssertEqual(view.currentLocator.progression,
                        origin.progression, accuracy: 0.0001)
         XCTAssertFalse(view.canGoBack)
-        XCTAssertEqual(delegate.availabilityChanges, [true, false])
+        XCTAssertEqual(delegate.canGoBackChanges, [true, false])
     }
 
     /// cooViewer-oxr.31: 通常のページ送りによる spine 遷移は履歴へ積まない。
@@ -133,7 +124,7 @@ final class NavigationHistoryTests: XCTestCase {
         let publication = try makeReflowablePublication()
         let view = EPUBReaderView(
             frame: NSRect(x: 0, y: 0, width: 900, height: 700))
-        let delegate = NavigationHistoryDelegateSpy()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         view.load(publication: publication)
 
@@ -150,7 +141,7 @@ final class NavigationHistoryTests: XCTestCase {
         XCTAssertEqual(view.currentLocator.progression, 0.01, accuracy: 0.0001)
         view.goBack()
         XCTAssertEqual(view.currentLocator.progression, 0.01, accuracy: 0.0001)
-        XCTAssertEqual(delegate.availabilityChanges, [true, false])
+        XCTAssertEqual(delegate.canGoBackChanges, [true, false])
     }
 
     /// cooViewer-oxr.31: 内部再読込では履歴を保ち、公開 load では消去する。

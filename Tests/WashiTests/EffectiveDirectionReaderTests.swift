@@ -3,16 +3,6 @@ import XCTest
 @testable import Washi
 
 @MainActor
-private final class EffectiveDirectionReaderDelegateSpy: EPUBReaderViewDelegate {
-    private(set) var moveCount = 0
-
-    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
-                    pageInItem: Int, pageCountInItem: Int) {
-        moveCount += 1
-    }
-}
-
-@MainActor
 final class EffectiveDirectionReaderTests: XCTestCase {
     /// cooViewer-oxr.36: PPD のない縦書き本も右綴じとして左方向に進む。
     func testPPDlessVerticalBookTurnsLeftForward() async throws {
@@ -24,7 +14,7 @@ final class EffectiveDirectionReaderTests: XCTestCase {
         settings.pageTurnStyle = .none
         settings.insets = .zero
         view.settings = settings
-        let delegate = EffectiveDirectionReaderDelegateSpy()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         let window = makeOffscreenWindow(containing: view)
         defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }

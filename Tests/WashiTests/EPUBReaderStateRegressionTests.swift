@@ -3,17 +3,6 @@ import WebKit
 import XCTest
 @testable import Washi
 
-/// ページ割りが終わるたびに数える。読み込みの完了待ちに使う
-/// (alpha は読み込みの開始では落ちないので、読み込み中かどうかの印にならない)
-@MainActor
-private final class MoveCountingStateDelegate: EPUBReaderViewDelegate {
-    var moves = 0
-    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
-                    pageInItem: Int, pageCountInItem: Int) {
-        moves += 1
-    }
-}
-
 @MainActor
 private final class OverlayAuditDelegate: EPUBReaderViewDelegate {
     var onPlayingChanged: ((EPUBReaderView, Bool) -> Void)?
@@ -209,9 +198,9 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
     }
 
     /// 次のページ割りの通知と表示の復帰を待つ。WebKit が使えなければ skip する
-    private func waitUntilShown(_ web: WKWebView, _ delegate: MoveCountingStateDelegate,
+    private func waitUntilShown(_ web: WKWebView, _ delegate: ReaderObservationSpy,
                                 after moves: Int) async throws {
-        guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(10), { delegate.moves > moves }) else {
+        guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(10), { delegate.moveCount > moves }) else {
             return try skipOrFailIfWebKitUnavailable()
         }
         let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(10)) { web.alphaValue == 1 }
@@ -259,7 +248,7 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
                                   with: "width=1600, height=1200").utf8)
         let book = try publication(entries)
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        let delegate = MoveCountingStateDelegate()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
@@ -271,7 +260,7 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         let b = fitted(1_600, 1_200)
         assertLayout(web, a.0, a.1, "Page A")
 
-        let moves = delegate.moves
+        let moves = delegate.moveCount
         view.go(to: book.locator(forSpineIndex: 1, progression: 0))
         assertLayout(web, a.0, a.1, "Before the commit the previous rect stays")
         try await waitUntilShown(web, delegate, after: moves)
@@ -288,7 +277,7 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         let book = try publication(entries)
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         view.accessibilityReduceMotionOverride = false
-        let delegate = MoveCountingStateDelegate()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
@@ -299,7 +288,7 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         try await waitUntilShown(web, delegate, after: 0)
         assertLayout(web, a.0, a.1, "最初のページの矩形と倍率")
 
-        let moves = delegate.moves
+        let moves = delegate.moveCount
         // await を挟まず、先行のコミットが次の読み込みの開始後に届く順序を再現する
         view.go(to: book.locator(forSpineIndex: 1, progression: 0))
         let superseded = try XCTUnwrap(view.currentNavigation)
@@ -333,7 +322,7 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         var settings = view.settings
         settings.insets = EPUBReaderInsets(top: 30, left: 40, bottom: 30, right: 40)
         view.settings = settings
-        let delegate = MoveCountingStateDelegate()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
@@ -344,7 +333,7 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         let fxlZoom = web.pageZoom
         XCTAssertLessThan(fxlZoom, 1)
 
-        var moves = delegate.moves
+        var moves = delegate.moveCount
         view.go(to: book.locator(forSpineIndex: 1, progression: 0))
         assertLayout(web, fxlFrame, fxlZoom, "FXL to reflow: before the commit")
         try await waitUntilShown(web, delegate, after: moves)
@@ -352,7 +341,7 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         XCTAssertNotEqual(reflowFrame, fxlFrame)
         assertLayout(web, reflowFrame, 1, "FXL to reflow: after the load")
 
-        moves = delegate.moves
+        moves = delegate.moveCount
         view.go(to: book.locator(forSpineIndex: 0, progression: 0))
         assertLayout(web, reflowFrame, 1, "Reflow to FXL: before the commit")
         try await waitUntilShown(web, delegate, after: moves)
@@ -367,7 +356,7 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
                 "idref=\"p2\" properties=\"rendition:layout-reflowable ").utf8)
         let book = try publication(entries)
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        let delegate = MoveCountingStateDelegate()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
@@ -376,11 +365,11 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         let web = try view.firstWebView()
         try await waitUntilShown(web, delegate, after: 0)
         XCTAssertLessThan(web.pageZoom, 1)
-        var moves = delegate.moves
+        var moves = delegate.moveCount
         view.go(to: book.locator(forSpineIndex: 1, progression: 0))
         try await waitUntilShown(web, delegate, after: moves)
         XCTAssertEqual(web.pageZoom, 1, "The reflowable item is shown at unit zoom")
-        moves = delegate.moves
+        moves = delegate.moveCount
         view.go(to: book.locator(forSpineIndex: 0, progression: 0))
         try await waitUntilShown(web, delegate, after: moves)
         XCTAssertLessThan(web.pageZoom, 1, "Returning to FXL still aspect-fits the page")

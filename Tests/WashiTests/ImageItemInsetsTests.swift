@@ -6,16 +6,6 @@ import XCTest
 // 画像 1 枚だけの項目(表紙・挿絵)は余白なしの全面、文字の項目は余白の内側。
 // census・画面サムネイルも同じ判断(EPUBScreenMetrics.fillsViewport)を使う。
 
-/// ページ割りが終わるたびに数える(読み込み完了の待ちに使う)
-@MainActor
-private final class LayoutCountingDelegate: EPUBReaderViewDelegate {
-    var moves = 0
-    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
-                    pageInItem: Int, pageCountInItem: Int) {
-        moves += 1
-    }
-}
-
 @MainActor
 final class ImageItemInsetsTests: XCTestCase {
     /// 画像 1 枚だけの項目 `imageItems` 個と、文字の項目 `textItems` 個
@@ -168,7 +158,7 @@ final class ImageItemInsetsTests: XCTestCase {
         let publication = try makeBook(imageItems: 1, textItems: 2,
                                        charactersPerTextItem: 400)
         let view = makeView()
-        let delegate = LayoutCountingDelegate()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
@@ -177,7 +167,7 @@ final class ImageItemInsetsTests: XCTestCase {
         let web = try view.firstWebView()
         // ページ割りの通知と表示の復帰を待つ(透明なうちは即時に当てる扱いになるため)
         func waitUntilShown(after moves: Int) async throws {
-            guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(10), { delegate.moves > moves }) else {
+            guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(10), { delegate.moveCount > moves }) else {
                 return try skipOrFailIfWebKitUnavailable()
             }
             let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(10)) { web.alphaValue == 1 }
@@ -188,13 +178,13 @@ final class ImageItemInsetsTests: XCTestCase {
         try await waitUntilShown(after: 0)
         XCTAssertEqual(web.frame, inset)
 
-        var moves = delegate.moves
+        var moves = delegate.moveCount
         view.go(to: EPUBLocator(spineIndex: 0, progression: 0))
         XCTAssertEqual(web.frame, inset, "Text to image: before the commit")
         try await waitUntilShown(after: moves)
         XCTAssertEqual(web.frame, full, "Text to image: after the load")
 
-        moves = delegate.moves
+        moves = delegate.moveCount
         view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
         XCTAssertEqual(web.frame, full, "Image to text: before the commit")
         try await waitUntilShown(after: moves)

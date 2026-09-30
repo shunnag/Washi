@@ -3,16 +3,6 @@ import WebKit
 import XCTest
 @testable import Washi
 
-@MainActor
-private final class TrailingSpreadDelegateSpy: EPUBReaderViewDelegate {
-    var moveCount = 0
-
-    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
-                    pageInItem: Int, pageCountInItem: Int) {
-        moveCount += 1
-    }
-}
-
 /// cooViewer-oxr.58: 奇数末尾を空列で補い、単独ページとして表示する。
 @MainActor
 final class TrailingSpreadPageTests: XCTestCase {
@@ -320,7 +310,7 @@ final class TrailingSpreadPageTests: XCTestCase {
         settings.columnMode = .double
         settings.pageTurnStyle = .none
         view.settings = settings
-        let delegate = TrailingSpreadDelegateSpy()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         let window = makeOffscreenWindow(containing: view)
         defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }

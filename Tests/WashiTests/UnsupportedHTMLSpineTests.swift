@@ -3,15 +3,6 @@ import XCTest
 @testable import Washi
 
 @MainActor
-private final class UnsupportedHTMLDelegate: EPUBReaderViewDelegate {
-    var moves = 0
-    var failures: [any Error] = []
-    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
-                    pageInItem: Int, pageCountInItem: Int) { moves += 1 }
-    func readerView(_ view: EPUBReaderView, didFailWith error: any Error) { failures.append(error) }
-}
-
-@MainActor
 final class UnsupportedHTMLSpineTests: XCTestCase {
     func testRejectedHTMLSpineKeepsPreviousXHTMLLocationsAndRejectsHTMLRanges() async throws {
         var entries = EPUBFixtures.singleSpineEntries(bodyHTML: "<p>和紙の本文</p>")
@@ -28,14 +19,14 @@ final class UnsupportedHTMLSpineTests: XCTestCase {
         view.accessibilityReduceMotionOverride = false
         view.isWindowOnScreenOverride = false
         view.settings.pageTurnStyle = .none
-        let delegate = UnsupportedHTMLDelegate()
+        let delegate = ReaderObservationSpy()
         view.delegate = delegate
         let window = makeOffscreenWindow(containing: view, ignoresMouseEvents: false)
         defer { closeReader(view, in: window, teardown: .unload) }
         view.load(publication: book)
         let deadline = ContinuousClock.now + .seconds(10)
-        while delegate.moves == 0 && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        XCTAssertGreaterThan(delegate.moves, 0)
+        while delegate.moveCount == 0 && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertGreaterThan(delegate.moveCount, 0)
         XCTAssertTrue(delegate.failures.isEmpty)
 
         view.go(to: book.locator(forSpineIndex: 1))
