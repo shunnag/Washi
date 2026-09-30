@@ -1,5 +1,10 @@
 import Foundation
 
+// EPUB の XML(OPF・nav・NCX・XHTML・SVG・SMIL)を読むための XMLElement 拡張。
+// 子孫の探索、名前空間つきの子要素・属性の取得(宣言漏れファイルへの救済を
+// 含む)、目次や画像ページ判定のためのテキスト抽出をこのファイルにまとめる。
+// XML の解析そのもの(実体の救済、攻撃的 XML の遮断)は WashiXML.swift。
+
 /// 出版物の文書走査で共有する XMLElement の探索。localName は大文字小文字を
 /// 区別して比較する(EPUB の XHTML・SVG は小文字の要素名が仕様要件)。
 extension XMLElement {
