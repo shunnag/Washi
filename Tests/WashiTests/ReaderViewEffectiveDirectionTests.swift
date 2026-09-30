@@ -3,7 +3,7 @@ import XCTest
 @testable import Washi
 
 @MainActor
-final class EffectiveDirectionReaderTests: XCTestCase {
+final class ReaderViewEffectiveDirectionTests: XCTestCase {
     /// cooViewer-oxr.36: PPD のない縦書き本も右綴じとして左方向に進む。
     func testPPDlessVerticalBookTurnsLeftForward() async throws {
         let publication = try makePublication()
@@ -21,7 +21,7 @@ final class EffectiveDirectionReaderTests: XCTestCase {
 
         view.load(publication: publication)
         guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
         guard view.pageCountInItem > 1 else {
             XCTFail("縦書き本文が複数ページへ分割されること")

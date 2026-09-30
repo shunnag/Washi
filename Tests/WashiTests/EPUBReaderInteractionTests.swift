@@ -73,7 +73,7 @@ final class EPUBReaderInteractionTests: XCTestCase {
         defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
         guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), { delegate.moves > 0 }) else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
         let webView = try view.firstWebView()
         let selected = try await Task(priority: .userInitiated) { @MainActor in
@@ -350,7 +350,7 @@ final class EPUBReaderInteractionTests: XCTestCase {
         view.load(publication: publication)
         XCTAssertEqual(view.printPageLabels, ["1", "3", "4", "5"])
         guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), { delegate.moves > 0 }) else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
 
         XCTAssertTrue(view.go(toPrintPage: "3"))

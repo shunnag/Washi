@@ -175,7 +175,7 @@ final class InternalLinkTests: XCTestCase {
         defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
         guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
 
         let moveCountBeforeFollowing = delegate.moveCount
@@ -227,7 +227,7 @@ final class InternalLinkTests: XCTestCase {
         defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
         guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
         let link = EPUBInternalLink(
             href: "#n1",
@@ -340,7 +340,7 @@ final class InternalLinkTests: XCTestCase {
         defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
         guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
         let visiblePageCount = view.pageCountInItem
         XCTAssertGreaterThan(visiblePageCount, 1)

@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 @testable import WashiCore
 
-/// The declared size and CRC must describe the entire deflate stream, not just
-/// the prefix that happened to fit in the caller's output buffer.
+/// 宣言された大きさと CRC は deflate ストリーム全体を表していなければならず、
+/// 呼び出し側の出力バッファにたまたま収まった先頭部分だけでは足りない。
 final class ZipIntegrityTests: XCTestCase {
     private func archive(stream: Data, declared: Data) throws -> ZipArchive {
         let name = "payload.bin"
@@ -66,8 +66,8 @@ final class ZipIntegrityTests: XCTestCase {
     func testAcceptsTrailingBytesAfterCompleteDeflateStream() throws {
         let payload = Data("text".utf8)
         let zip = try archive(stream: storedDeflate(payload) + Data([0xff]), declared: payload)
-        // Like zlib-based readers, accept padding after a completed stream.
-        // Compression may read ahead, so src_size cannot locate its exact end.
+        // zlib 系のリーダーと同じく、完結したストリームの後ろの詰め物は受け入れる。
+        // 圧縮側は先読みすることがあり、src_size ではストリームの正確な終端を特定できない。
         XCTAssertEqual(try zip.data(forEntry: "payload.bin"), payload)
     }
 

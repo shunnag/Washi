@@ -4,7 +4,7 @@ import XCTest
 
 // cooViewer-oxr.8 / cooViewer-oxr.9 / cooViewer-oxr.67 / cooViewer-oxr.71:
 // 目次索引・NCX 補完・本文キャッシュの回帰検証。
-final class PublicationTestsNavigationCache: XCTestCase {
+final class PublicationNavigationCacheTests: XCTestCase {
     func testChapterTitlePrefersFirstTOCEntryAtSameSpine() throws {
         let nav = """
         <html xmlns="http://www.w3.org/1999/xhtml"

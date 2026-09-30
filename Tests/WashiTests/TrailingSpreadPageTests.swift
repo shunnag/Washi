@@ -312,7 +312,7 @@ final class TrailingSpreadPageTests: XCTestCase {
         defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
         view.load(publication: publication)
         guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), { delegate.moveCount > 0 }) else {
-            return try skipOrFailIfWebKitUnavailable()
+            return try failOrSkipIfWebKitUnavailable()
         }
         XCTAssertEqual(view.pageCountInItem, 5, context)
         XCTAssertEqual(view.pagesPerScreen, 2, context)

@@ -8,7 +8,8 @@ import XCTest
 // 1 か所に置き、各テストは自分の待ち時間や後始末の種類を明示して呼ぶ。
 
 /// 画面外(-20_000, -20_000)に置く枠なしウインドウを作り、`view` を contentView にする。
-/// 大きさは `view.frame.size` に合わせる。
+/// 大きさは `view.frame.size` に合わせる。`ignoresMouseEvents: false` が要るのは、
+/// テストが NSEvent(クリック・ホイール・キー)をこのウインドウへ送るときだけ
 @MainActor
 func makeOffscreenWindow(containing view: NSView,
                          ignoresMouseEvents: Bool = true) -> NSWindow {
@@ -33,6 +34,18 @@ func waitUntil(timeout: Duration, poll: Duration = .milliseconds(20),
         try? await Task.sleep(for: poll)
     }
     return condition()
+}
+
+/// 次のページ割りの通知(`delegate.moveCount > moves`)と表示の復帰(`web.alphaValue == 1`)
+/// を待つ。通知が来なければ WebKit が使えないものとして CI では失敗、ローカルでは skip する
+@MainActor
+func waitUntilShown(_ web: WKWebView, _ delegate: ReaderObservationSpy, after moves: Int,
+                    file: StaticString = #filePath, line: UInt = #line) async throws {
+    guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(10), { delegate.moveCount > moves }) else {
+        return try failOrSkipIfWebKitUnavailable(file: file, line: line)
+    }
+    let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(10)) { web.alphaValue == 1 }
+    XCTAssertTrue(shown, "表示が戻らない", file: file, line: line)
 }
 
 extension EPUBReaderView {
@@ -69,7 +82,7 @@ func closeReader(_ view: EPUBReaderView, in window: NSWindow,
 
 /// この環境で WKWebView のナビゲーションが動かなかったときの共通の打ち切り
 /// (CI では失敗、ローカルでは skip)
-func skipOrFailIfWebKitUnavailable(
+func failOrSkipIfWebKitUnavailable(
     file: StaticString = #filePath, line: UInt = #line
 ) throws {
     try failOrSkipWebKitTest(
@@ -133,6 +146,49 @@ final class ReaderObservationSpy: EPUBReaderViewDelegate {
     func readerViewNavigationHistoryDidChange(_ view: EPUBReaderView) {
         canGoBackChanges.append(view.canGoBack)
         onHistoryChanged?(view)
+    }
+
+    func readerViewDidUpdatePageCensus(_ view: EPUBReaderView) {
+        censusUpdateCount += 1
+    }
+}
+
+/// 方針を返すメソッド(shouldConsumeKey・didReceiveDroppedFileURL)も実装する
+/// delegate の記録係。実装するとリーダーの挙動が変わる(転送したキーの消費・ドロップの
+/// 受理)ので、観測だけで足りるテストは ReaderObservationSpy を使う
+@MainActor
+final class ReaderViewDelegateSpy: EPUBReaderViewDelegate {
+    var keys: [EPUBKeyEvent] = []
+    var consumeQuery: [EPUBKeyEvent] = []
+    var onShouldConsumeKey: ((EPUBKeyEvent) -> Bool)?
+    var droppedURLs: [URL] = []
+    var failures: [any Error] = []
+    var censusUpdateCount = 0
+    var moveCount = 0
+
+    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
+                    pageInItem: Int, pageCountInItem: Int) {
+        moveCount += 1
+    }
+
+    func readerView(_ view: EPUBReaderView, didReceiveKey event: EPUBKeyEvent) {
+        keys.append(event)
+    }
+
+    func readerView(_ view: EPUBReaderView,
+                    shouldConsumeKey event: EPUBKeyEvent) -> Bool {
+        consumeQuery.append(event)
+        return onShouldConsumeKey?(event) ?? true
+    }
+
+    func readerView(_ view: EPUBReaderView,
+                    didReceiveDroppedFileURL url: URL) -> Bool {
+        droppedURLs.append(url)
+        return true
+    }
+
+    func readerView(_ view: EPUBReaderView, didFailWith error: any Error) {
+        failures.append(error)
     }
 
     func readerViewDidUpdatePageCensus(_ view: EPUBReaderView) {

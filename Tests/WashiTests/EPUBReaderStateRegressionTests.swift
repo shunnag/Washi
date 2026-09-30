@@ -196,16 +196,6 @@ final class EPUBReaderStateRegressionTests: XCTestCase {
         }
     }
 
-    /// 次のページ割りの通知と表示の復帰を待つ。WebKit が使えなければ skip する
-    private func waitUntilShown(_ web: WKWebView, _ delegate: ReaderObservationSpy,
-                                after moves: Int) async throws {
-        guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(10), { delegate.moveCount > moves }) else {
-            return try skipOrFailIfWebKitUnavailable()
-        }
-        let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(10)) { web.alphaValue == 1 }
-        XCTAssertTrue(shown)
-    }
-
     private func assertLayout(_ web: WKWebView, _ frame: NSRect, _ zoom: CGFloat,
                               _ message: String, line: UInt = #line) {
         XCTAssertEqual(web.frame.minX, frame.minX, accuracy: 0.5, message, line: line)

@@ -160,28 +160,21 @@ final class ImageItemInsetsTests: XCTestCase {
                   at: EPUBLocator(spineIndex: 1, progression: 0))
         let web = try view.firstWebView()
         // ページ割りの通知と表示の復帰を待つ(透明なうちは即時に当てる扱いになるため)
-        func waitUntilShown(after moves: Int) async throws {
-            guard await waitUntil(timeout: .seconds(8), poll: .milliseconds(10), { delegate.moveCount > moves }) else {
-                return try skipOrFailIfWebKitUnavailable()
-            }
-            let shown = await waitUntil(timeout: .seconds(8), poll: .milliseconds(10)) { web.alphaValue == 1 }
-            XCTAssertTrue(shown)
-        }
         let inset = NSRect(x: 40, y: 20, width: 1_200 - 80, height: 900 - 40)
         let full = NSRect(origin: .zero, size: view.bounds.size)
-        try await waitUntilShown(after: 0)
+        try await waitUntilShown(web, delegate, after: 0)
         XCTAssertEqual(web.frame, inset)
 
         var moves = delegate.moveCount
         view.go(to: EPUBLocator(spineIndex: 0, progression: 0))
         XCTAssertEqual(web.frame, inset, "Text to image: before the commit")
-        try await waitUntilShown(after: moves)
+        try await waitUntilShown(web, delegate, after: moves)
         XCTAssertEqual(web.frame, full, "Text to image: after the load")
 
         moves = delegate.moveCount
         view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
         XCTAssertEqual(web.frame, full, "Image to text: before the commit")
-        try await waitUntilShown(after: moves)
+        try await waitUntilShown(web, delegate, after: moves)
         XCTAssertEqual(web.frame, inset, "Image to text: after the load")
     }
 }

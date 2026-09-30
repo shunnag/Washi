@@ -3,7 +3,7 @@ import XCTest
 @testable import WashiCore
 
 /// cooViewer-oxr.10/11/89/92: 本文抽出と検索の追加仕様を検証する。
-final class PublicationTestsTextExtractionSearch: XCTestCase {
+final class TextExtractionSearchTests: XCTestCase {
     /// 章の読み取り中に取り消された検索では、その章の全ヒットを作り続けない。
     func testCancellationDuringChapterReadStopsSearch() async throws {
         let reader = CancellingSearchReader(entries: EPUBFixtures.singleSpineEntries(
