@@ -125,6 +125,21 @@ final class ReaderScriptContractTests: XCTestCase {
         XCTAssertEqual(names, XMLElement.readableTextSkippedElementNames)
     }
 
+    // MARK: - 基礎 CSS の埋め込み
+
+    /// baseCSSInjector は baseCSS を JSON としても読める文字列リテラルで埋め込む。
+    func testBaseCSSInjectorEmbedsBaseCSSAsStringLiteral() throws {
+        let embedded = ReaderScripts.jsStringLiteral(ReaderScripts.baseCSS)
+        XCTAssertTrue(ReaderScripts.baseCSSInjector.contains("el.textContent = \(embedded);"))
+        let hostile = "a\\b \"q\" `t` ${x}\n\r\t\u{2028}\u{2029}\u{1}日本語"
+        for sample in [ReaderScripts.baseCSS, hostile] {
+            let literal = ReaderScripts.jsStringLiteral(sample)
+            XCTAssertFalse(literal.contains { $0.isNewline }, "行終端子が生のまま残っている")
+            let decoded = try JSONSerialization.jsonObject(with: Data("[\(literal)]".utf8)) as? [String]
+            XCTAssertEqual(decoded?.first, sample)
+        }
+    }
+
     // MARK: - 既存テストが頼る足場
 
     /// ReaderScriptsRenderingLifecycleTests はこの 1 行を置換して非公開関数へ入る。
