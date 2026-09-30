@@ -68,29 +68,6 @@ public struct EPUBAccessibility: Sendable, Equatable {
 }
 
 extension EPUBMetadata {
-    /// メディアオーバーレイの再生中、読み上げているテキストに閲覧システムが
-    /// 適用する CSS クラス(`media:active-class`)。宣言されている場合のみ。
-    /// 宣言値が空、または単一の CSS トークンでない場合(途中に空白があるなど)は
-    /// nil を返し、呼び出し側が有効な既定値へフォールバックできるようにする。
-    /// こうした値を `classList.add` へ渡すと例外が発生し、読み上げ中のページ追従が
-    /// 気付かれないまま壊れるため。
-    ///
-    /// The CSS class a reading system applies to the text currently being read
-    /// during media-overlay playback (`media:active-class`), if declared.
-    /// Returns nil when the declared value is empty or not a single CSS token
-    /// (e.g. contains internal whitespace), so the caller falls back to a valid
-    /// default — passing such a value to `classList.add` throws and would
-    /// silently break page-following during narration.
-    public var mediaOverlayActiveClass: String? {
-        guard let value = metaItems.first(where: {
-            $0.refines == nil && $0.property == "media:active-class"
-        })?.value.trimmingCharacters(in: .whitespacesAndNewlines),
-        !value.isEmpty,
-        value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil
-        else { return nil }
-        return value
-    }
-
     /// 文書の schema.org / EPUB-a11y の meta プロパティとアクセシビリティ関連の
     /// リンクを集約した、出版物のアクセシビリティメタデータ。
     ///
@@ -121,27 +98,5 @@ extension EPUBMetadata {
             certifiedBy: values("a11y:certifiedBy"),
             certifierCredentials: values("a11y:certifierCredential")
                 + accessibilityCertifierCredentialLinks)
-    }
-
-    /// 主な著者。MARC の役割が `aut` の作成者を選び、該当者がいなければ
-    /// 全作成者を使う。`display-seq` にかかわらず文書順とし、
-    /// file-as ではなく表示名を返す。
-    ///
-    /// The primary authors — creators whose MARC role is `aut`, or all creators
-    /// when none has that role. Uses document order regardless of
-    /// `display-seq`, returning display names (not file-as).
-    public var authors: [String] {
-        let authored = creators.filter { $0.role == "aut" }
-        let chosen = authored.isEmpty ? creators : authored
-        return chosen.map(\.value)
-    }
-
-    /// この出版物が属するシリーズ(コレクション)。種別が `series` のものを
-    /// 優先し、なければ最初に宣言されたコレクションを使う。何もなければ nil。
-    ///
-    /// The series (collection) this publication belongs to, preferring one
-    /// typed `series`, else the first declared collection. Nil if none.
-    public var series: EPUBCollectionMembership? {
-        collections.first { $0.type == "series" } ?? collections.first
     }
 }

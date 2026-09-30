@@ -1,112 +1,4 @@
-import CoreGraphics
 import Foundation
-import ImageIO
-
-// cooViewer-oxr.67 / cooViewer-oxr.71: 本文抽出結果を spine 単位で再利用する。
-// EPUBPublication は Sendable のため、可変状態は NSLock の内側だけで扱う。
-final class ExtractedTextCache: @unchecked Sendable {
-    private struct Entry {
-        let text: String
-        let byteCount: Int
-    }
-
-    private let lock = NSLock()
-    private let byteLimit: Int
-    private let entryLimit: Int
-    private var entries: [Int: Entry] = [:]
-    private var insertionOrder: [Int] = []
-    private var insertionHead = 0
-    private var totalByteCount = 0
-
-    init(byteLimit: Int, entryLimit: Int = 512) {
-        self.byteLimit = max(0, byteLimit)
-        self.entryLimit = max(0, entryLimit)
-    }
-
-    func value(for spineIndex: Int) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        return entries[spineIndex]?.text
-    }
-
-    func insert(_ text: String, for spineIndex: Int) {
-        // 結合文字列は文字数だけでは保持メモリを制限できないため、UTF-8 の
-        // バイト数で数える。空章については別途、管理件数にも上限を設ける。
-        let byteCount = text.utf8.count
-        guard byteCount <= byteLimit, entryLimit > 0 else { return }
-
-        lock.lock()
-        defer { lock.unlock() }
-        guard entries[spineIndex] == nil else { return }
-        while (byteCount > byteLimit - totalByteCount || entries.count >= entryLimit),
-              insertionHead < insertionOrder.count {
-            let oldest = insertionOrder[insertionHead]
-            insertionHead += 1
-            if let removed = entries.removeValue(forKey: oldest) {
-                totalByteCount -= removed.byteCount
-            }
-        }
-        entries[spineIndex] = Entry(text: text, byteCount: byteCount)
-        insertionOrder.append(spineIndex)
-        totalByteCount += byteCount
-        // 追い出すたびに全添字をずらさず、消費済みの部分をまとめて回収する。
-        // 未回収の添字数も生存件数以下に保ち、FIFO 順とメモリ上限を維持する。
-        if insertionHead >= entries.count {
-            insertionOrder.removeFirst(insertionHead)
-            insertionHead = 0
-        }
-    }
-}
-
-private struct EffectiveReadingDirectionResolution: Sendable {
-    let direction: EPUBReadingDirection
-    let source: EPUBReadingDirectionSource
-}
-
-// cooViewer-oxr.36: EPUBPublication の Sendable 契約を保ったまま、CSS を含む
-// 方向判定を最初の参照時に一度だけ実行する。
-private final class EffectiveReadingDirectionCache: @unchecked Sendable {
-    private let lock = NSLock()
-    private var resolution: EffectiveReadingDirectionResolution?
-
-    func value(
-        computing loader: () -> EffectiveReadingDirectionResolution
-    ) -> EffectiveReadingDirectionResolution {
-        lock.lock()
-        defer { lock.unlock() }
-        if let resolution { return resolution }
-        let loaded = loader()
-        resolution = loaded
-        return loaded
-    }
-}
-
-/// 「画像 1 枚だけの項目」の判定を項目ごとに一度だけ行うためのキャッシュ。
-/// EPUBPublication の Sendable 契約を保つため、可変状態は NSLock の内側だけで扱う
-/// （EffectiveReadingDirectionCache と同じ作法）。
-private final class SingleImageItemCache: @unchecked Sendable {
-    private let lock = NSLock()
-    private var perItem: [Int: Bool] = [:]
-
-    func item(_ index: Int, computing loader: () -> Bool) -> Bool {
-        lock.lock()
-        if let cached = perItem[index] { lock.unlock(); return cached }
-        lock.unlock()
-        // loader は zip 展開と XML 解析を伴うのでロックの外で回す
-        let value = loader()
-        lock.lock()
-        perItem[index] = value
-        lock.unlock()
-        return value
-    }
-}
-
-// cooViewer-oxr.8: 目次は文書順を保ったまま一度だけ spine 位置へ写像する。
-private struct IndexedTOCEntry: Sendable {
-    let spineIndex: Int
-    let depth: Int
-    let title: String
-}
 
 /// spine の 1 項目を読む順序で表したエントリ(マニフェストとパスを解決済み)。
 ///
@@ -140,39 +32,6 @@ public struct ReadingOrderItem: Sendable {
     public let resolvedContainerPath: String
 }
 
-/// 見開き内の左右の配置(固定レイアウトの itemref プロパティに基づく)。
-///
-/// Left/right spread placement (from FXL itemref properties).
-public enum PageSpreadSlot: String, Sendable {
-    case left, right, center
-}
-
-/// 固定レイアウトのページに関する情報。
-///
-/// Information about a fixed-layout page.
-public struct FixedLayoutPageInfo: Sendable {
-    public let spineIndex: Int
-    /// viewport の meta タグ(または SVG の viewBox)から得たページ寸法(CSS px)。
-    ///
-    /// Page dimensions (CSS px) from the viewport meta tag (or SVG viewBox).
-    public let viewportSize: CGSize?
-    /// ビューポートが `device-width` または `device-height` を使い、現在の
-    /// 描画先に合わせて寸法を決める必要があるか。
-    ///
-    /// Whether the viewport uses `device-width` or `device-height` and should
-    /// therefore be sized from the current rendering target.
-    public let viewportIsDeviceSized: Bool
-    /// 画像を 1 枚だけ配置するページの場合、その画像のコンテナ内パス。
-    /// この場合は WebKit を使わず画像を直接デコードできる(日本の漫画 EPUB の
-    /// 大半がこの構造)。
-    ///
-    /// The container path of the image when the page merely lays out a single
-    /// image; in that case the image can be decoded directly without WebKit
-    /// (the vast majority of Japanese manga EPUBs are shaped this way).
-    public let simpleImagePath: String?
-    public let pageSpread: PageSpreadSlot?
-}
-
 /// EPUB 1 冊を扱う窓口。
 /// 開くときに OCF → パッケージ文書 → ナビゲーション → encryption.xml の順に
 /// 解析し、変更されない出版物メタデータ(`Sendable`)を公開する。
@@ -190,16 +49,18 @@ public final class EPUBPublication: Sendable {
     public let encryption: EPUBEncryptionInfo
     public let readingOrder: [ReadingOrderItem]
     /// コンテナ内パス → マニフェスト項目(メディアタイプ解決用)
-    private let manifestByPath: [String: ManifestItem]
+    let manifestByPath: [String: ManifestItem]
     /// cooViewer-oxr.8: 目次解決を呼び出しごとの spine 線形走査にしない。
-    private let spineIndexByContainerPath: [String: Int]
+    let spineIndexByContainerPath: [String: Int]
     /// cooViewer-oxr.8: NCX 補完時は toc と nav 補助一覧の基準文書が異なる。
-    private let tocBasePath: String
-    private let indexedTOC: [IndexedTOCEntry]
+    let tocBasePath: String
+    let indexedTOC: [IndexedTOCEntry]
     /// 本文の UTF-8 データを最大 32 MiB、件数は spine 全体を収める枠で FIFO 保持する。
-    private let extractedTextCache: ExtractedTextCache
-    private let effectiveReadingDirectionCache = EffectiveReadingDirectionCache()
-    private let singleImageItemCache = SingleImageItemCache()
+    let extractedTextCache: ExtractedTextCache
+    let effectiveReadingDirectionCache = EffectiveReadingDirectionCache()
+    let singleImageItemCache = SingleImageItemCache()
+
+    // MARK: - 初期化
 
     /// 呼び出し元のスレッド外で EPUB を開き、解析済みの出版物を返す。
     ///
@@ -392,234 +253,34 @@ public final class EPUBPublication: Sendable {
             byteLimit: 32 * 1024 * 1024, entryLimit: max(512, readingOrder.count))
     }
 
-    // MARK: - 基本情報
-
-    public var metadata: EPUBMetadata { package.metadata }
-    public var isFixedLayout: Bool { package.isFixedLayout }
-
-    /// コンテナ内の、ディレクトリを除く全リソースのパス。順序は不定。索引作成、
-    /// 抽出ツール、本の同梱内容の監査に使える。各リソースは ``resource(at:)`` で読む。
-    ///
-    /// Every non-directory resource path in the container, in no particular
-    /// order. Useful for indexing, extraction tools, or auditing what a book
-    /// ships. Read individual resources with ``resource(at:)``.
-    public var resourcePaths: [String] { container.reader.allPaths }
-    public var readingDirection: PageProgressionDirection {
-        package.readingDirection
-    }
-
-    /// パッケージ・CSS・言語の情報を適用して決めた実効的な綴じ方向。
-    ///
-    /// The resolved reading direction after applying package, CSS, and language signals.
-    ///
-    /// ``readingDirection`` と異なり、必ず ``PageProgressionDirection/ltr`` または
-    /// ``PageProgressionDirection/rtl`` となり、`default` にはならない。
-    ///
-    /// Unlike ``readingDirection``, this value is always ``PageProgressionDirection/ltr``
-    /// or ``PageProgressionDirection/rtl`` and never `default`.
-    public var effectiveReadingDirection: EPUBReadingDirection {
-        effectiveReadingDirectionResolution.direction
-    }
-
-    /// ``effectiveReadingDirection`` を決める根拠となった、出版物内の情報。
-    ///
-    /// The publication signal that selected ``effectiveReadingDirection``.
-    public var effectiveReadingDirectionSource: EPUBReadingDirectionSource {
-        effectiveReadingDirectionResolution.source
-    }
-
-    private var effectiveReadingDirectionResolution: EffectiveReadingDirectionResolution {
-        effectiveReadingDirectionCache.value {
-            computeEffectiveReadingDirection()
-        }
-    }
-
-    /// cooViewer-oxr.36: 宣言値、Kindle メタ、冒頭 CSS、RTL 言語の順で
-    /// 省略されたページ進行方向を決定する。
-    private func computeEffectiveReadingDirection() -> EffectiveReadingDirectionResolution {
-        switch readingDirection {
-        case .ltr, .rtl:
-            return EffectiveReadingDirectionResolution(
-                direction: readingDirection,
-                source: .declared)
-        case .byDefault:
-            break
-        }
-
-        if let writingMode = metadata.metaItems.first(where: {
-            $0.refines == nil
-                && $0.property.lowercased() == "primary-writing-mode"
-        })?.value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            switch writingMode {
-            case "vertical-rl", "horizontal-rl":
-                return EffectiveReadingDirectionResolution(
-                    direction: .rtl,
-                    source: .primaryWritingModeMeta)
-            case "vertical-lr", "horizontal-lr":
-                return EffectiveReadingDirectionResolution(
-                    direction: .ltr,
-                    source: .primaryWritingModeMeta)
-            default:
-                break
-            }
-        }
-
-        if firstReadingOrderStylesUseVerticalRTL() {
-            return EffectiveReadingDirectionResolution(
-                direction: .rtl,
-                source: .verticalWritingCSS)
-        }
-
-        if let primaryLanguage = metadata.languages.first?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .split(separator: "-", maxSplits: 1)
-            .first.map(String.init),
-           Self.rtlLanguageCodes.contains(primaryLanguage) {
-            return EffectiveReadingDirectionResolution(
-                direction: .rtl,
-                source: .rtlLanguage)
-        }
-
-        return EffectiveReadingDirectionResolution(
-            direction: .ltr,
-            source: .fallback)
-    }
-
-    private static let rtlLanguageCodes: Set<String> = [
-        "ar", "he", "fa", "ur", "yi", "ps", "sd", "ug", "dv",
-    ]
-
-    /// cooViewer-oxr.36: 冒頭の XHTML 最大 3 項目が実際に読み込む style/link
-    /// だけを見る。CSS セレクタの完全評価はせず、使用中シート内の宣言を方向の
-    /// ヒューリスティックとして扱う。
-    private func firstReadingOrderStylesUseVerticalRTL() -> Bool {
-        let documents = readingOrder.lazy.filter {
-            Self.normalizedMediaType($0.resolvedItem.mediaType) == EPUBMediaType.xhtml
-        }.prefix(3)
-
-        for item in documents {
-            guard let data = try? resource(at: item.resolvedContainerPath).data,
+    /// META-INF の display-options.xml(Apple / Kobo)が固定レイアウトを表明して
+    /// いるか。`<option name="fixed-layout">true</option>` の形。
+    private static func displayOptionsDeclareFixedLayout(
+        reader: any ContainerReader) -> Bool {
+        let paths = ["META-INF/com.apple.ibooks.display-options.xml",
+                     "META-INF/com.kobobooks.display-options.xml"]
+        for path in paths where reader.exists(path) {
+            guard let data = try? reader.read(path),
                   let document = try? WashiXML.document(from: data),
-                  let root = document.rootElement()
-            else { continue }
-
-            let html = root.localName?.lowercased() == "html"
-                ? root : Self.firstDescendant("html", in: root)
-            let body = html.flatMap { Self.firstDescendant("body", in: $0) }
-            if [html?.attr("style"), body?.attr("style")]
-                .compactMap({ $0 })
-                .contains(where: Self.cssUsesVerticalRTL) {
-                return true
-            }
-
-            let styles = Self.descendants("style", in: root)
-                .compactMap(\.stringValue)
-            if styles.contains(where: Self.cssUsesVerticalRTL) {
-                return true
-            }
-
-            for link in Self.descendants("link", in: root) {
-                let relationships = (link.attr("rel") ?? "")
-                    .lowercased()
-                    .split(whereSeparator: { $0.isWhitespace })
-                guard relationships.contains("stylesheet"),
-                      let href = link.attr("href"),
-                      let path = ContainerPath.resolve(
-                        base: item.resolvedContainerPath,
-                        href: href),
-                      let cssData = try? resource(at: path).data,
-                      let css = Self.cssString(cssData),
-                      Self.cssUsesVerticalRTL(css)
-                else { continue }
-                return true
-            }
+                  let root = document.rootElement() else { continue }
+            if optionSaysFixedLayout(root) { return true }
         }
         return false
     }
 
-    private static func cssString(_ data: Data) -> String? {
-        String(data: data, encoding: .utf8)
-            ?? String(data: data, encoding: .utf16)
-    }
-
-    private static func cssUsesVerticalRTL(_ css: String) -> Bool {
-        css.range(
-            of: #"(?i)(?:^|[;{\s])(?:-(?:webkit|epub)-)?writing-mode\s*:\s*(?:vertical-rl|tb-rl)(?:\s|[;!}]|$)"#,
-            options: .regularExpression) != nil
-    }
-
-    /// spine のコンテンツ文書が未知のアルゴリズムで暗号化されている場合に true。
-    /// Washi では開けない、本来の DRM による保護を表す。未知の暗号化を使うのが
-    /// フォントなどの補助リソースだけなら、本は開ける(そのフォントなしで描画を
-    /// 続ける。EPUB 3.3 OCF §4.4.2 で認められている)。
-    ///
-    /// True when a spine content document is encrypted with an unknown
-    /// algorithm — genuine DRM protection that Washi cannot open.
-    /// If only auxiliary resources (fonts, etc.) use unknown encryption the
-    /// book is still openable (rendering continues without that font;
-    /// permitted by EPUB 3.3 OCF §4.4.2).
-    public var isDRMProtected: Bool {
-        guard !encryption.unknownEncryptedResources.isEmpty else { return false }
-        let spinePaths = Set(readingOrder.map(\.containerPath))
-        return encryption.unknownEncryptedResources.keys
-            .contains { spinePaths.contains($0) }
-    }
-
-    /// META-INF 内の特徴的なファイルから推定した DRM 方式。
-    /// DRM で保護されていなければ nil。
-    ///
-    /// Best-guess DRM scheme (detected from fingerprint files under META-INF); nil when not DRM-protected.
-    public var drmSchemeName: String? {
-        // Honor the contract ("nil when not DRM-protected") for every branch: a
-        // stray META-INF/sinf.xml or license.lcpl in a repackaged, non-encrypted
-        // EPUB must not report DRM (cooViewer-2hp). Adobe ADEPT already gated on
-        // isDRMProtected; lift the gate to the top so LCP/FairPlay share it.
-        guard isDRMProtected else { return nil }
-        let reader = container.reader
-        if reader.exists("META-INF/license.lcpl") { return "Readium LCP" }
-        if reader.exists("META-INF/sinf.xml") { return "Apple FairPlay" }
-        if reader.exists("META-INF/rights.xml") { return "Adobe ADEPT" }
-        return "Unknown DRM"
-    }
-
-    // MARK: - 読書位置の突き合わせ
-
-    /// spine index とともに idref を記録した locator を作る。位置の保存には
-    /// これを使う。
-    ///
-    /// Builds a locator with the idref recorded alongside the spine index; use this for persisting a position.
-    public func locator(forSpineIndex index: Int,
-                        progression: Double = 0) -> EPUBLocator {
-        EPUBLocator(spineIndex: index, progression: progression,
-                    idref: readingOrder.indices.contains(index)
-                        ? readingOrder[index].itemRef.idref : nil)
-    }
-
-    /// 保存した位置をこの本と照合する。idref があれば、本の改訂による spine の
-    /// 並べ替えや項目の追加・削除を追跡して、正しい項目へ対応付ける。
-    /// その idref がなくなっていれば nil を返す(「先頭から始める」などの判断は
-    /// 呼び出し側に委ねる)。idref のない旧形式の位置は、範囲内に収めるだけ。
-    ///
-    /// Matches a saved position against this book. When an idref is present it
-    /// tracks spine reordering and additions/removals (a revised edition of the
-    /// book) to map onto the correct item, returning nil if that idref is gone
-    /// (leaving the caller to decide, e.g. "start from the beginning").
-    /// Legacy positions without an idref are only clamped into range.
-    public func resolve(_ locator: EPUBLocator) -> EPUBLocator? {
-        guard !readingOrder.isEmpty else { return nil }
-        if let idref = locator.idref {
-            if readingOrder.indices.contains(locator.spineIndex),
-               readingOrder[locator.spineIndex].itemRef.idref == idref {
-                return locator
-            }
-            guard let entry = readingOrder.first(
-                where: { $0.itemRef.idref == idref }) else { return nil }
-            return EPUBLocator(spineIndex: entry.spineIndex,
-                               progression: locator.progression, idref: idref)
+    private static func optionSaysFixedLayout(_ element: XMLElement) -> Bool {
+        if element.name?.lowercased() == "option",
+           element.attr("name")?.lowercased() == "fixed-layout",
+           (element.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+               .lowercased() == "true" {
+            return true
         }
-        let clamped = max(0, min(locator.spineIndex, readingOrder.count - 1))
-        return EPUBLocator(spineIndex: clamped, progression: locator.progression)
+        for child in element.children ?? [] {
+            if let child = child as? XMLElement, optionSaysFixedLayout(child) {
+                return true
+            }
+        }
+        return false
     }
 
     /// マニフェストのフォールバック連鎖(指定した項目自身から始め、循環があれば
@@ -674,136 +335,66 @@ public final class EPUBPublication: Sendable {
         return nil
     }
 
-    private static func normalizedMediaType(_ mediaType: String) -> String {
+    static func normalizedMediaType(_ mediaType: String) -> String {
         mediaType.split(separator: ";", maxSplits: 1).first.map {
             String($0).trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
         } ?? ""
     }
 
-    /// 表紙画像のコンテナ内パス。
+    // MARK: - 基本情報
+
+    public var metadata: EPUBMetadata { package.metadata }
+    public var isFixedLayout: Bool { package.isFixedLayout }
+
+    /// コンテナ内の、ディレクトリを除く全リソースのパス。順序は不定。索引作成、
+    /// 抽出ツール、本の同梱内容の監査に使える。各リソースは ``resource(at:)`` で読む。
     ///
-    /// Container path of the cover image.
-    public var coverImagePath: String? {
-        guard let item = package.coverImageItem else { return nil }
-        return ContainerPath.resolve(base: package.path, href: item.href)
+    /// Every non-directory resource path in the container, in no particular
+    /// order. Useful for indexing, extraction tools, or auditing what a book
+    /// ships. Read individual resources with ``resource(at:)``.
+    public var resourcePaths: [String] { container.reader.allPaths }
+    public var readingDirection: PageProgressionDirection {
+        package.readingDirection
     }
 
-    /// フォールバック連鎖で表紙画像のコンテナ内パスを解決する。ライブラリの
-    /// 一覧表示で、表紙を宣言していない実在の本でも表紙を示せるようにする。
-    /// 解決は次の順に行う。
+    // MARK: - DRM
+
+    /// spine のコンテンツ文書が未知のアルゴリズムで暗号化されている場合に true。
+    /// Washi では開けない、本来の DRM による保護を表す。未知の暗号化を使うのが
+    /// フォントなどの補助リソースだけなら、本は開ける(そのフォントなしで描画を
+    /// 続ける。EPUB 3.3 OCF §4.4.2 で認められている)。
     ///
-    /// Resolves the cover image's container path through a fallback chain (for
-    /// library listings: surface a cover even for real-world books that never
-    /// declare one):
-    ///
-    /// ① マニフェストの properties="cover-image" / EPUB 2 の meta name="cover"
-    ///    manifest properties="cover-image" / EPUB 2 meta name="cover"
-    /// ② epub:type="cover" のランドマークのリンク先(画像自体、または
-    ///    文書内の唯一の画像)
-    ///    the target of a landmark with epub:type="cover" (the image itself, or
-    ///    the sole image within the document)
-    /// ③ id またはファイル名に "cover" を含むマニフェストの画像項目
-    ///    a manifest image item whose id or file name contains "cover"
-    /// ④ 最初の spine 項目が画像だけのページなら、その画像
-    ///    the first spine item's image, if that item is a single-image page
-    public var resolvedCoverImagePath: String? {
-        if let path = coverImagePath { return path }
-        if let path = landmarkCoverPath { return path }
-        if let item = package.manifest.first(where: { item in
-            item.mediaType.hasPrefix("image/")
-                && item.id.lowercased().contains("cover")
-        }) ?? package.manifest.first(where: { item in
-            item.mediaType.hasPrefix("image/")
-                && (item.href.split(separator: "/").last ?? "")
-                    .lowercased().contains("cover")
-        }) {
-            return ContainerPath.resolve(base: package.path, href: item.href)
-        }
-        if let info = try? fixedLayoutInfo(forSpineIndex: 0),
-           let imagePath = info.simpleImagePath {
-            return imagePath
-        }
-        return nil
+    /// True when a spine content document is encrypted with an unknown
+    /// algorithm — genuine DRM protection that Washi cannot open.
+    /// If only auxiliary resources (fonts, etc.) use unknown encryption the
+    /// book is still openable (rendering continues without that font;
+    /// permitted by EPUB 3.3 OCF §4.4.2).
+    public var isDRMProtected: Bool {
+        guard !encryption.unknownEncryptedResources.isEmpty else { return false }
+        let spinePaths = Set(readingOrder.map(\.containerPath))
+        return encryption.unknownEncryptedResources.keys
+            .contains { spinePaths.contains($0) }
     }
 
-    /// landmarks の epub:type="cover" 経由の表紙解決(②)
-    private var landmarkCoverPath: String? {
-        guard let landmark = navigation.landmarks.first(where: {
-            $0.epubType?.components(separatedBy: .whitespaces)
-                .contains("cover") == true
-        }), let href = landmark.href else { return nil }
-        let raw = href.split(separator: "#").first.map(String.init) ?? href
-        guard let docPath = ContainerPath.resolve(
-            base: navigation.basePath, href: raw) else { return nil }
-        let mediaType = manifestByPath[docPath]?.mediaType
-            ?? EPUBMediaType.guessed(fromPath: docPath)
-        if mediaType.hasPrefix("image/") { return docPath }
-        // 表紙ページ(XHTML)の中の唯一の画像を表紙とみなす
-        guard mediaType == EPUBMediaType.xhtml,
-              let (data, _) = try? resource(at: docPath),
-              let document = try? WashiXML.document(from: data),
-              let root = document.rootElement(),
-              let body = Self.firstDescendant("body", in: root) else { return nil }
-        let imgs = Self.descendants("img", in: body)
-        if imgs.count == 1, let src = imgs[0].attr("src") {
-            return ContainerPath.resolve(base: docPath, href: src)
-        }
-        let svgImages = Self.descendants("image", in: body)
-        if imgs.isEmpty, svgImages.count == 1 {
-            let href = svgImages[0].attribute(forLocalName: "href",
-                                              uri: XMLNamespace.xlink)?.stringValue
-                ?? svgImages[0].attr("xlink:href") ?? svgImages[0].attr("href")
-            return href.flatMap { ContainerPath.resolve(base: docPath, href: $0) }
-        }
-        return nil
-    }
-
-    /// 表紙画像をデコードして返す(ImageIO だけを使い、WebKit/AppKit は不要なので
-    /// ヘッドレスの索引作成ツールでも動く)。maxPixelSize を渡すと、EXIF の回転を
-    /// 適用したうえで、長辺がそのピクセル数以下のサムネイルに縮小する。
-    /// 表紙を解決できない、デコードできない(SVG など)、または DRM により読めない
-    /// 場合は nil を返す。
+    /// META-INF 内の特徴的なファイルから推定した DRM 方式。
+    /// DRM で保護されていなければ nil。
     ///
-    /// Decodes and returns the cover image (ImageIO only, no WebKit/AppKit, so
-    /// it works from headless indexing tools too). Passing maxPixelSize scales
-    /// it down to a thumbnail whose long edge is at most that many pixels (with
-    /// EXIF rotation applied). Returns nil when the cover cannot be resolved,
-    /// cannot be decoded (e.g. SVG), or is unreadable due to DRM.
-    public func coverImage(maxPixelSize: Int? = nil) -> CGImage? {
-        guard let path = resolvedCoverImagePath,
-              let (data, _) = try? resource(at: path),
-              let source = CGImageSourceCreateWithData(data as CFData, nil)
-        else { return nil }
-        if let maxPixelSize {
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-            ]
-            return CGImageSourceCreateThumbnailAtIndex(
-                source, 0, options as CFDictionary)
-        }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    /// Best-guess DRM scheme (detected from fingerprint files under META-INF); nil when not DRM-protected.
+    public var drmSchemeName: String? {
+        // Honor the contract ("nil when not DRM-protected") for every branch: a
+        // stray META-INF/sinf.xml or license.lcpl in a repackaged, non-encrypted
+        // EPUB must not report DRM (cooViewer-2hp). Adobe ADEPT already gated on
+        // isDRMProtected; lift the gate to the top so LCP/FairPlay share it.
+        guard isDRMProtected else { return nil }
+        let reader = container.reader
+        if reader.exists("META-INF/license.lcpl") { return "Readium LCP" }
+        if reader.exists("META-INF/sinf.xml") { return "Apple FairPlay" }
+        if reader.exists("META-INF/rights.xml") { return "Adobe ADEPT" }
+        return "Unknown DRM"
     }
 
-    /// 解決した表紙画像をデコードせず、生のバイト列とメディアタイプで返す。
-    /// 元ファイルをそのまま保存・配信したいとき(ライブラリのキャッシュや Web の
-    /// レスポンスなど)に使える。``coverImage(maxPixelSize:)`` と同じ
-    /// フォールバック連鎖を使う。表紙が見つからない、または DRM などで読めない
-    /// 場合は nil。
-    ///
-    /// The resolved cover image's raw bytes and media type, without decoding —
-    /// useful to store or serve the original file as-is (e.g. a library cache
-    /// or a web response). Uses the same fallback chain as
-    /// ``coverImage(maxPixelSize:)``.
-    /// Nil if no cover resolves or it cannot be read (e.g. DRM).
-    public func coverImageData() -> (data: Data, mediaType: String)? {
-        guard let path = resolvedCoverImagePath else { return nil }
-        return try? resource(at: path)
-    }
-
-    // MARK: - リソース読み出し
+    // MARK: - リソース
 
     /// コンテナ内パスでリソースを読み取り、フォントの難読化は透過的に解除する。
     /// 未知の暗号化が施されたリソースでは drmProtected を投げる。
@@ -880,36 +471,6 @@ public final class EPUBPublication: Sendable {
         }
     }
 
-    /// META-INF の display-options.xml(Apple / Kobo)が固定レイアウトを表明して
-    /// いるか。`<option name="fixed-layout">true</option>` の形。
-    private static func displayOptionsDeclareFixedLayout(
-        reader: any ContainerReader) -> Bool {
-        let paths = ["META-INF/com.apple.ibooks.display-options.xml",
-                     "META-INF/com.kobobooks.display-options.xml"]
-        for path in paths where reader.exists(path) {
-            guard let data = try? reader.read(path),
-                  let document = try? WashiXML.document(from: data),
-                  let root = document.rootElement() else { continue }
-            if optionSaysFixedLayout(root) { return true }
-        }
-        return false
-    }
-
-    private static func optionSaysFixedLayout(_ element: XMLElement) -> Bool {
-        if element.name?.lowercased() == "option",
-           element.attr("name")?.lowercased() == "fixed-layout",
-           (element.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-               .lowercased() == "true" {
-            return true
-        }
-        for child in element.children ?? [] {
-            if let child = child as? XMLElement, optionSaysFixedLayout(child) {
-                return true
-            }
-        }
-        return false
-    }
-
     /// 基準パスと相対 href からリソースを読み取る(ナビゲーション項目の解決など)。
     ///
     /// Reads a resource from a base path plus a relative href (e.g. resolving navigation items).
@@ -929,443 +490,10 @@ public final class EPUBPublication: Sendable {
         ContainerPath.resolve(base: basePath, href: href)
     }
 
-    /// ナビゲーション項目の href を、読む順序での spine index へ解決する。
-    ///
-    /// Resolves a navigation item's href into a reading-order spine index.
-    public func spineIndex(forNavItem item: EPUBNavItem) -> Int? {
-        guard let href = item.href else { return nil }
-        return spineIndex(forHref: href)
-    }
-
-    /// ナビゲーション文書に記載された href(フラグメントがあってもよい)を、
-    /// 読む順序での spine index へ解決する。フラグメントは無視し、リンク先を含む
-    /// spine 項目を返す。該当する spine 項目がなければ nil。目次や相互参照からの
-    /// 移動に使える。
-    ///
-    /// Resolves an href (as written in the navigation document, with an optional
-    /// fragment) into a reading-order spine index. The fragment is ignored — the
-    /// result is the spine item that contains the target. Nil if it resolves to
-    /// no spine item. Useful for navigating from a TOC or a cross-reference.
-    public func spineIndex(forHref href: String) -> Int? {
-        let withoutFragment = href.split(separator: "#", maxSplits: 1,
-                                         omittingEmptySubsequences: false)[0]
-        let bases = tocBasePath == navigation.basePath
-            ? [tocBasePath] : [tocBasePath, navigation.basePath]
-        // cooViewer-oxr.9: NCX の toc と nav の補助一覧を併用する場合は、
-        // それぞれの基準パスを定数個だけ試す。
-        for basePath in bases {
-            if let path = ContainerPath.resolve(
-                base: basePath, href: String(withoutFragment)),
-               let index = spineIndexByContainerPath[path] {
-                return index
-            }
-        }
-        return nil
-    }
-
-    /// コンテナ内パスから、読む順序でのインデックスを得る(spine にないパスは nil)。
-    ///
-    /// Container path → reading-order index (nil when the path is not in the spine).
-    public func spineIndex(forContainerPath path: String) -> Int? {
-        spineIndexByContainerPath[ContainerPath.sanitize(path)]
-    }
-
-    /// メディアオーバーレイ(SMIL による読み上げ)を宣言する spine 項目があるか。
-    /// 項目ごとの解析済みクリップは ``mediaOverlay(forSpineIndex:)`` で取得する。
-    ///
-    /// Whether any spine item declares a media overlay (SMIL narration). Use
-    /// ``mediaOverlay(forSpineIndex:)`` to get the parsed clips for one item.
-    public var hasMediaOverlays: Bool {
-        readingOrder.contains { $0.item.mediaOverlay != nil }
-    }
-
-    /// 指定した spine index が属する章のタイトル。
-    ///
-    /// The chapter title a spine index belongs to.
-    ///
-    /// 複数の目次項目が同じ spine 項目を指す場合は、文書順で最初のものを使う。
-    /// 項目内のフラグメント位置は考慮しない。柱の表示用で、該当がなければ nil。
-    ///
-    /// The first table-of-contents entry in document order wins when multiple
-    /// entries target the same spine item. Fragment positions inside an item
-    /// are not considered. For running-head display; nil when there is no match.
-    public func chapterTitle(forSpineIndex index: Int) -> String? {
-        var bestSpineIndex = -1
-        var title: String?
-        for entry in indexedTOC
-        where entry.spineIndex <= index && !entry.title.isEmpty {
-            // cooViewer-oxr.8: 同じ spine の後続項目では上書きせず文書順先頭を保つ。
-            if entry.spineIndex > bestSpineIndex {
-                bestSpineIndex = entry.spineIndex
-                title = entry.title
-            }
-        }
-        return title
-    }
-
-    /// cooViewer-oxr.67 / cooViewer-oxr.71: 本文抽出・検索・概算ページ数の共有経路。
-    func cachedExtractedText(forSpineIndex index: Int,
-                             loader: () throws -> String) rethrows -> String {
-        if let cached = extractedTextCache.value(for: index) { return cached }
-        let text = try loader()
-        extractedTextCache.insert(text, for: index)
-        return text
-    }
-
-    /// cooViewer-oxr.8: 深さ優先の文書順を崩さず、href を O(1) の索引で写像する。
-    private static func indexTOC(
-        _ items: [EPUBNavItem], basePath: String,
-        spineIndexByContainerPath: [String: Int], depth: Int = 0
-    ) -> [IndexedTOCEntry] {
-        var result: [IndexedTOCEntry] = []
-        for item in items {
-            if let href = item.href,
-               let path = ContainerPath.resolve(base: basePath, href: href),
-               let spineIndex = spineIndexByContainerPath[path] {
-                result.append(IndexedTOCEntry(
-                    spineIndex: spineIndex, depth: depth, title: item.title))
-            }
-            result.append(contentsOf: indexTOC(
-                item.children, basePath: basePath,
-                spineIndexByContainerPath: spineIndexByContainerPath,
-                depth: depth + 1))
-        }
-        return result
-    }
-
-    /// cooViewer-oxr.9: 別文書から併合する href をコンテナルート相対へ写す。
-    private static func rootRelativeNavigationItems(
-        _ items: [EPUBNavItem], sourceBasePath: String
-    ) -> [EPUBNavItem] {
-        items.map { item in
-            let href = item.href.map { rawHref -> String in
-                guard let path = ContainerPath.resolve(
-                    base: sourceBasePath, href: rawHref) else { return rawHref }
-                let suffixIndex = rawHref.firstIndex { $0 == "?" || $0 == "#" }
-                let suffix = suffixIndex.map { String(rawHref[$0...]) } ?? ""
-                return "/" + path + suffix
-            }
-            return EPUBNavItem(
-                title: item.title, href: href, epubType: item.epubType,
-                children: rootRelativeNavigationItems(
-                    item.children, sourceBasePath: sourceBasePath))
-        }
-    }
-
     /// コンテナ内パスが存在するかを確認する。
     ///
     /// Checks whether a container path exists.
     public func resourceExists(at containerPath: String) -> Bool {
         container.reader.exists(ContainerPath.sanitize(containerPath))
-    }
-
-    // MARK: - 固定レイアウト
-
-    /// その spine 項目が「画像 1 枚だけの項目」か（表紙・挿絵・漫画のページ）。
-    /// 表示・census・画面サムネイルが同じ答えを共有するよう、項目ごとに一度だけ
-    /// 判定してキャッシュする。パッケージ内部の API（公開面は増やさない）。
-    /// 初回は章の展開と XML 解析を伴うので、UI からは可能ならメインスレッドの外で呼ぶ。
-    package func isSingleImageItem(atSpineIndex index: Int) -> Bool {
-        guard readingOrder.indices.contains(index) else { return false }
-        return singleImageItemCache.item(index) {
-            let entry = readingOrder[index]
-            // 画像・SVG の spine 項目は、ヘッダーだけを見る fixedLayoutInfo に任せる
-            if Self.normalizedMediaType(entry.resolvedItem.mediaType).hasPrefix("image/") {
-                return (try? fixedLayoutInfo(forSpineIndex: index))?.simpleImagePath != nil
-            }
-            // 文書は fixedLayoutInfo と同じ判定を、画像要素の名前が現れない章では
-            // 解析せずに済ませる(文字だけの大きな章を丸ごと解析しない)
-            guard let data = try? resource(at: entry.resolvedContainerPath).data,
-                  Self.mayContainImageElement(data),
-                  let root = (try? WashiXML.document(from: data))?.rootElement(),
-                  let href = Self.simpleImageHref(in: root) else { return false }
-            return ContainerPath.resolve(base: entry.resolvedContainerPath, href: href) != nil
-        }
-    }
-
-    /// 画像だけの項目の判定に使う要素(img と SVG の image)の名前が、バイト列に
-    /// 現れうるか。ASCII と互換な符号化では要素名がそのままのバイトで現れるので、
-    /// どちらも無ければ解析しなくても画像だけの項目ではない。UTF-16・UTF-32 は
-    /// この方法では判定できないので、解析に回す(true を返す)。
-    static func mayContainImageElement(_ data: Data) -> Bool {
-        let head = data.prefix(4)
-        if head.contains(0) || head.starts(with: [0xFE, 0xFF])
-            || head.starts(with: [0xFF, 0xFE]) {
-            return true
-        }
-        return data.range(of: Data("img".utf8)) != nil
-            || data.range(of: Data("image".utf8)) != nil
-    }
-
-    /// 固定レイアウトのページの構造情報(ビューポート・画像だけのページの検出・
-    /// 見開き内の配置)。リフローの本の spine 項目についても、ビューポートなしの
-    /// 情報を返す。
-    ///
-    /// Structural information about an FXL page (viewport, single-image-page
-    /// detection, spread placement). Also returns viewport-less info for the
-    /// spine items of a reflowable book.
-    public func fixedLayoutInfo(forSpineIndex index: Int) throws -> FixedLayoutPageInfo {
-        guard readingOrder.indices.contains(index) else {
-            throw EPUBError.resourceNotFound("spine index \(index)")
-        }
-        let entry = readingOrder[index]
-        // page-spread は接頭辞なし(EPUB 3.0 遺物)と rendition: 付き
-        // (EPUB 3.1+)の両同義形を受ける
-        let props = entry.itemRef.properties
-        func hasSpread(_ slot: String) -> Bool {
-            props.contains("page-spread-\(slot)")
-                || props.contains("rendition:page-spread-\(slot)")
-        }
-        let spread: PageSpreadSlot?
-        if hasSpread("left") {
-            spread = .left
-        } else if hasSpread("right") {
-            spread = .right
-        } else if hasSpread("center") {
-            spread = .center
-        } else {
-            spread = nil
-        }
-
-        let resolvedPath = entry.resolvedContainerPath
-        let data = try resource(at: resolvedPath).data
-        let mediaType = Self.normalizedMediaType(entry.resolvedItem.mediaType)
-        // cooViewer-oxr.15: Core 画像が spine 自身なら ImageIO のヘッダー情報
-        // だけで自然寸法を得て、WebKit を通さず画像そのものを表示できる。
-        if mediaType.hasPrefix("image/"), mediaType != EPUBMediaType.svg {
-            return FixedLayoutPageInfo(
-                spineIndex: index, viewportSize: Self.imagePixelSize(data),
-                viewportIsDeviceSized: false, simpleImagePath: resolvedPath,
-                pageSpread: spread)
-        }
-        // cooViewer-oxr.91: SVG 単体 spine 項目も単一 image ラッパーなら
-        // 参照画像を直接デコードできる。
-        if mediaType == EPUBMediaType.svg {
-            let document = try? WashiXML.document(from: data)
-            let root = document?.rootElement()
-            let size = root.flatMap(Self.svgSize)
-            let imagePath = root.flatMap(Self.simpleSVGImageHref).flatMap {
-                ContainerPath.resolve(base: resolvedPath, href: $0)
-            }
-            return FixedLayoutPageInfo(
-                spineIndex: index, viewportSize: size,
-                viewportIsDeviceSized: false, simpleImagePath: imagePath,
-                pageSpread: spread)
-        }
-        guard let document = try? WashiXML.document(from: data),
-              let root = document.rootElement() else {
-            return FixedLayoutPageInfo(
-                spineIndex: index, viewportSize: nil,
-                viewportIsDeviceSized: false, simpleImagePath: nil,
-                pageSpread: spread)
-        }
-        let viewport = Self.viewportDescription(in: root)
-            ?? package.metadata.rendition.viewport.flatMap(Self.parseViewportDescription)
-        let imageHref = Self.simpleImageHref(in: root)
-        let imagePath = imageHref.flatMap {
-            ContainerPath.resolve(base: resolvedPath, href: $0)
-        }
-        return FixedLayoutPageInfo(
-            spineIndex: index, viewportSize: viewport?.size,
-            viewportIsDeviceSized: viewport?.isDeviceSized ?? false,
-            simpleImagePath: imagePath, pageSpread: spread)
-    }
-
-    /// <meta name="viewport" content="width=1200, height=1920"> の解析
-    private static func viewportDescription(in root: XMLElement) -> ParsedViewport? {
-        guard let head = firstDescendant("head", in: root) else { return nil }
-        for meta in descendants("meta", in: head) {
-            guard meta.attr("name") == "viewport",
-                  let content = meta.attr("content") else { continue }
-            if let viewport = parseViewportDescription(content) { return viewport }
-        }
-        return nil
-    }
-
-    static func parseViewportContent(_ content: String) -> CGSize? {
-        parseViewportDescription(content)?.size
-    }
-
-    private struct ParsedViewport {
-        let size: CGSize?
-        let isDeviceSized: Bool
-    }
-
-    /// cooViewer-oxr.50: device-width/device-height は数値欠落ではなく、表示先
-    /// 寸法へ追従する明示指定として保持する。
-    private static func parseViewportDescription(_ content: String) -> ParsedViewport? {
-        var width: Double?
-        var height: Double?
-        var sawWidth = false
-        var sawHeight = false
-        var isDeviceSized = false
-        for pair in content.split(whereSeparator: { $0 == "," || $0 == ";" }) {
-            let parts = pair.split(separator: "=", maxSplits: 1)
-            guard parts.count == 2 else { continue }
-            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-            let rawValue = parts[1]
-                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            // 最初の width/height 宣言だけを使う(EPUB RS 3.3 §8.1.2)
-            if key == "width", !sawWidth {
-                sawWidth = true
-                if rawValue == "device-width" {
-                    isDeviceSized = true
-                } else {
-                    width = leadingNumber(rawValue)
-                }
-            }
-            if key == "height", !sawHeight {
-                sawHeight = true
-                if rawValue == "device-height" {
-                    isDeviceSized = true
-                } else {
-                    height = leadingNumber(rawValue)
-                }
-            }
-        }
-        if isDeviceSized {
-            return ParsedViewport(size: nil, isDeviceSized: true)
-        }
-        guard let width, let height, width > 0, height > 0 else { return nil }
-        return ParsedViewport(size: CGSize(width: width, height: height),
-                              isDeviceSized: false)
-    }
-
-    /// "500px" → 500 の数値サルベージ(EPUB RS 3.3 §8.1.2 の寛容処理)
-    private static func leadingNumber(_ text: String) -> Double? {
-        var numeric = ""
-        for ch in text {
-            if ch.isNumber || (ch == "." && !numeric.contains(".")) {
-                numeric.append(ch)
-            } else {
-                break
-            }
-        }
-        return Double(numeric)
-    }
-
-    /// SVG ルートの寸法(viewBox 優先、なければ width/height 属性)
-    private static func svgSize(_ root: XMLElement) -> CGSize? {
-        if let viewBox = root.attr("viewBox") {
-            let numbers = viewBox
-                .split(whereSeparator: { $0 == " " || $0 == "," })
-                .compactMap { Double($0) }
-            if numbers.count == 4, numbers[2] > 0, numbers[3] > 0 {
-                return CGSize(width: numbers[2], height: numbers[3])
-            }
-        }
-        if let width = root.attr("width").flatMap(parseCSSLength),
-           let height = root.attr("height").flatMap(parseCSSLength) {
-            return CGSize(width: width, height: height)
-        }
-        return nil
-    }
-
-    private static func parseCSSLength(_ value: String) -> Double? {
-        Double(value.trimmingCharacters(
-            in: CharacterSet(charactersIn: "pxt ")))
-    }
-
-    /// cooViewer-oxr.15: 完全デコードせず ImageIO のプロパティから画素寸法を得る。
-    private static func imagePixelSize(_ data: Data) -> CGSize? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(
-                source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
-              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber
-        else { return nil }
-        let size = CGSize(width: width.doubleValue, height: height.doubleValue)
-        guard size.width.isFinite, size.height.isFinite,
-              size.width > 0, size.height > 0 else { return nil }
-        return size
-    }
-
-    /// cooViewer-oxr.91: 非描画メタデータを除き、唯一の描画内容が image の
-    /// SVG だけを直接画像ページとして扱う。
-    private static func simpleSVGImageHref(in root: XMLElement) -> String? {
-        guard root.localName?.lowercased() == "svg" else { return nil }
-        let ignored: Set<String> = ["title", "desc", "defs", "metadata"]
-        let structural: Set<String> = ["svg", "g", "a"]
-        var hrefs: [String?] = []
-        var hasUnsupportedContent = false
-
-        func inspect(_ element: XMLElement) {
-            for node in element.children ?? [] {
-                if node.kind == .text {
-                    if !(node.stringValue ?? "").trimmingCharacters(
-                        in: .whitespacesAndNewlines).isEmpty {
-                        hasUnsupportedContent = true
-                    }
-                    continue
-                }
-                guard node.kind == .element,
-                      let child = node as? XMLElement,
-                      let localName = child.localName?.lowercased()
-                else { continue }
-                if ignored.contains(localName) { continue }
-                if localName == "text" {
-                    hasUnsupportedContent = true
-                } else if localName == "image" {
-                    hrefs.append(child.attribute(
-                        forLocalName: "href", uri: XMLNamespace.xlink)?.stringValue
-                        ?? child.attr("xlink:href") ?? child.attr("href"))
-                } else if structural.contains(localName) {
-                    inspect(child)
-                } else {
-                    hasUnsupportedContent = true
-                }
-            }
-        }
-
-        inspect(root)
-        guard !hasUnsupportedContent, hrefs.count == 1,
-              let href = hrefs[0]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !href.isEmpty else { return nil }
-        return href
-    }
-
-    // cooViewer-oxr.6: 可視本文がなく、img / svg image の参照先が
-    // 重複を除いて 1 種類だけの XHTML なら画像 href を返す。
-    private static func simpleImageHref(in root: XMLElement) -> String? {
-        guard let body = firstDescendant("body", in: root) else { return nil }
-        // cooViewer-oxr.6: ReaderScripts と同じ可視テキスト・同一 src の判定。
-        // style/script や隠された代替文、KCC のパネル用複製で表紙を除外しない。
-        guard body.normalizedVisibleText.isEmpty else { return nil }
-        let imgs = descendants("img", in: body)
-        let svgImages = descendants("svg", in: body).flatMap { descendants("image", in: $0) }
-        let sources = imgs.map { $0.attr("src") } + svgImages.map { image in
-            image.attribute(forLocalName: "href", uri: XMLNamespace.xlink)?.stringValue
-                ?? image.attr("xlink:href")
-                ?? image.attr("href")
-        }
-        guard !sources.isEmpty, sources.allSatisfy({
-            guard let source = $0 else { return false }
-            return !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }) else { return nil }
-        let uniqueSources = Set(sources.compactMap { $0 })
-        return uniqueSources.count == 1 ? uniqueSources.first : nil
-    }
-
-    // 別ファイルの extension(本文抽出)からも使うため internal
-    static func firstDescendant(_ localName: String,
-                                in element: XMLElement) -> XMLElement? {
-        for node in element.children ?? [] {
-            guard let child = node as? XMLElement else { continue }
-            if child.localName == localName { return child }
-            if let found = firstDescendant(localName, in: child) { return found }
-        }
-        return nil
-    }
-
-    private static func descendants(_ localName: String,
-                                    in element: XMLElement) -> [XMLElement] {
-        var result: [XMLElement] = []
-        for node in element.children ?? [] {
-            guard let child = node as? XMLElement else { continue }
-            if child.localName == localName { result.append(child) }
-            result.append(contentsOf: descendants(localName, in: child))
-        }
-        return result
     }
 }
