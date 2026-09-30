@@ -25,7 +25,7 @@ extension EPUBReaderView {
         let source = publication.readingOrder[sourceSpineIndex]
 
         guard sourceSpineIndex == currentSpineIndex,
-              !isLoadingSpineItem, let webView else {
+              !spineLoad.isLoadingSpineItem, let webView else {
             // cooViewer-oxr.32: 別 spine は UI actor を塞がず Core の XML 抽出で読む。
             let text = await Task.detached(priority: .userInitiated) {
                 publication.noteText(
@@ -40,66 +40,8 @@ extension EPUBReaderView {
         // cooViewer-oxr.32: fragment は EPUB 由来なので JS 本文へ埋め込まず、
         // callAsyncJavaScript の引数として WebKit に渡す。
         let generation = spineLoadGeneration
-        let result = await callWashiAsync(
-            """
-            const document = __washi.activeDocument ? __washi.activeDocument() : window.document;
-            function epubTypeOf(element) {
-                return element.getAttributeNS(
-                    'http://www.idpf.org/2007/ops', 'type')
-                    || element.getAttribute('epub:type') || '';
-            }
-            function isNoteContainer(element) {
-                const tag = (element.localName || '').toLowerCase();
-                if (tag !== 'aside' && tag !== 'section') { return false; }
-                const types = epubTypeOf(element).toLowerCase()
-                    .split(/\\s+/).filter(Boolean);
-                const role = (element.getAttribute('role') || '').toLowerCase();
-                return types.includes('footnote') || types.includes('endnote')
-                    || types.includes('rearnote')
-                    || role === 'doc-footnote' || role === 'doc-endnote';
-            }
-            const target = document.getElementById(fragment);
-            if (!target) { return { found: false, text: '', html: '' }; }
-            let selected = target;
-            const targetTag = (target.localName || '').toLowerCase();
-            if (targetTag === 'li' || targetTag === 'p') {
-                let ancestor = target.parentElement;
-                while (ancestor) {
-                    if (isNoteContainer(ancestor)) {
-                        selected = ancestor;
-                        break;
-                    }
-                    ancestor = ancestor.parentElement;
-                }
-            }
-            const copy = selected.cloneNode(true);
-            // cooViewer-oxr.32: 戻り先が不明な公開 link 値にも一貫して
-            // 対応するため、注釈内の fragment-only anchor をすべて除く。
-            for (const candidate of Array.from(copy.getElementsByTagName('*'))) {
-                if ((candidate.localName || '').toLowerCase() !== 'a') { continue; }
-                const href = candidate.getAttribute('href')
-                    || candidate.getAttributeNS(
-                        'http://www.w3.org/1999/xlink', 'href') || '';
-                if (href.trim().startsWith('#')) { candidate.remove(); }
-            }
-            const html = copy.innerHTML;
-            const staging = document.createElement('div');
-            staging.style.cssText = 'position:fixed;left:-100000px;top:0;'
-                + 'width:1000px;opacity:0;pointer-events:none;z-index:-2147483648;';
-            staging.style.setProperty('display', 'block', 'important');
-            copy.removeAttribute('hidden');
-            copy.style.setProperty('display', 'block', 'important');
-            staging.appendChild(copy);
-            (document.body || document.documentElement).appendChild(staging);
-            let text = '';
-            try {
-                text = typeof copy.innerText === 'string'
-                    ? copy.innerText : (copy.textContent || '');
-            }
-            finally { staging.remove(); }
-            return { found: true, text: text, html: html };
-            """,
-            arguments: ["fragment": fragment], in: webView)
+        let result = await callWashi(Self.noteContentScript,
+                                     arguments: ["fragment": fragment], in: webView)
         guard webView === self.webView,
               generation == spineLoadGeneration,
               currentSpineIndex == sourceSpineIndex,
@@ -112,6 +54,67 @@ extension EPUBReaderView {
                                sourceSpineIndex: sourceSpineIndex)
     }
 
+    /// 表示中の文書から注釈の本文と内側の HTML を取り出す JS(引数 fragment は id)。
+    /// li / p が指されたら注釈コンテナ(aside / section)まで遡り、戻りリンクを除く
+    private static let noteContentScript = """
+        const document = __washi.activeDocument ? __washi.activeDocument() : window.document;
+        function epubTypeOf(element) {
+            return element.getAttributeNS(
+                'http://www.idpf.org/2007/ops', 'type')
+                || element.getAttribute('epub:type') || '';
+        }
+        function isNoteContainer(element) {
+            const tag = (element.localName || '').toLowerCase();
+            if (tag !== 'aside' && tag !== 'section') { return false; }
+            const types = epubTypeOf(element).toLowerCase()
+                .split(/\\s+/).filter(Boolean);
+            const role = (element.getAttribute('role') || '').toLowerCase();
+            return types.includes('footnote') || types.includes('endnote')
+                || types.includes('rearnote')
+                || role === 'doc-footnote' || role === 'doc-endnote';
+        }
+        const target = document.getElementById(fragment);
+        if (!target) { return { found: false, text: '', html: '' }; }
+        let selected = target;
+        const targetTag = (target.localName || '').toLowerCase();
+        if (targetTag === 'li' || targetTag === 'p') {
+            let ancestor = target.parentElement;
+            while (ancestor) {
+                if (isNoteContainer(ancestor)) {
+                    selected = ancestor;
+                    break;
+                }
+                ancestor = ancestor.parentElement;
+            }
+        }
+        const copy = selected.cloneNode(true);
+        // cooViewer-oxr.32: 戻り先が不明な公開 link 値にも一貫して
+        // 対応するため、注釈内の fragment-only anchor をすべて除く。
+        for (const candidate of Array.from(copy.getElementsByTagName('*'))) {
+            if ((candidate.localName || '').toLowerCase() !== 'a') { continue; }
+            const href = candidate.getAttribute('href')
+                || candidate.getAttributeNS(
+                    'http://www.w3.org/1999/xlink', 'href') || '';
+            if (href.trim().startsWith('#')) { candidate.remove(); }
+        }
+        const html = copy.innerHTML;
+        const staging = document.createElement('div');
+        staging.style.cssText = 'position:fixed;left:-100000px;top:0;'
+            + 'width:1000px;opacity:0;pointer-events:none;z-index:-2147483648;';
+        staging.style.setProperty('display', 'block', 'important');
+        copy.removeAttribute('hidden');
+        copy.style.setProperty('display', 'block', 'important');
+        staging.appendChild(copy);
+        (document.body || document.documentElement).appendChild(staging);
+        let text = '';
+        try {
+            text = typeof copy.innerText === 'string'
+                ? copy.innerText : (copy.textContent || '');
+        }
+        finally { staging.remove(); }
+        return { found: true, text: text, html: html };
+        """
+
     /// href からフラグメントを取り出す。split は空要素を落とすため
     /// "#note1" のような同一文書内リンクで壊れないよう firstIndex で切る
     static func fragment(of href: String) -> String? {
@@ -123,6 +126,13 @@ extension EPUBReaderView {
         return encoded.removingPercentEncoding ?? encoded
     }
 
+    /// 外部 URL を delegate が拒否しなければ既定のアプリで開く(delegate 未設定は許可)
+    func openExternalURLIfAllowed(_ url: URL) {
+        if delegate?.readerView(self, shouldOpenExternalURL: url) ?? true {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func handleLink(_ message: [String: Any]) {
         guard let publication,
               publication.readingOrder.indices.contains(currentSpineIndex),
@@ -130,9 +140,7 @@ extension EPUBReaderView {
         // 外部リンク(スキーム付き)
         if let url = URL(string: href), let scheme = url.scheme?.lowercased(),
            ["http", "https", "mailto"].contains(scheme) {
-            if delegate?.readerView(self, shouldOpenExternalURL: url) ?? true {
-                NSWorkspace.shared.open(url)
-            }
+            openExternalURLIfAllowed(url)
             return
         }
         let currentPath = publication.readingOrder[currentSpineIndex]

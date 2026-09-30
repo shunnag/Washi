@@ -124,11 +124,11 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         message: String? = nil, file: StaticString = #filePath, line: UInt = #line
     ) async throws -> EPUBReaderView.PrefetchedPageCover {
         let ready = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            guard let cover = view.prefetchedPageCover else { return false }
+            guard let cover = view.pageCover.prefetchedPageCover else { return false }
             return cover.image !== old
         }
         return try XCTUnwrap(
-            ready ? view.prefetchedPageCover : nil,
+            ready ? view.pageCover.prefetchedPageCover : nil,
             message ?? (old == nil
                 ? "初回の控え A を撮影できない。画面外のウインドウで撮影できる前提を確認する"
                 : "控えの撮り直しが時間切れになった"),
@@ -143,7 +143,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         var moves = delegate.moveCount
         var stableSince = ContinuousClock.now
         let settled = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            guard let cover = view.prefetchedPageCover else {
+            guard let cover = view.pageCover.prefetchedPageCover else {
                 stableSince = .now
                 return false
             }
@@ -154,7 +154,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             }
             return ContinuousClock.now - stableSince >= .milliseconds(300)
         }
-        return try XCTUnwrap(settled ? view.prefetchedPageCover : nil,
+        return try XCTUnwrap(settled ? view.pageCover.prefetchedPageCover : nil,
                              "移動回数と控えが安定するまでの待ちが時間切れになった")
     }
 
@@ -288,11 +288,11 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertEqual(web.alphaValue, 0, "ページ割り前の文書を見せない")
 
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            delegate.moveCount > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
+            delegate.moveCount > moves && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored, "次の読み込みのコミットと setup の後に表示が戻る")
         XCTAssertEqual(view.currentSpineIndex, 2)
-        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(view.turn.pendingSpineTurn)
     }
 
     /// 修正の前後とも成功する、ガードの広げすぎを防ぐテスト。
@@ -371,7 +371,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertTrue(labels.allSatisfy(\.isHidden), "読み込み直しの間は隠す")
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             delegate.moveCount > previousMoves && (try? view.firstWebView().alphaValue) == 1
-                && view.pendingSpineTurn == nil
+                && view.turn.pendingSpineTurn == nil
         }
         XCTAssertTrue(restored)
         XCTAssertEqual(labels.filter { !$0.isHidden }.map(\.stringValue), previousLabels)
@@ -392,14 +392,14 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.handleScriptMessage(["type": "boundary", "forward": true])
         XCTAssertEqual(delegate.failures.count, 0)
         XCTAssertEqual(view.currentSpineIndex, 2)
-        XCTAssertTrue(view.pendingSpineTurn?.cover === cover)
+        XCTAssertTrue(view.turn.pendingSpineTurn?.cover === cover)
         XCTAssertTrue(labels.allSatisfy(\.isHidden))
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
             delegate.moveCount > previousMoves && (try? view.firstWebView().alphaValue) == 1
-                && view.turnOverlays.isEmpty
+                && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
-        XCTAssertTrue(view.turnOverlays.isEmpty)
+        XCTAssertTrue(view.turn.turnOverlays.isEmpty)
         XCTAssertTrue(labels.contains { !$0.isHidden })
     }
 
@@ -413,12 +413,12 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         XCTAssertGreaterThan(meanLuminance(initial.image), 0.6, "初回の控えは明るい配色で撮る")
 
         view.settings.theme = .dark
-        XCTAssertNil(view.prefetchedPageCover, "古い配色の控えはその場で捨てる")
+        XCTAssertNil(view.pageCover.prefetchedPageCover, "古い配色の控えはその場で捨てる")
         let updated = try await waitForCover(view, replacing: initial.image)
         XCTAssertLessThan(meanLuminance(updated.image), 0.4, "撮り直した控えは暗い配色を反映する")
 
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === updated.image, "新しい配色の控えを取り置く")
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === updated.image, "新しい配色の控えを取り置く")
     }
 
     func testAppearanceOnlyChangesRetakeTheCover() async throws {
@@ -439,9 +439,9 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             let old = current
             change()
             if dropsCover {
-                XCTAssertNil(view.prefetchedPageCover, "\(stage): 古い見た目の控えはその場で捨てる")
+                XCTAssertNil(view.pageCover.prefetchedPageCover, "\(stage): 古い見た目の控えはその場で捨てる")
             } else {
-                XCTAssertTrue(view.prefetchedPageCover?.image === old.image,
+                XCTAssertTrue(view.pageCover.prefetchedPageCover?.image === old.image,
                               "\(stage): 撮り直すまで前の控えを残す")
             }
             current = try await waitForCover(
@@ -449,7 +449,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         }
 
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === current.image, "最後に撮り直した控えを取り置く")
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === current.image, "最後に撮り直した控えを取り置く")
     }
 
     func testHighlightOnAnotherItemKeepsTheCoverForTheNextMove() async throws {
@@ -460,10 +460,10 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
         view.highlights = [EPUBHighlight(
             id: "h", spineIndex: 1, utf16Offset: 0, utf16Length: 2)]
-        XCTAssertTrue(view.prefetchedPageCover?.image === a.image,
+        XCTAssertTrue(view.pageCover.prefetchedPageCover?.image === a.image,
                       "別の章のハイライトを設定しても現在の控えを残す")
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === a.image,
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === a.image,
                       "検索の例のように別の章のハイライトを設定してすぐ移動しても控えを使う")
     }
 
@@ -482,7 +482,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             let old = current
             view.mediaOverlayHighlight(fragmentID: fragmentID,
                                        cssClass: EPUBReaderView.defaultActiveClass)
-            XCTAssertTrue(view.prefetchedPageCover?.image === old.image,
+            XCTAssertTrue(view.pageCover.prefetchedPageCover?.image === old.image,
                           "\(stage): 撮り直すまで前の控えを残す")
             current = try await waitForCover(
                 view, replacing: old.image,
@@ -491,7 +491,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
         XCTAssertEqual(delegate.moveCount, moves, "ページを送らずに控えだけを撮り直す")
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === current.image, "最後に撮り直した控えを取り置く")
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === current.image, "最後に撮り直した控えを取り置く")
     }
 
     func testChapterAdvanceBeforeTheRetakeKeepsThePreviousCover() async throws {
@@ -502,7 +502,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
         view.mediaOverlayHighlight(fragmentID: "sec1", cssClass: EPUBReaderView.defaultActiveClass)
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === a.image,
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === a.image,
                       "撮り直しが章送りに間に合わなくても、前の控えを取り置く")
     }
 
@@ -562,11 +562,11 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             size: a.size, fontScale: a.fontScale))
 
         view.viewDidChangeBackingProperties()
-        XCTAssertNil(view.prefetchedPageCover, "倍率の違う控えはその場で捨てる")
+        XCTAssertNil(view.pageCover.prefetchedPageCover, "倍率の違う控えはその場で捨てる")
         let b = try await waitForCover(view, replacing: a.image)
         XCTAssertEqual(b.backingScale, window.backingScaleFactor)
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === b.image, "新しい倍率の控えを取り置く")
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === b.image, "新しい倍率の控えを取り置く")
     }
 
     func testSameBackingScaleKeepsTheCover() async throws {
@@ -576,7 +576,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         let a = try await waitForCover(view)
 
         view.viewDidChangeBackingProperties()
-        XCTAssertTrue(view.prefetchedPageCover?.image === a.image, "倍率が同じなら控えを残す")
+        XCTAssertTrue(view.pageCover.prefetchedPageCover?.image === a.image, "倍率が同じなら控えを残す")
     }
 
     func testNonAppearanceSettingKeepsTheCover() async throws {
@@ -586,7 +586,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         let a = try await waitForCover(view)
 
         view.settings.handlesKeyboardNavigation.toggle()
-        XCTAssertTrue(view.prefetchedPageCover?.image === a.image,
+        XCTAssertTrue(view.pageCover.prefetchedPageCover?.image === a.image,
                       "キー操作の設定を変えても現在の控えを残す")
     }
 
@@ -600,7 +600,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         settings.theme = .dark
         settings.lineHeightScale = 1.8
         view.settings = settings
-        XCTAssertNil(view.prefetchedPageCover, "配色と組版を一緒に変えても古い控えはその場で捨てる")
+        XCTAssertNil(view.pageCover.prefetchedPageCover, "配色と組版を一緒に変えても古い控えはその場で捨てる")
         let updated = try await waitForCover(view, replacing: initial.image)
         XCTAssertLessThan(meanLuminance(updated.image), 0.4, "組版後の控えは暗い配色を反映する")
     }
@@ -616,7 +616,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             view.isWindowOnScreenOverride = false
             NotificationCenter.default.post(
                 name: NSWindow.didChangeOcclusionStateNotification, object: window)
-            XCTAssertNil(view.prefetchedPageCover, "\(notification.rawValue): 画面外では控えを捨てる")
+            XCTAssertNil(view.pageCover.prefetchedPageCover, "\(notification.rawValue): 画面外では控えを捨てる")
 
             view.isWindowOnScreenOverride = true
             NotificationCenter.default.post(name: notification, object: window)
@@ -626,7 +626,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         }
 
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === current.image, "画面に戻った後の控えを取り置く")
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === current.image, "画面に戻った後の控えを取り置く")
     }
 
     func testFixedLayoutCoverIsRetakenWhenTheViewIsShownAgain() async throws {
@@ -637,12 +637,12 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         let initial = try await waitForCover(view)
 
         view.isHidden = true
-        XCTAssertNil(view.prefetchedPageCover, "固定レイアウトでも隠すときに控えを捨てる")
+        XCTAssertNil(view.pageCover.prefetchedPageCover, "固定レイアウトでも隠すときに控えを捨てる")
         view.isHidden = false
         let updated = try await waitForCover(view, replacing: initial.image)
 
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === updated.image, "再表示後の固定レイアウトの控えを取り置く")
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === updated.image, "再表示後の固定レイアウトの控えを取り置く")
     }
 
     func testSwitchingOffPageTurnAnimationTakesTheCover() async throws {
@@ -653,9 +653,9 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         // 既存の差し替え口で目印を置き、演出ありの撮影処理が捨てるまで待つ。
         view.setPrefetchedPageCoverForTesting(cover(for: view, rect: view.bounds))
         view.schedulePageCoverPrefetch()
-        let cleared = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { view.prefetchedPageCover == nil }
+        let cleared = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) { view.pageCover.prefetchedPageCover == nil }
         XCTAssertTrue(cleared, "演出ありの撮影処理が控えを捨てて完了する")
-        XCTAssertNil(view.prefetchedPageCover, "演出ありの送りでは控えを撮らない")
+        XCTAssertNil(view.pageCover.prefetchedPageCover, "演出ありの送りでは控えを撮らない")
 
         view.settings.pageTurnStyle = .none
         _ = try await waitForCover(view, message: "演出を無効にした後の控えの撮影が時間切れになった")
@@ -718,21 +718,21 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.setPrefetchedPageCoverForTesting(prepared)
 
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === prepared.image, "離れるページの控えを取り置く")
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image, "離れるページの控えを取り置く")
         let installed = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            view.pendingSpineTurn?.cover.image === prepared.image
+            view.turn.pendingSpineTurn?.cover.image === prepared.image
         }
         XCTAssertTrue(installed, "didCommit でカバーとして貼られる")
-        let cover = try XCTUnwrap(view.pendingSpineTurn?.cover)
+        let cover = try XCTUnwrap(view.turn.pendingSpineTurn?.cover)
         XCTAssertEqual(cover.frame, rect, "撮った矩形に置く")
-        XCTAssertTrue(view.turnOverlays.contains { $0 === cover })
+        XCTAssertTrue(view.turn.turnOverlays.contains { $0 === cover })
         XCTAssertEqual(try view.firstWebView().alphaValue, 0)
 
         let folded = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            (try? view.firstWebView().alphaValue) == 1 && view.turnOverlays.isEmpty
+            (try? view.firstWebView().alphaValue) == 1 && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(folded, "表示が戻ったらカバーを畳む")
-        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(view.turn.pendingSpineTurn)
     }
 
     /// 演出ありの送り(既定の slide)では控えを使わない
@@ -749,7 +749,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             for: view, rect: view.bounds,
             spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem))
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertNil(view.armedSpineCover)
+        XCTAssertNil(view.pageCover.armedSpineCover)
     }
 
     /// 視差効果を減らす設定では演出が省かれるので、slide でも控えを使う
@@ -765,7 +765,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
                              spineIndex: view.currentSpineIndex, pageInItem: view.pageInItem)
         view.setPrefetchedPageCoverForTesting(prepared)
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === prepared.image)
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image)
     }
 
     /// 前の本の控えを次の本に貼らない
@@ -777,13 +777,13 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.load(publication: try makePublication("washi-book-a"))
         view.setPrefetchedPageCoverForTesting(cover(for: view, rect: view.bounds))
         view.load(publication: try makePublication("washi-book-b"))
-        XCTAssertNil(view.prefetchedPageCover)
-        XCTAssertNil(view.armedSpineCover)
+        XCTAssertNil(view.pageCover.prefetchedPageCover)
+        XCTAssertNil(view.pageCover.armedSpineCover)
 
         view.setPrefetchedPageCoverForTesting(cover(for: view, rect: view.bounds))
         view.unload()
-        XCTAssertNil(view.prefetchedPageCover)
-        XCTAssertNil(view.armedSpineCover)
+        XCTAssertNil(view.pageCover.prefetchedPageCover)
+        XCTAssertNil(view.pageCover.armedSpineCover)
     }
 
     /// 控えが無い遷移はカバー無しで最後まで進む
@@ -800,13 +800,13 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.setPrefetchedPageCoverForTesting(nil)
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
         view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
-        XCTAssertNil(view.armedSpineCover)
-        XCTAssertNil(view.prefetchedPageCover)
+        XCTAssertNil(view.pageCover.armedSpineCover)
+        XCTAssertNil(view.pageCover.prefetchedPageCover)
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            (try? view.firstWebView().alphaValue) == 1 && view.turnOverlays.isEmpty
+            (try? view.firstWebView().alphaValue) == 1 && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
-        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(view.turn.pendingSpineTurn)
     }
 
     // MARK: - 連続した移動での控えの引き継ぎ(Washi-3b1)
@@ -827,27 +827,27 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         // await を挟まず、前の読み込みのコミットを待つ間に次の移動が始まる順序を再現する
         view.setPrefetchedPageCoverForTesting(prepared)
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === prepared.image, "離れるページの控えを取り置く")
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image, "離れるページの控えを取り置く")
         let superseded = try XCTUnwrap(view.currentNavigation)
         view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === prepared.image,
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image,
                       "前のページが見えている間は、取り置いた控えを次の移動に引き継ぐ")
         XCTAssertEqual(web.alphaValue, 1)
         view.webView(web, didCommit: superseded)
-        XCTAssertTrue(view.pendingSpineTurn?.cover.image === prepared.image,
+        XCTAssertTrue(view.turn.pendingSpineTurn?.cover.image === prepared.image,
                       "置き換えた読み込みのコミットで控えを貼る")
-        XCTAssertEqual(view.pendingSpineTurn?.animated, false)
-        XCTAssertEqual(view.pendingSpineTurn?.cover.frame, rect, "撮った矩形に置く")
-        XCTAssertEqual(view.turnOverlays.count, 1)
-        XCTAssertNil(view.armedSpineCover)
+        XCTAssertEqual(view.turn.pendingSpineTurn?.animated, false)
+        XCTAssertEqual(view.turn.pendingSpineTurn?.cover.frame, rect, "撮った矩形に置く")
+        XCTAssertEqual(view.turn.turnOverlays.count, 1)
+        XCTAssertNil(view.pageCover.armedSpineCover)
         XCTAssertEqual(web.alphaValue, 0)
 
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            delegate.moveCount > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
+            delegate.moveCount > moves && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored, "最新の項目の表示が戻ったら控えを畳む")
         XCTAssertEqual(view.currentSpineIndex, 2)
-        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(view.turn.pendingSpineTurn)
         XCTAssertTrue(delegate.failures.isEmpty)
     }
 
@@ -866,20 +866,20 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.setPrefetchedPageCoverForTesting(prepared)
         view.goForward()
         XCTAssertEqual(view.currentSpineIndex, 1)
-        XCTAssertNil(view.pendingSpineTurn, "視差効果を減らす設定では演出のカバーを作らない")
-        XCTAssertTrue(view.armedSpineCover?.image === prepared.image)
+        XCTAssertNil(view.turn.pendingSpineTurn, "視差効果を減らす設定では演出のカバーを作らない")
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image)
         view.goForward()
         XCTAssertEqual(view.currentSpineIndex, 2)
-        XCTAssertTrue(view.armedSpineCover?.image === prepared.image,
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image,
                       "キーの長押しでも前のページの控えを引き継ぐ")
 
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            delegate.moveCount > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
+            delegate.moveCount > moves && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
         XCTAssertEqual(view.currentSpineIndex, 2)
-        XCTAssertNil(view.pendingSpineTurn)
-        XCTAssertNil(view.armedSpineCover)
+        XCTAssertNil(view.turn.pendingSpineTurn)
+        XCTAssertNil(view.pageCover.armedSpineCover)
         XCTAssertTrue(delegate.failures.isEmpty)
     }
 
@@ -899,20 +899,20 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.setPrefetchedPageCoverForTesting(prepared)
         for index in [1, 2, 1] {
             view.go(to: EPUBLocator(spineIndex: index, progression: 0))
-            XCTAssertTrue(view.armedSpineCover?.image === prepared.image, "\(index) への移動")
+            XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image, "\(index) への移動")
         }
         // 修正前は控えが貼られず、この待ちは 8 秒で時間切れになる
         let installed = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            view.pendingSpineTurn?.cover.image === prepared.image
+            view.turn.pendingSpineTurn?.cover.image === prepared.image
         }
         XCTAssertTrue(installed, "どの読み込みのコミットが先に届いても控えを貼る")
 
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            delegate.moveCount > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
+            delegate.moveCount > moves && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
         XCTAssertEqual(view.currentSpineIndex, 1)
-        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(view.turn.pendingSpineTurn)
         XCTAssertTrue(delegate.failures.isEmpty)
     }
 
@@ -930,23 +930,23 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
             view.setPrefetchedPageCoverForTesting(prepared)
             view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-            XCTAssertNotNil(view.armedSpineCover, change)
+            XCTAssertNotNil(view.pageCover.armedSpineCover, change)
             if change == "pageTurnStyle" {
                 view.settings.pageTurnStyle = .slide
             } else {
                 view.settings.fontScale = 1.25
             }
-            XCTAssertNotNil(view.armedSpineCover,
+            XCTAssertNotNil(view.pageCover.armedSpineCover,
                             "\(change): 設定の変更そのものでは取り置きを捨てない")
             view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
-            XCTAssertNil(view.armedSpineCover, change)
+            XCTAssertNil(view.pageCover.armedSpineCover, change)
 
             let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-                delegate.moveCount > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
+                delegate.moveCount > moves && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
             }
             XCTAssertTrue(restored, change)
             XCTAssertEqual(view.currentSpineIndex, 2, change)
-            XCTAssertNil(view.pendingSpineTurn, change)
+            XCTAssertNil(view.turn.pendingSpineTurn, change)
             XCTAssertTrue(delegate.failures.isEmpty, change)
         }
     }
@@ -964,23 +964,23 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.setPrefetchedPageCoverForTesting(prepared)
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
         view.webView(web, didCommit: try XCTUnwrap(view.currentNavigation))
-        let installed = try XCTUnwrap(view.pendingSpineTurn?.cover, "コミットで控えを貼る")
+        let installed = try XCTUnwrap(view.turn.pendingSpineTurn?.cover, "コミットで控えを貼る")
         XCTAssertTrue(installed.image === prepared.image)
-        XCTAssertEqual(view.pendingSpineTurn?.animated, false)
+        XCTAssertEqual(view.turn.pendingSpineTurn?.animated, false)
         XCTAssertEqual(web.alphaValue, 0)
         // 表示が整う前に目次などで移動する
         view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
-        XCTAssertTrue(view.pendingSpineTurn?.cover === installed, "移動しても控えのカバーを畳まない")
+        XCTAssertTrue(view.turn.pendingSpineTurn?.cover === installed, "移動しても控えのカバーを畳まない")
         XCTAssertTrue(installed.superview === view)
-        XCTAssertEqual(view.turnOverlays.count, 1)
+        XCTAssertEqual(view.turn.turnOverlays.count, 1)
 
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            delegate.moveCount > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
+            delegate.moveCount > moves && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored, "最新の項目の表示が戻ったら控えを畳む")
         XCTAssertNil(installed.superview)
         XCTAssertEqual(view.currentSpineIndex, 2)
-        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(view.turn.pendingSpineTurn)
         XCTAssertTrue(delegate.failures.isEmpty)
     }
 
@@ -997,17 +997,17 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             view.setPrefetchedPageCoverForTesting(prepared)
             view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
             view.webView(web, didCommit: try XCTUnwrap(view.currentNavigation))
-            let installed = try XCTUnwrap(view.pendingSpineTurn?.cover, rebuild)
+            let installed = try XCTUnwrap(view.turn.pendingSpineTurn?.cover, rebuild)
             XCTAssertTrue(installed.image === prepared.image, rebuild)
             if rebuild == "anotherBook" {
                 view.load(publication: try makePublication("washi-chain-b"))
             } else {
                 view.settings.allowsScriptedContent.toggle()
             }
-            XCTAssertNil(view.pendingSpineTurn, rebuild)
-            XCTAssertTrue(view.turnOverlays.isEmpty, rebuild)
+            XCTAssertNil(view.turn.pendingSpineTurn, rebuild)
+            XCTAssertTrue(view.turn.turnOverlays.isEmpty, rebuild)
             XCTAssertNil(installed.superview, rebuild)
-            XCTAssertNil(view.armedSpineCover, rebuild)
+            XCTAssertNil(view.pageCover.armedSpineCover, rebuild)
         }
     }
 
@@ -1027,19 +1027,19 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotDecodeContentData),
             hasNavigation: true)
         // コミット前の復旧は最初の文書の控えを引き継ぎ、復旧のコミットで貼る。
-        XCTAssertTrue(view.armedSpineCover?.image === prepared.image)
-        XCTAssertNil(view.pendingSpineTurn)
-        XCTAssertTrue(view.turnOverlays.isEmpty)
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image)
+        XCTAssertNil(view.turn.pendingSpineTurn)
+        XCTAssertTrue(view.turn.turnOverlays.isEmpty)
         XCTAssertEqual(web.alphaValue, 1)
         XCTAssertEqual(delegate.failures.count, 1)
         XCTAssertEqual(view.currentSpineIndex, 0)
         view.webView(web, didCommit: try XCTUnwrap(view.currentNavigation))
-        XCTAssertTrue(view.pendingSpineTurn?.oldPage === prepared.image)
+        XCTAssertTrue(view.turn.pendingSpineTurn?.oldPage === prepared.image)
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            delegate.moveCount > previousMoves && web.alphaValue == 1 && view.turnOverlays.isEmpty
+            delegate.moveCount > previousMoves && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
-        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(view.turn.pendingSpineTurn)
     }
 
     func testChainedMoveThroughAScrolledItemKeepsThePreviousPageCover() async throws {
@@ -1062,17 +1062,17 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
         view.setPrefetchedPageCoverForTesting(prepared)
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === prepared.image)
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image)
         view.go(to: EPUBLocator(spineIndex: 2, progression: 0))
-        XCTAssertTrue(view.armedSpineCover?.image === prepared.image,
+        XCTAssertTrue(view.pageCover.armedSpineCover?.image === prepared.image,
                       "途中の項目がスクロールでも、見えている前のページの控えを引き継ぐ")
 
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            delegate.moveCount > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
+            delegate.moveCount > moves && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
         XCTAssertEqual(view.currentSpineIndex, 2)
-        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(view.turn.pendingSpineTurn)
         XCTAssertTrue(delegate.failures.isEmpty)
     }
 
@@ -1086,14 +1086,14 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         let cover = NSImageView(image: NSImage(size: view.bounds.size))
 
         view.installTurnCover(cover, pending: true)
-        XCTAssertEqual(view.pendingSpineTurn?.animated, true)
+        XCTAssertEqual(view.turn.pendingSpineTurn?.animated, true)
         view.go(to: EPUBLocator(spineIndex: 1, progression: 0))
-        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(view.turn.pendingSpineTurn)
         XCTAssertNil(cover.superview)
-        XCTAssertTrue(view.turnOverlays.isEmpty)
+        XCTAssertTrue(view.turn.turnOverlays.isEmpty)
 
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            delegate.moveCount > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
+            delegate.moveCount > moves && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
         XCTAssertEqual(view.currentSpineIndex, 1)
@@ -1116,30 +1116,30 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         view.goForward()
         XCTAssertEqual(view.currentSpineIndex, 1)
         view.webView(web, didCommit: try XCTUnwrap(view.currentNavigation))
-        let installed = try XCTUnwrap(view.pendingSpineTurn?.cover)
+        let installed = try XCTUnwrap(view.turn.pendingSpineTurn?.cover)
         XCTAssertTrue(installed.image === prepared.image)
         view.goForward()
         XCTAssertEqual(view.currentSpineIndex, publication.readingOrder.count - 1)
         let lastNavigation = try XCTUnwrap(view.currentNavigation)
         view.webView(web, didCommit: lastNavigation)
-        XCTAssertTrue(view.pendingSpineTurn?.cover === installed)
-        XCTAssertEqual(view.pendingSpineTurn?.animated, false)
+        XCTAssertTrue(view.turn.pendingSpineTurn?.cover === installed)
+        XCTAssertEqual(view.turn.pendingSpineTurn?.animated, false)
         // 最後の項目の setup 前にキーリピートが本の端に当たる
         view.goForward()
         XCTAssertTrue(view.currentNavigation === lastNavigation)
-        XCTAssertTrue(view.pendingSpineTurn?.cover === installed,
+        XCTAssertTrue(view.turn.pendingSpineTurn?.cover === installed,
                       "本の端でも最後の項目の表示が戻るまで控えを残す")
-        XCTAssertEqual(view.pendingSpineTurn?.animated, false)
+        XCTAssertEqual(view.turn.pendingSpineTurn?.animated, false)
         XCTAssertTrue(installed.superview === view)
-        XCTAssertEqual(view.turnOverlays.count, 1)
+        XCTAssertEqual(view.turn.turnOverlays.count, 1)
         XCTAssertEqual(web.alphaValue, 0)
 
         let restored = await waitUntil(timeout: .seconds(8), poll: .milliseconds(5)) {
-            delegate.moveCount > moves && web.alphaValue == 1 && view.turnOverlays.isEmpty
+            delegate.moveCount > moves && web.alphaValue == 1 && view.turn.turnOverlays.isEmpty
         }
         XCTAssertTrue(restored)
         XCTAssertEqual(view.currentSpineIndex, publication.readingOrder.count - 1)
-        XCTAssertNil(view.pendingSpineTurn)
+        XCTAssertNil(view.turn.pendingSpineTurn)
         XCTAssertNil(installed.superview)
         XCTAssertTrue(delegate.failures.isEmpty)
     }

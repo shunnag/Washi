@@ -38,12 +38,8 @@ extension EPUBReaderView {
             resumeDeferredVisibleWork()
             return
         }
-        pendingVisibleLayout = webView != nil
-        cancelPageCensus()
-        censusEngine?.invalidate()
-        censusEngine = nil
-        thumbnailRenderer?.invalidate()
-        thumbnailRenderer = nil
+        repagination.pendingVisibleLayout = webView != nil
+        tearDownOffscreenRenderers()
         // 遅れて届く再生開始の JS 応答も無効化し、非表示中の再生復活を防ぐ。
         pauseMediaOverlay()
         discardPageCovers()
@@ -52,17 +48,11 @@ extension EPUBReaderView {
     public override func viewDidHide() {
         super.viewDidHide()
         // cooViewer-oxr.54: 進行中の計測も隠れたビューのために継続しない。
-        pendingVisibleLayout = webView != nil
-        repaginateWork?.cancel()
-        repaginateWork = nil
-        pendingRepaginate = false
-        cancelPageCensus()
+        repagination.pendingVisibleLayout = webView != nil
+        cancelScheduledRepagination()
         // cooViewer-oxr.54: cancel 済み measure の離脱前に再表示されても同じ
         // WKWebView へ新旧 census を並走させないよう、エンジンごと交換する。
-        censusEngine?.invalidate()
-        censusEngine = nil
-        thumbnailRenderer?.invalidate()
-        thumbnailRenderer = nil
+        tearDownOffscreenRenderers()
         pauseMediaOverlay()
         discardPageCovers()
     }
@@ -75,11 +65,11 @@ extension EPUBReaderView {
     private func resumeDeferredVisibleWork() {
         guard allowsVisibleRenderingWork else { return }
         resumePendingWebContentReloadIfNeeded()
-        guard pendingVisibleLayout else {
+        guard repagination.pendingVisibleLayout else {
             scheduleCensusIfNeeded()
             return
         }
-        pendingVisibleLayout = false
+        repagination.pendingVisibleLayout = false
         guard let webView else { return }
         layoutFurniture()
         layoutVisibleContent(webView, forcePagination: true)

@@ -47,24 +47,34 @@ extension EPUBReaderView {
             }
             return
         }
+        configuredMediaOverlayController(for: publication)
+            .play(fromSpineIndex: currentSpineIndex)
+    }
+
+    /// 現在のコントローラ(無ければ本の active-class で新しく作る)に、設定の
+    /// 再生速度と読み飛ばし種別を写して返す
+    private func configuredMediaOverlayController(
+        for publication: EPUBPublication
+    ) -> MediaOverlayController {
         let activeClass = publication.metadata.mediaOverlayActiveClass
             ?? Self.defaultActiveClass
-        let controller = MediaOverlayController(
-            reader: self, publication: publication, activeClass: activeClass)
+        let controller = mediaOverlayController
+            ?? MediaOverlayController(reader: self, publication: publication,
+                                      activeClass: activeClass)
         controller.playbackRate = settings.mediaOverlayPlaybackRate
         controller.skippedTypes = settings.mediaOverlaySkippedTypes
         mediaOverlayController = controller
-        controller.play(fromSpineIndex: currentSpineIndex)
+        return controller
     }
 
     /// 章の先頭ではなく、現在のページに本文が見えているクリップから
-    /// 読み上げを開始する(cooViewer-oxr.46 C26)。ページ内に読み上げ対象が
+    /// 読み上げを開始する。ページ内に読み上げ対象が
     /// なければ、章の先頭から始める。
     ///
     /// Starts narration at the clip whose text is visible on the current page,
-    /// instead of at the start of the chapter (cooViewer-oxr.46 C26).
+    /// instead of at the start of the chapter.
     /// Falls back to the chapter start when nothing on the page is narrated.
-    public func playMediaOverlayFromCurrentPage() async {
+    public func playMediaOverlayFromCurrentPage() async {  // cooViewer-oxr.46 C26
         mediaOverlayCommandGeneration &+= 1
         let command = mediaOverlayCommandGeneration
         guard let publication,
@@ -101,9 +111,9 @@ extension EPUBReaderView {
            let candidate = candidates.first(where: { $0.identifier == visible }) {
             parIndex = candidate.index
         }
-        // The JavaScript round trip can outlive stop(), another play command,
-        // a page turn, a spine load, or even replacement of the publication.
-        // An old answer must not start narration in that newer context.
+        // JS の往復は stop()・別の再生コマンド・ページ送り・spine の読み込み・
+        // 本の差し替えより長引きうる。古い応答で、その新しい文脈の読み上げを
+        // 始めてはならない。
         guard !Task.isCancelled,
               command == mediaOverlayCommandGeneration,
               sourceContext == mediaOverlayDocumentContext(),
@@ -141,15 +151,8 @@ extension EPUBReaderView {
                                    parIndex: Int) -> Bool {
         guard self.publication === publication,
               publication.mediaOverlay(forSpineIndex: index) != nil else { return false }
-        let activeClass = publication.metadata.mediaOverlayActiveClass
-            ?? Self.defaultActiveClass
-        let controller = mediaOverlayController
-            ?? MediaOverlayController(reader: self, publication: publication,
-                                      activeClass: activeClass)
-        controller.playbackRate = settings.mediaOverlayPlaybackRate
-        controller.skippedTypes = settings.mediaOverlaySkippedTypes
-        mediaOverlayController = controller
-        controller.play(fromSpineIndex: index, parIndex: parIndex)
+        configuredMediaOverlayController(for: publication)
+            .play(fromSpineIndex: index, parIndex: parIndex)
         return true
     }
 
@@ -229,7 +232,7 @@ extension EPUBReaderView {
 
     /// 読み込み中は旧文書の読み上げハイライトを消さず、最後の要求を保留する。
     func deferMediaOverlayHighlightIfLoading(fragmentID: String?, cssClass: String) -> Bool {
-        guard isLoadingSpineItem else { return false }
+        guard spineLoad.isLoadingSpineItem else { return false }
         pendingMediaOverlayHighlight = (fragmentID, cssClass)
         return true
     }

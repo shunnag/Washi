@@ -3,13 +3,13 @@ import AppKit
 /// EPUBReaderView の柱・ノンブルと印刷ページ、アクセシビリティ:
 /// ノンブルの配置と更新、現在の印刷ページ、読み上げ用のメタデータと通知。
 extension EPUBReaderView {
-    /// cooViewer-oxr.35: native のノンブルは見た目だけの furniture なので、
+    /// native のノンブルは見た目だけの furniture なので、
     /// NSTextField に hit を奪わせず余白と同じ reader-view 入力経路へ通す。
     ///
-    /// cooViewer-oxr.35: Native folios are purely visual page furniture, so
+    /// Native folios are purely visual page furniture, so
     /// route hits through the reader-view input path used for the margins
     /// instead of letting NSTextField intercept them.
-    public override func hitTest(_ point: NSPoint) -> NSView? {
+    public override func hitTest(_ point: NSPoint) -> NSView? {  // cooViewer-oxr.35
         guard let target = super.hitTest(point) else { return nil }
         if pageNumberLabels.contains(where: {
             target === $0 || target.isDescendant(of: $0)
@@ -28,7 +28,7 @@ extension EPUBReaderView {
         // ページスロットの中心 x(見開きはノドを挟んだ半幅 2 面)
         let centers: [CGFloat]
         if pagesPerScreen == 2 {
-            let gutter = spreadGutter(forContentWidth: contentWidth)
+            let gutter = EPUBScreenMetrics.spreadGutter(forContentWidth: contentWidth)
             let pageWidth = (contentWidth - gutter) / 2
             centers = [insets.left + pageWidth / 2,
                        insets.left + contentWidth - pageWidth / 2]
@@ -51,7 +51,7 @@ extension EPUBReaderView {
     func updateFurniture() {
         let visible = settings.showsPageFurniture && publication != nil
             && !isFixedLayoutItem && !isRollItem && !isImagePage && !isImageOnlyItem
-            && !furnitureSuppressed && !isAwaitingCommit
+            && !furnitureSuppressed && !spineLoad.isAwaitingCommit
         guard visible else {
             for label in pageNumberLabels { label.isHidden = true }
             updateAccessibilityMetadata()
@@ -133,11 +133,16 @@ extension EPUBReaderView {
         setAccessibilityValue(value)
     }
 
+    /// 遅延中の読み上げ通知を取り消す(位置が変わる・通知を止める・本を替えるとき)
+    func cancelAccessibilityAnnouncement() {
+        accessibilityAnnouncementTask?.cancel()
+        accessibilityAnnouncementTask = nil
+    }
+
     /// cooViewer-oxr.37: pageChanged の短い連続を最後の確定位置へ畳み、同じ
     /// spine/page/count の重複通知を読み上げない。
     func scheduleAccessibilityPageAnnouncement() {
-        accessibilityAnnouncementTask?.cancel()
-        accessibilityAnnouncementTask = nil
+        cancelAccessibilityAnnouncement()
         guard settings.announcesPageChanges else { return }
         let identity = SettledPageIdentity(
             spineIndex: currentSpineIndex, page: pageInItem,
@@ -148,7 +153,7 @@ extension EPUBReaderView {
         accessibilityAnnouncementTask = Task { @MainActor [weak self] in
             if delay != .zero { try? await Task.sleep(for: delay) }
             guard let self, !Task.isCancelled,
-                  !self.isLoadingSpineItem,
+                  !self.spineLoad.isLoadingSpineItem,
                   self.currentSpineIndex == identity.spineIndex,
                   self.pageInItem == identity.page,
                   self.pageCountInItem == identity.pageCount else { return }

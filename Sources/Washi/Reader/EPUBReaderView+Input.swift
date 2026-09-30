@@ -52,9 +52,9 @@ extension EPUBReaderView {
             control: modifiers.contains(.control),
             command: modifiers.contains(.command))
         delegate?.readerView(self, didReceiveKey: forwarded)
-        // Washi #3(コメント): ホストが扱わなかったキーをここで消さず
-        // responder チェーンへ返す。既定は true(1.16.x までと同じ握り潰し)で、
-        // delegate 未設定も同じ扱い。WebKit を経由しないため #3 の往復は起きない。
+        // Washi #3: ホストが扱わなかったキーはここで消さず responder チェーンへ返す。
+        // shouldConsumeKey の既定は true(delegate 未設定も同じ)で、false のときだけ
+        // super.keyDown へ渡す。WebKit を経由しないため #3 の往復は起きない。
         if delegate?.readerView(self, shouldConsumeKey: forwarded) == false {
             super.keyDown(with: event)
         }
@@ -219,15 +219,7 @@ extension EPUBReaderView {
     /// イベント位置は tap/余白 click と同じ座標系。
     func contextMenu(_ menu: NSMenu, for event: NSEvent) -> NSMenu? {
         _ = effectiveContextMenuPolicy.filter(menu)
-        let location = convert(event.locationInWindow, from: nil)
-        let flags = event.modifierFlags
-        let click = EPUBClickEvent(
-            x: Double(location.x / max(1, bounds.width)),
-            y: Double(1 - location.y / max(1, bounds.height)),
-            locationInView: location,
-            button: event.buttonNumber,
-            shift: flags.contains(.shift), option: flags.contains(.option),
-            control: flags.contains(.control), command: flags.contains(.command))
+        let click = clickEvent(for: event, button: event.buttonNumber)
         guard let delegate else { return menu }
         guard let resolved = delegate.readerView(
             self, willShowContextMenu: menu, at: click) else {
@@ -271,8 +263,8 @@ extension EPUBReaderView {
     }
 
     private func notePress(_ event: NSEvent) {
-        marginPressTime = event.timestamp
-        marginPressLocation = convert(event.locationInWindow, from: nil)
+        marginPress.time = event.timestamp
+        marginPress.location = convert(event.locationInWindow, from: nil)
     }
 
     public override func mouseUp(with event: NSEvent) {
@@ -290,15 +282,22 @@ extension EPUBReaderView {
         guard bounds.contains(location),
               !(webView.map { $0.frame.contains(location) } ?? false)
         else { return false }
-        // JS の click 抑制と同じ閾値(§5.9): 30pt 超のドラッグ・1 秒超の
+        // JS の click 抑制(ReaderScripts の suppressAsGesture)と同じ閾値: 30pt 超のドラッグ・1 秒超の
         // 長押しの解放はクリックにしない(イベントは消費する)
-        guard event.timestamp - marginPressTime <= 1.0,
-              max(abs(location.x - marginPressLocation.x),
-                  abs(location.y - marginPressLocation.y)) <= 30
+        guard event.timestamp - marginPress.time <= 1.0,
+              max(abs(location.x - marginPress.location.x),
+                  abs(location.y - marginPress.location.y)) <= 30
         else { return true }
+        dispatchClick(clickEvent(for: event, button: button))
+        return true
+    }
+
+    /// ネイティブのマウスイベントを、JS の tap と同じ座標系のクリックへ写す
+    /// (y は「上端 0」の正規化。この view は非 flipped)
+    private func clickEvent(for event: NSEvent, button: Int) -> EPUBClickEvent {
+        let location = convert(event.locationInWindow, from: nil)
         let flags = event.modifierFlags
-        // y は JS の tap と同じ「上端 0」の正規化(この view は非 flipped)
-        dispatchClick(EPUBClickEvent(
+        return EPUBClickEvent(
             x: Double(location.x / max(1, bounds.width)),
             y: Double(1 - location.y / max(1, bounds.height)),
             locationInView: location,
@@ -306,8 +305,7 @@ extension EPUBReaderView {
             shift: flags.contains(.shift),
             option: flags.contains(.option),
             control: flags.contains(.control),
-            command: flags.contains(.command)))
-        return true
+            command: flags.contains(.command))
     }
 
     public override func scrollWheel(with event: NSEvent) {
@@ -318,26 +316,10 @@ extension EPUBReaderView {
             super.scrollWheel(with: event)
             return
         }
-        // JS 側と同じ「1 ジェスチャ = 1 ページ」量子化(250ms 静穏で解除・
-        // 軸は最初のイベントで確定)。慣性はラッチが飲み込む
-        if event.timestamp - marginWheelLastTime > 0.25 {
-            marginWheelLatched = false
-            marginWheelAccumulator = 0
-            marginWheelHorizontal =
-                abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
-        }
-        marginWheelLastTime = event.timestamp
-        guard !marginWheelLatched else { return }
-        let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 40
-        marginWheelAccumulator += scale * (marginWheelHorizontal
-            ? event.scrollingDeltaX : event.scrollingDeltaY)
-        guard abs(marginWheelAccumulator) >= 50 else { return }
-        let positive = marginWheelAccumulator > 0
-        marginWheelAccumulator = 0
-        marginWheelLatched = true
+        guard let (horizontal, positive) = marginWheelLatch.register(event) else { return }
         // AppKit の scrollingDelta は DOM の wheel と符号が逆(正=文書の
         // 先頭方向へのスクロール)なので、JS の wheelTurn と対になる写像
-        if marginWheelHorizontal {
+        if horizontal {
             // 水平めくりはホスト設定でゲート・反転できる(ホストが自前の
             // スワイプめくりを持つ場合に二重発火を避け、綴じ方向をそろえる)
             guard settings.horizontalWheelTurnsPages else { return }

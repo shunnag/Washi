@@ -54,9 +54,9 @@ extension EPUBReaderView {
               record.counts.count == publication.readingOrder.count,
               record.releaseIdentifier == publication.metadata.releaseIdentifier
         else { return false }
-        censusCache[record.metricsKey] = record.counts
-        if record.metricsKey == censusOptionsJSON() {
-            censusKey = record.metricsKey
+        census.cache[record.metricsKey] = record.counts
+        if record.metricsKey == censusScreenMetrics.censusOptionsJSON {
+            census.key = record.metricsKey
             pageCensus = record.counts
             delegate?.readerViewDidUpdatePageCensus(self)
         }
@@ -73,7 +73,7 @@ extension EPUBReaderView {
     /// once the measurement has completed — `censusKey` alone cannot be trusted,
     /// because it is updated ahead of time when the measurement begins.
     public var pageCensusMetricsKey: String? {
-        pageCensus != nil ? censusKey : nil
+        pageCensus != nil ? census.key : nil
     }
 
     /// spine 項目の先頭ページの、本全体でのオフセット(0 始まり)。
@@ -112,14 +112,11 @@ extension EPUBReaderView {
             if remaining < count {
                 let divisions = censusProgressionDivisions(at: index, count: count)
                 let progression = divisions <= 0 ? 0 : Double(remaining) / Double(divisions)
-                return publication?.locator(forSpineIndex: index,
-                                            progression: progression)
-                    ?? EPUBLocator(spineIndex: index, progression: progression)
+                return makeLocator(spineIndex: index, progression: progression)
             }
             remaining -= count
         }
-        return publication?.locator(forSpineIndex: counts.count - 1, progression: 1)
-            ?? EPUBLocator(spineIndex: counts.count - 1, progression: 1)
+        return makeLocator(spineIndex: counts.count - 1, progression: 1)
     }
 
     /// 位置を本全体のページ番号(0 始まり)へ変換する。census 完了前、または
@@ -139,8 +136,8 @@ extension EPUBReaderView {
         // cooViewer-oxr.73: Double → Int の範囲外変換は SIGTRAP になるため、
         // locator 自身の不変条件だけに依存せず変換直前にも防御する。
         let safeProgression = Self.clampedProgression(locator.progression)
-        // Double(Int.max - 1) rounds up beyond Int.max. A clamped progression
-        // alone does not make conversion safe for a very large imported count.
+        // Double(Int.max - 1) は丸めで Int.max を超える。取り込んだ非常に大きい
+        // count では、進行率をクランプするだけでは変換が安全にならない。
         let divisions = censusProgressionDivisions(at: locator.spineIndex, count: count)
         let raw = safeProgression * Double(divisions)
         let value = divisions == count ? (raw + 0.000001).rounded(.down) : raw.rounded()
@@ -212,26 +209,24 @@ extension EPUBReaderView {
             contentSize: itemMetrics.contentSize, snapshotWidth: width)
     }
 
-    /// リフロー時のコンテンツ寸法(現在項目が FXL でも「リフロー項目なら
-    /// こうなる」寸法。census のメトリクスは現在項目に依存させない)
-    private func reflowContentSize() -> NSSize {
-        censusScreenMetrics.contentSize
-    }
-
-    /// census 用のセットアップオプション(= リフロー項目の setup と同値。
-    /// メトリクスの同一性キーとしても使う)
-    private func censusOptionsJSON() -> String {
-        censusScreenMetrics.censusOptionsJSON
-    }
-
     /// バックグラウンドの census を停止する(ホストが EPUB ビューから
     /// 離れるときに使う。次回の runSetup / layout で自動的に再予約される)。
     ///
     /// Stops the background census (for when the host leaves the EPUB view; it
     /// is naturally rescheduled by the next runSetup / layout).
     public func cancelPageCensus() {
-        censusTask?.cancel()
-        censusTask = nil
+        census.task?.cancel()
+        census.task = nil
+    }
+
+    /// census とサムネイルのオフスクリーン(不可視 NSWindow + WebContent プロセス)を
+    /// 畳む(ウインドウ離脱・非表示・本の差し替え)。次の measure / thumbnail で作り直す
+    func tearDownOffscreenRenderers() {
+        cancelPageCensus()
+        census.engine?.invalidate()
+        census.engine = nil
+        thumbnailRenderer?.invalidate()
+        thumbnailRenderer = nil
     }
 
     /// メトリクスが変わっていれば census を(デバウンス付きで)再実測する。
@@ -244,14 +239,18 @@ extension EPUBReaderView {
         // 実測を復活させ、不可視ウインドウ/プロセスが生き返るのを防ぐ。
         // 再表示されれば layout/runSetup が改めて呼ぶ)
         guard allowsVisibleRenderingWork else {
-            pendingVisibleLayout = true
+            repagination.pendingVisibleLayout = true
             return
         }
-        let key = censusOptionsJSON()
+        // census 用のセットアップオプション(= リフロー項目の setup と同値)を
+        // メトリクスの同一性キーにする。寸法は現在項目が FXL でも「リフロー項目なら
+        // こうなる」寸法(census のメトリクスは現在項目に依存させない)
+        let metrics = censusScreenMetrics
+        let key = metrics.censusOptionsJSON
         // 実測に使う寸法はキーと同じ瞬間に採る(デバウンス起床時に採ると、
         // 窓の終盤のリサイズで「旧キーに新寸法の実測」が入りキャッシュが汚れる)
-        let size = reflowContentSize()
-        if censusKey == key {
+        let size = metrics.contentSize
+        if census.key == key {
             if pageCensus != nil { return }
             // 同一メトリクスで実測中なら継続させる(spine 遷移のたびに
             // runSetup から呼ばれるため、ここで中断すると大きい本で
@@ -259,24 +258,24 @@ extension EPUBReaderView {
             // censusTask を nil に戻すので(下記 3 経路)、この分岐が再実測を
             // 塞ぐことはない。この不変条件は「censusTask の再代入は必ず先行
             // cancel を伴う」規律(下の Task 生成箇所)に依存する
-            if let censusTask, !censusTask.isCancelled { return }
+            if let task = census.task, !task.isCancelled { return }
         }
-        if let cached = censusCache[key] {
-            censusKey = key
+        if let cached = census.cache[key] {
+            census.key = key
             pageCensus = cached
             // 旧キーの計測が走っていれば止める(完走させても無駄なうえ、
             // 同じキーへ戻ったときの並走の種になる)
-            censusTask?.cancel()
+            census.task?.cancel()
             delegate?.readerViewDidUpdatePageCensus(self)
             return
         }
-        if censusFailures.shouldSkip(key) {
+        if census.failures.shouldSkip(key) {
             // cooViewer-oxr.21: 失敗台帳で再試行を省く場合も、別メトリクスの
             // 成功値を N/M・ページバーへ残してはならない。
-            if censusKey != key {
-                censusTask?.cancel()
-                censusTask = nil
-                censusKey = key
+            if census.key != key {
+                census.task?.cancel()
+                census.task = nil
+                census.key = key
                 pageCensus = nil
                 delegate?.readerViewDidUpdatePageCensus(self)
             }
@@ -289,52 +288,60 @@ extension EPUBReaderView {
             delegate?.readerViewDidUpdatePageCensus(self)
             guard request == navigationRequestGeneration else { return }
         }
-        censusKey = key
+        census.key = key
         // 規律: censusTask の再代入は必ず先行 cancel を伴う(上のガードの
         // 不変条件がこれに依存する。この規律を崩すと居座り/取り違えが再発する)
-        censusTask?.cancel()
-        let previous = censusTask
+        census.task?.cancel()
+        let previous = census.task
         // オフスクリーン WebKit のジョブは明示 .userInitiated で起動する
         // (低 QoS 継承だと最初の JS 実行の返信が返らない。兄弟の census/
         // rasterizer/thumbnail レンダラと規約を揃える)
-        censusTask = Task(priority: .userInitiated) { [weak self] in
-            // リサイズ嵐・連続の設定変更を合流させる
-            try? await Task.sleep(for: .milliseconds(300))
-            // 旧計測の完全な離脱を待つ(FIFO 直列化)。同じ WKWebView 上で
-            // 新旧の measure が並走すると、ナビゲーションイベントの取り違えで
-            // 失敗や「1 項目ずれた実測値」のキャッシュ汚染が起きる
-            // (EPUBPageRasterizer と同じ直列化方針)
-            _ = await previous?.value
-            // measure の await をまたいで self を強参照しない: ホストが
-            // ビューを手放したら、全 spine 実測(壊れた本は 1 項目 15 秒
-            // タイムアウト×N)を道連れにビューが生き残らないように。
-            // キャンセルは素通し(新タスクを潰さない)、非キャンセルの離脱は
-            // censusTask を自己退去する(完了済みタスクが居座って再実測を
-            // 永久に塞ぐのを防ぐ。成功・失敗経路と対称にする)
-            guard !Task.isCancelled else { return }
-            guard let publication = self?.publication, self?.censusKey == key
-            else { self?.censusTask = nil; return }
-            let engine = self?.censusEngine ?? EPUBPaginationCensus()
-            self?.censusEngine = engine
-            let counts = await engine.measure(
-                publication: publication, optionsJSON: key, contentSize: size)
-            guard let self, !Task.isCancelled, self.censusKey == key else { return }
-            guard let counts else {
-                // 失敗完了は「実測中」ではない — タスクを解放して次の
-                // runSetup での再実測を許す(回数はキーごとに上限あり + TTL)
-                self.recordCensusFailure(forKey: key)
-                self.censusTask = nil
-                return
-            }
-            self.censusCache[key] = counts
-            self.pageCensus = counts
-            self.censusTask = nil  // 成功完了も自己退去(不変条件を対称に保つ)
-            self.delegate?.readerViewDidUpdatePageCensus(self)
+        census.task = Task(priority: .userInitiated) { [weak self] in
+            await Self.runCensus(key: key, size: size, previous: previous) { self }
         }
+    }
+
+    /// census の Task 本体。デバウンスと旧計測の離脱を待ってから実測し、結果を写す。
+    /// measure の await をまたいで self を強参照しない: ホストが
+    /// ビューを手放したら、全 spine 実測(壊れた本は 1 項目 15 秒
+    /// タイムアウト×N)を道連れにビューが生き残らないように。そのため
+    /// インスタンスメソッドにせず、`reader` の弱参照から都度取り出す
+    private static func runCensus(key: String, size: NSSize,
+                                  previous: Task<Void, Never>?,
+                                  reader: () -> EPUBReaderView?) async {
+        // リサイズ嵐・連続の設定変更を合流させる
+        try? await Task.sleep(for: .milliseconds(300))
+        // 旧計測の完全な離脱を待つ(FIFO 直列化)。同じ WKWebView 上で
+        // 新旧の measure が並走すると、ナビゲーションイベントの取り違えで
+        // 失敗や「1 項目ずれた実測値」のキャッシュ汚染が起きる
+        // (EPUBPageRasterizer と同じ直列化方針)
+        _ = await previous?.value
+        // キャンセルは素通し(新タスクを潰さない)、非キャンセルの離脱は
+        // censusTask を自己退去する(完了済みタスクが居座って再実測を
+        // 永久に塞ぐのを防ぐ。成功・失敗経路と対称にする)
+        guard !Task.isCancelled else { return }
+        guard let publication = reader()?.publication, reader()?.census.key == key
+        else { reader()?.census.task = nil; return }
+        let engine = reader()?.census.engine ?? EPUBPaginationCensus()
+        reader()?.census.engine = engine
+        let counts = await engine.measure(
+            publication: publication, optionsJSON: key, contentSize: size)
+        guard let view = reader(), !Task.isCancelled, view.census.key == key else { return }
+        guard let counts else {
+            // 失敗完了は「実測中」ではない — タスクを解放して次の
+            // runSetup での再実測を許す(回数はキーごとに上限あり + TTL)
+            view.recordCensusFailure(forKey: key)
+            view.census.task = nil
+            return
+        }
+        view.census.cache[key] = counts
+        view.pageCensus = counts
+        view.census.task = nil  // 成功完了も自己退去(不変条件を対称に保つ)
+        view.delegate?.readerViewDidUpdatePageCensus(view)
     }
 
     /// cooViewer-oxr.21: 実測経路と決定的な回帰テストで失敗台帳を共有する。
     func recordCensusFailure(forKey key: String) {
-        censusFailures.recordFailure(key)
+        census.failures.recordFailure(key)
     }
 }
