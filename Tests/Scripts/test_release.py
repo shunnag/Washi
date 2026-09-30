@@ -34,6 +34,9 @@ class ReleasePreflightTests(unittest.TestCase):
         self.reading_system = self.repo / "Sources/Washi/Reader/EPUBReadingSystem.swift"
         self.reading_system.parent.mkdir(parents=True)
         self.reading_system.write_text('public enum EPUBReadingSystem {\n    public static let version = "1.2.0"\n}\n')
+        self.installation = self.repo / "Sources/Washi/Washi.docc/Installation.md"
+        self.installation.parent.mkdir(parents=True)
+        self.installation.write_text('# 導入\n\n```swift\n.package(url: "https://example.invalid/Washi.git", from: "1.2.0")\n```\n')
         self.commit()
 
     def git(self, *args):
@@ -136,6 +139,17 @@ class ReleasePreflightTests(unittest.TestCase):
         self.reading_system.write_text(self.reading_system.read_text().replace('"1.2.0"', '"1.1.0"'))
         self.commit()
         self.assert_rejected("EPUBReadingSystem.version")
+
+    def test_stale_installation_pin_is_rejected(self):
+        for content in (
+            self.installation.read_text().replace('"1.2.0"', '"1.1.0"'),
+            self.installation.read_text() + '\n.package(url: "https://example.invalid/Washi.git", from: "1.2.0")\n',
+            "# 導入\n",
+        ):
+            with self.subTest(content=content):
+                self.installation.write_text(content)
+                self.commit()
+                self.assert_rejected("Installation.md")
 
     def test_equal_or_older_public_version_is_rejected(self):
         for version in ("1.2.0", "v1.10.0"):

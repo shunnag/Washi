@@ -1,10 +1,10 @@
 # 導入と最初の表示 / Installation and First Display
 
-macOS 14 以降、Swift 6 を使う。ガイドとサンプルは Washi 1.22.0 の公開 API に対応する。
+macOS 14 以降、Swift 6 を使う。ガイドとサンプルは最新の GitHub Release の公開 API に対応する。
 Washi は AppKit/WebKit を使う表示層、WashiCore は UI を使わない解析層。
 両方とも第三者パッケージへの依存はない。
 
-Use macOS 14+ and Swift 6. These guides and samples use the public API in Washi 1.22.0.
+Use macOS 14+ and Swift 6. These guides and samples use the public API of the latest GitHub Release.
 Washi provides AppKit/WebKit rendering; WashiCore provides parsing without UI.
 Neither has third-party package dependencies.
 
@@ -12,7 +12,7 @@ Neither has third-party package dependencies.
 
 1. **File → Add Package Dependencies…** を選び、
    `https://github.com/shunnag/Washi.git` を入力する。
-2. **Up to Next Major Version: 1.22.0** を選ぶ。
+2. **Up to Next Major Version** を選び、最新の Release の版番号をそのまま使う。
 3. 表示するアプリのターゲットに **Washi** を追加する。表紙・メタデータ・検索だけなら
    **WashiCore** を追加する。
 4. アプリの Deployment Target を **macOS 14.0** 以降にする。
@@ -20,7 +20,7 @@ Neither has third-party package dependencies.
    表示層に必要な **Outgoing Connections (Client)** を設定する。
 
 Choose **File → Add Package Dependencies…**, enter the repository URL, and select
-**Up to Next Major Version: 1.22.0**. Add **Washi** to the app target for rendering,
+**Up to Next Major Version** with the latest Release. Add **Washi** to the app target for rendering,
 or **WashiCore** for covers, metadata, and search. Set the deployment target to macOS 14+.
 For App Sandbox, configure the file access and WKWebView outgoing-connection entitlement
 described in <doc:FileAccess>.
@@ -33,9 +33,11 @@ app integration does not require it.
 
 ## Package.swift で追加する / Configure Package.swift
 
-依存の宣言だけでなく、使用するターゲットにプロダクトを追加する。
+依存の宣言だけでなく、使用するターゲットにプロダクトを追加する。`from:` には最新の
+Release の版番号を書く(下の例はリリースごとに更新される)。
 
-Declare both the package dependency and the product used by the consuming target.
+Declare both the package dependency and the product used by the consuming target. Use the
+latest Release as the `from:` version; the example below is updated with each release.
 
 ```swift
 // swift-tools-version: 6.0

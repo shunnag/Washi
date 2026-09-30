@@ -55,6 +55,11 @@ def validate(arguments):
     )
     if declared_versions != [arguments.version]:
         raise ValidationError("EPUBReadingSystem.version を公開する版番号に合わせてください。")
+    # 導入ガイドの from: の例は唯一の版番号の固定箇所なので、公開する版と揃える。
+    installation = git("show", "HEAD:Sources/Washi/Washi.docc/Installation.md")
+    pinned_versions = re.findall(r'\bfrom:\s*"([^"\n]+)"', installation)
+    if pinned_versions != [arguments.version]:
+        raise ValidationError("Installation.md の from: の版番号を公開する版番号に合わせてください。")
 
     # ローカルのタグ一覧は古い場合があるため、公開先を直接問い合わせる。
     tags = []

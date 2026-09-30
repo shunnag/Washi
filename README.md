@@ -449,12 +449,14 @@ on are documented in the WashiDynamic comment in `Package.swift`.
 ## リリース前検証 / Release Preflight
 
 公開予定の版を CHANGELOG に `## [X.Y.Z] - YYYY-MM-DD` と空でない本文で記録し、
-`EPUBReadingSystem.version` も同じ版に更新する。変更をコミットしてから次を実行する。
+`EPUBReadingSystem.version` と導入ガイド(`Installation.md`)の `from:` の例も同じ版に
+更新する。変更をコミットしてから次を実行する。
 作業ツリー(未追跡ファイルを含む)がクリーンで、公開先の最新確定版タグより新しい版で
 あることも検証する。
 
 Record the planned version in CHANGELOG as `## [X.Y.Z] - YYYY-MM-DD` with nonempty
-release notes, and set `EPUBReadingSystem.version` to that version. Commit the changes
+release notes, and set `EPUBReadingSystem.version` and the `from:` example in the
+installation guide (`Installation.md`) to that version. Commit the changes
 and run the command below. It also requires a clean working tree, including untracked
 files, and a version newer than the latest stable tag on the public remote.
 
