@@ -714,12 +714,13 @@ Apple Silicon and Intel. The build bundled with cooViewer is arm64-only.
   can leave WebKit unresponsive and cause an indefinite wait, as observed in
   testing.
 
-- 表示・計測系(Rendering/)は全て `@MainActor`。GUI セッションのないデーモン
-  からは解析層(`EPUBPublication` ほか)だけを使う
+- 表示・計測系(Reader/・WebContent/・Pagination/・Offscreen/・MediaOverlay/)は
+  全て `@MainActor`。GUI セッションのないデーモンからは解析層
+  (`EPUBPublication` ほか)だけを使う
 
-  All rendering and measurement APIs (Rendering/) are `@MainActor`. Daemons
-  without a GUI session should use only the parsing layer (`EPUBPublication`
-  and related types).
+  All rendering and measurement APIs (Reader/, WebContent/, Pagination/,
+  Offscreen/, MediaOverlay/) are `@MainActor`. Daemons without a GUI session
+  should use only the parsing layer (`EPUBPublication` and related types).
 
 - 全文ページ数の実測(census)はオフスクリーン WebKit で数秒かかることが
   ある。`EPUBReaderView.exportCensus()` の結果を保存し、再オープン時に

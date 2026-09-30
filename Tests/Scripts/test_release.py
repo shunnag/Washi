@@ -29,7 +29,7 @@ class ReleasePreflightTests(unittest.TestCase):
         shutil.copyfile(SCRIPT.with_name("release_support.py"), self.script.with_name("release_support.py"))
         self.changelog = self.repo / "CHANGELOG.md"
         self.changelog.write_text("# 変更履歴\n\n## [1.2.0] - 2026-09-14\n\n- 対象の変更\n", encoding="utf-8")
-        self.reading_system = self.repo / "Sources/Washi/Rendering/EPUBScriptedContentHardening.swift"
+        self.reading_system = self.repo / "Sources/Washi/Reader/EPUBReadingSystem.swift"
         self.reading_system.parent.mkdir(parents=True)
         self.reading_system.write_text('public enum EPUBReadingSystem {\n    public static let version = "1.2.0"\n}\n')
         self.commit()

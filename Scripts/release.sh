@@ -53,7 +53,7 @@ try:
 
     # 公開処理と同じコミット・同じ条件で、空の本文や未確定の重複も拒否する。
     released, _ = release_entry(git("show", "HEAD:CHANGELOG.md"), arguments.version)
-    reading_system = git("show", "HEAD:Sources/Washi/Rendering/EPUBScriptedContentHardening.swift")
+    reading_system = git("show", "HEAD:Sources/Washi/Reader/EPUBReadingSystem.swift")
     declared_versions = re.findall(
         r'^\s*public\s+static\s+let\s+version\s*=\s*"([^"\n]+)"\s*$',
         reading_system, re.MULTILINE,
