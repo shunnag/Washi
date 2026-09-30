@@ -279,8 +279,8 @@ extension EPUBReaderView {
             cancelPendingTextRangeRequest()
             // 断片 id は EPUB 由来(信頼できない)。文字列連結でなく引数渡しで
             // WebKit に完全エスケープさせる(手動 \\・' では改行・行区切りを取りこぼす)
-            callWashiAsync("return __washi.showFragment(id);",
-                           arguments: ["id": fragment])
+            callWashiDetached("return __washi.showFragment(id);",
+                              arguments: ["id": fragment])
         case .textRange(let utf16Offset, let utf16Length, let fallbackProgression):
             // go(locator:) / goBack() は継続を持たないが、保存したアンカーは
             // 同じように解決する。実際に見つからなかったときだけ進行率へ戻す。

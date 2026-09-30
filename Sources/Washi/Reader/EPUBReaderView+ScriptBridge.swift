@@ -28,6 +28,14 @@ extension EPUBReaderView {
             body, arguments: arguments, in: nil, contentWorld: WashiContentWorld.world)
     }
 
+    // MARK: - washi ワールドへの送信
+
+    // 送るタイミングは 3 つある。evaluate と sendWashiNow は即時に送り(washi ワールドの
+    // JS は送った順に実行されるので、直後に予約する控えの撮り直しの描画待ちより先に届く)、
+    // callWashiDetached は Task を挟むため同じターンの即時送信より後になり、
+    // callWashi は応答を待つ。sendWashiNow が evaluate と別にあるのは、引数付きの
+    // 呼び出しでもこの順序(applyThemeCSSOnly・mediaOverlayHighlight)を保つため。
+
     func evaluate(_ script: String) {
         if let scriptEvaluationHandler {
             scriptEvaluationHandler(script)
@@ -36,17 +44,14 @@ extension EPUBReaderView {
         webView?.evaluateJavaScript(script, in: nil, in: WashiContentWorld.world)
     }
 
-    /// washi ワールドで JS を評価する(メディアオーバーレイ拡張から使う)
-    func evaluateWashi(_ script: String) { evaluate(script) }
-
     /// washi ワールドで JS を引数付きで呼ぶ(値は WebKit が完全にエスケープ
     /// するので、EPUB 由来の断片 id・クラス名を文字列連結で埋め込まない)。
     /// 表示中の webView への呼び出しなので QoS 逆転(オフスクリーン初回)には
     /// 該当しない
-    func callWashiAsync(_ body: String, arguments: [String: Any]) {
+    func callWashiDetached(_ body: String, arguments: [String: Any]) {
         guard let webView else { return }
         Task { @MainActor in
-            _ = await callWashiAsync(body, arguments: arguments, in: webView)
+            _ = await callWashi(body, arguments: arguments, in: webView)
         }
     }
 
@@ -57,7 +62,8 @@ extension EPUBReaderView {
                                      in: WashiContentWorld.world, completionHandler: nil)
     }
 
-    func callWashiAsync(
+    /// washi ワールドで JS を引数付きで呼び、応答を待つ(失敗は nil)
+    func callWashi(
         _ body: String, arguments: [String: Any], in webView: WKWebView
     ) async -> Any? {
         try? await webView.callAsyncJavaScript(

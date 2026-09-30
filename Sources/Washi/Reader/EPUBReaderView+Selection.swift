@@ -97,7 +97,7 @@ extension EPUBReaderView {
             return await textRangeLocationHandler(utf16Offset, utf16Length)
         }
         guard let webView else { return nil }
-        let result = await callWashiAsync(
+        let result = await callWashi(
             "return __washi.locateAndShow(o, l);",
             arguments: ["o": utf16Offset, "l": utf16Length], in: webView)
         guard webView === self.webView,
@@ -124,7 +124,7 @@ extension EPUBReaderView {
         let request = navigationRequestGeneration
         setCurrentSelection(nil)
         guard request == navigationRequestGeneration else { return }
-        callWashiAsync("return __washi.clearSelection();", arguments: [:])
+        callWashiDetached("return __washi.clearSelection();", arguments: [:])
     }
 
     /// 現在読み込まれている spine 項目内で、正規化済みの UTF-16 テキスト
@@ -141,7 +141,7 @@ extension EPUBReaderView {
               canRenderSpine(at: index),
               !isFixedLayoutItem, range.lowerBound >= 0, !range.isEmpty,
               let webView else { return [] }
-        let result = await callWashiAsync(
+        let result = await callWashi(
             "return __washi.rectsForTextRange(o, l);",
             arguments: ["o": range.lowerBound, "l": range.count], in: webView)
         guard webView === self.webView,
@@ -162,10 +162,10 @@ extension EPUBReaderView {
     func readerViewRect(
         from raw: [String: Any], in webView: WKWebView
     ) -> CGRect? {
-        guard let x = Self.number(raw["x"]),
-              let y = Self.number(raw["y"]),
-              let width = Self.number(raw["w"]),
-              let height = Self.number(raw["h"]),
+        guard let x = Self.jsNumber(raw["x"]),
+              let y = Self.jsNumber(raw["y"]),
+              let width = Self.jsNumber(raw["w"]),
+              let height = Self.jsNumber(raw["h"]),
               x.isFinite, y.isFinite, width.isFinite, height.isFinite,
               width >= 0, height >= 0
         else { return nil }
@@ -177,7 +177,7 @@ extension EPUBReaderView {
         return webView.convert(local, to: self)
     }
 
-    private static func number(_ value: Any?) -> Double? {
+    private static func jsNumber(_ value: Any?) -> Double? {
         if let number = value as? NSNumber { return number.doubleValue }
         return value as? Double
     }

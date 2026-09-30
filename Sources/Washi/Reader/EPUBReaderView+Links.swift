@@ -40,7 +40,7 @@ extension EPUBReaderView {
         // cooViewer-oxr.32: fragment は EPUB 由来なので JS 本文へ埋め込まず、
         // callAsyncJavaScript の引数として WebKit に渡す。
         let generation = spineLoadGeneration
-        let result = await callWashiAsync(
+        let result = await callWashi(
             """
             const document = __washi.activeDocument ? __washi.activeDocument() : window.document;
             function epubTypeOf(element) {
