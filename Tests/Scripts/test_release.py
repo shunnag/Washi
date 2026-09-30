@@ -3,6 +3,7 @@
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -25,13 +26,17 @@ class ReleasePreflightTests(unittest.TestCase):
         self.git("remote", "add", "origin", str(self.remote))
         (self.repo / "Scripts").mkdir()
         self.script = self.repo / "Scripts" / "release.sh"
-        shutil.copyfile(SCRIPT, self.script)
-        shutil.copyfile(SCRIPT.with_name("release_support.py"), self.script.with_name("release_support.py"))
+        # 入口の release.sh、本体の release.py、共通部の 3 つを揃えて写す。
+        for name in (SCRIPT.name, "release.py", "release_support.py"):
+            shutil.copyfile(SCRIPT.with_name(name), self.script.with_name(name))
         self.changelog = self.repo / "CHANGELOG.md"
         self.changelog.write_text("# 変更履歴\n\n## [1.2.0] - 2026-09-14\n\n- 対象の変更\n", encoding="utf-8")
         self.reading_system = self.repo / "Sources/Washi/Reader/EPUBReadingSystem.swift"
         self.reading_system.parent.mkdir(parents=True)
         self.reading_system.write_text('public enum EPUBReadingSystem {\n    public static let version = "1.2.0"\n}\n')
+        self.installation = self.repo / "Sources/Washi/Washi.docc/Installation.md"
+        self.installation.parent.mkdir(parents=True)
+        self.installation.write_text('# 導入\n\n```swift\n.package(url: "https://example.invalid/Washi.git", from: "1.2.0")\n```\n')
         self.commit()
 
     def git(self, *args):
@@ -67,6 +72,18 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn("1.1.0", result.stdout)
         self.assertEqual(before, (self.git("rev-parse", "HEAD"), self.git("show-ref")))
         self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_release_py_matches_the_shell_entry_point(self):
+        # release.sh は release.py を呼ぶだけなので、直接実行しても同じ結果になる。
+        self.publish_tag("1.1.0")
+        expected = self.run_check()
+        direct = subprocess.run(
+            [sys.executable, "-B", str(self.script.with_name("release.py")), "1.2.0"],
+            cwd=self.root, capture_output=True, text=True,
+        )
+        self.assertEqual((direct.returncode, direct.stdout, direct.stderr),
+                         (expected.returncode, expected.stdout, expected.stderr))
+        self.assertEqual(expected.returncode, 0, expected.stderr)
 
     def test_first_release_without_public_tags(self):
         result = self.run_check()
@@ -122,6 +139,17 @@ class ReleasePreflightTests(unittest.TestCase):
         self.reading_system.write_text(self.reading_system.read_text().replace('"1.2.0"', '"1.1.0"'))
         self.commit()
         self.assert_rejected("EPUBReadingSystem.version")
+
+    def test_stale_installation_pin_is_rejected(self):
+        for content in (
+            self.installation.read_text().replace('"1.2.0"', '"1.1.0"'),
+            self.installation.read_text() + '\n.package(url: "https://example.invalid/Washi.git", from: "1.2.0")\n',
+            "# 導入\n",
+        ):
+            with self.subTest(content=content):
+                self.installation.write_text(content)
+                self.commit()
+                self.assert_rejected("Installation.md")
 
     def test_equal_or_older_public_version_is_rejected(self):
         for version in ("1.2.0", "v1.10.0"):

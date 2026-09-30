@@ -47,6 +47,8 @@ extension EPUBPublication {
         return EPUBLocator(spineIndex: clamped, progression: locator.progression)
     }
 
+    // MARK: - href と目次の解決
+
     /// ナビゲーション項目の href を、読む順序での spine index へ解決する。
     ///
     /// Resolves a navigation item's href into a reading-order spine index.

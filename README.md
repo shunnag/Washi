@@ -37,7 +37,7 @@ Scripts/run-sample.sh SwiftUIReader
 
 - [導入と最初の表示 / Installation and first display](Sources/Washi/Washi.docc/Installation.md)
 - [サンプルの構成・実行方法 / Sample apps](Samples/README.md)
-- [公開ドキュメント / Online documentation](https://shunnag.github.io/Washi/)(ガイド一覧は下の「使い方」 / guide list under Usage)
+- [公開ドキュメント / Online documentation](https://shunnag.github.io/Washi/)
 
 公開ガイドとサンプルは main ブランチに追従し、最新の GitHub Release の公開 API で動作する。
 MIT ライセンスで、第三者パッケージには依存しない。
@@ -51,6 +51,7 @@ the latest GitHub Release. MIT-licensed, with no third-party package dependencie
 |---|---|
 | `Package.swift` | SwiftPM manifest。プロダクト `WashiCore` / `Washi` / `WashiDynamic`(cooViewer 向け dylib、契約はコメント参照) / Manifest; products and the WashiDynamic contract |
 | `Sources/WashiCore/` | 解析層(AppKit / WebKit なし)。話題ごとのフォルダ / Parsing layer, one folder per topic |
+| `Sources/WashiCore/EPUBError.swift` | 両層で共有する `EPUBError` と `EPUBReadStrategy`(フォルダに属さない唯一のファイル) / Shared error and read-strategy types, the only root-level file |
 | `Sources/WashiCore/Container/` | ZIP・OCF コンテナの読み出しと CRC / ZIP, OCF container, CRC |
 | `Sources/WashiCore/Package/` | パッケージ文書(OPF)とメタデータ・アクセシビリティ / Package document and metadata |
 | `Sources/WashiCore/Navigation/` | nav 文書と NCX / Navigation document and NCX |
@@ -76,7 +77,8 @@ the latest GitHub Release. MIT-licensed, with no third-party package dependencie
 | `Scripts/build-documentation.py` | DocC のビルド、ガイドと README の Swift 例の型検査、静的サイト生成 / DocC build, example typecheck, site |
 | `Scripts/fetch-epub-corpus.py` | 公開コーパスの取得と照合 / Fetch and verify the corpus |
 | `Scripts/generate-html-entities.py` | WHATWG entities.json から `HTMLEntities.swift` を生成 / Generate the entity table |
-| `Scripts/release.sh` | リリース前検証(タグ作成は行わない) / Release preflight |
+| `Scripts/release.sh` | リリース前検証の入口(`release.py` を呼ぶだけ、タグ作成は行わない) / Release preflight entry point |
+| `Scripts/release.py` | リリース前検証の本体 / Release preflight checks |
 | `Scripts/release_support.py` | 版番号と CHANGELOG 検証の共通部 / Shared version and changelog checks |
 | `Scripts/publish-github-release.py` | CI がタグから GitHub Release を作る / CI release publisher |
 | `Documentation/` | 監査記録などの開発文書 / Development documents such as audit records |
@@ -447,12 +449,14 @@ on are documented in the WashiDynamic comment in `Package.swift`.
 ## リリース前検証 / Release Preflight
 
 公開予定の版を CHANGELOG に `## [X.Y.Z] - YYYY-MM-DD` と空でない本文で記録し、
-`EPUBReadingSystem.version` も同じ版に更新する。変更をコミットしてから次を実行する。
+`EPUBReadingSystem.version` と導入ガイド(`Installation.md`)の `from:` の例も同じ版に
+更新する。変更をコミットしてから次を実行する。
 作業ツリー(未追跡ファイルを含む)がクリーンで、公開先の最新確定版タグより新しい版で
 あることも検証する。
 
 Record the planned version in CHANGELOG as `## [X.Y.Z] - YYYY-MM-DD` with nonempty
-release notes, and set `EPUBReadingSystem.version` to that version. Commit the changes
+release notes, and set `EPUBReadingSystem.version` and the `from:` example in the
+installation guide (`Installation.md`) to that version. Commit the changes
 and run the command below. It also requires a clean working tree, including untracked
 files, and a version newer than the latest stable tag on the public remote.
 

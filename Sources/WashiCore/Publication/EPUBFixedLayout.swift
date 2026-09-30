@@ -37,7 +37,7 @@ public struct FixedLayoutPageInfo: Sendable {
 
 /// 「画像 1 枚だけの項目」の判定を項目ごとに一度だけ行うためのキャッシュ。
 /// EPUBPublication の Sendable 契約を保つため、可変状態は NSLock の内側だけで扱う
-/// （EffectiveReadingDirectionCache と同じ作法）。
+/// (EffectiveReadingDirectionCache と同じ作法)。
 final class SingleImageItemCache: @unchecked Sendable {
     private let lock = NSLock()
     private var perItem: [Int: Bool] = [:]
@@ -56,9 +56,9 @@ final class SingleImageItemCache: @unchecked Sendable {
 }
 
 extension EPUBPublication {
-    /// その spine 項目が「画像 1 枚だけの項目」か（表紙・挿絵・漫画のページ）。
+    /// その spine 項目が「画像 1 枚だけの項目」か(表紙・挿絵・漫画のページ)。
     /// 表示・census・画面サムネイルが同じ答えを共有するよう、項目ごとに一度だけ
-    /// 判定してキャッシュする。パッケージ内部の API（公開面は増やさない）。
+    /// 判定してキャッシュする。パッケージ内部の API(公開面は増やさない)。
     /// 初回は章の展開と XML 解析を伴うので、UI からは可能ならメインスレッドの外で呼ぶ。
     package func isSingleImageItem(atSpineIndex index: Int) -> Bool {
         guard readingOrder.indices.contains(index) else { return false }
@@ -318,8 +318,8 @@ extension EPUBPublication {
         return href
     }
 
-    // cooViewer-oxr.6: 可視本文がなく、img / svg image の参照先が
-    // 重複を除いて 1 種類だけの XHTML なら画像 href を返す。
+    /// cooViewer-oxr.6: 可視本文がなく、img / svg image の参照先が
+    /// 重複を除いて 1 種類だけの XHTML なら画像 href を返す。
     private static func simpleImageHref(in root: XMLElement) -> String? {
         guard let body = root.firstDescendant(localName: "body") else { return nil }
         // cooViewer-oxr.6: ReaderScripts と同じ可視テキスト・同一 src の判定。
