@@ -452,7 +452,7 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         }
         let book = try makePublication(entries)
         XCTAssertEqual(book.scrollGroup(containing: 0), 0..<3)
-        XCTAssertFalse(EPUBReaderView.canRenderSpineResource(book.readingOrder[1], in: book))
+        XCTAssertFalse(book.canRenderSpineResource(book.readingOrder[1]))
         let (view, window, delegate) = reader()
         defer { close(view, window) }
         // 初回 AppKit layout の再計測と、同じ setup の二重通知を分けるため先に寸法を確定する。

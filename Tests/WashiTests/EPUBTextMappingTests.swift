@@ -55,10 +55,10 @@ final class EPUBTextMappingTests: XCTestCase {
         let controller = configuration.userContentController
         controller.addUserScript(WKUserScript(
             source: ReaderScripts.pageScript, injectionTime: .atDocumentStart,
-            forMainFrameOnly: true, in: EPUBReaderView.washiWorld))
+            forMainFrameOnly: true, in: WashiContentWorld.world))
         controller.addUserScript(WKUserScript(
             source: ReaderScripts.baseCSSInjector, injectionTime: .atDocumentStart,
-            forMainFrameOnly: true, in: EPUBReaderView.washiWorld))
+            forMainFrameOnly: true, in: WashiContentWorld.world))
         let webView = WKWebView(frame: NSRect(origin: .zero, size: size),
                                 configuration: configuration)
         window.contentView = webView
@@ -206,7 +206,7 @@ final class EPUBTextMappingTests: XCTestCase {
                         'binary=' + fast.toFixed(1) + 'ms',
                         'linear=' + slow.toFixed(1) + 'ms'];
                 """, arguments: [:], in: nil,
-                contentWorld: EPUBReaderView.washiWorld)
+                contentWorld: WashiContentWorld.world)
             guard let report = result as? [String] else {
                 throw HarnessError.unexpectedJavaScriptResult("textOffsetFor bench")
             }
@@ -237,7 +237,7 @@ final class EPUBTextMappingTests: XCTestCase {
                     map.nodes.length
                 ];
                 """, arguments: [:], in: nil,
-                contentWorld: EPUBReaderView.washiWorld)
+                contentWorld: WashiContentWorld.world)
             guard let values = result as? [Int] else {
                 throw HarnessError.unexpectedJavaScriptResult("buildTextMap shape")
             }
@@ -274,7 +274,7 @@ final class EPUBTextMappingTests: XCTestCase {
                 }
                 return bad;
                 """, arguments: [:], in: nil,
-                contentWorld: EPUBReaderView.washiWorld)
+                contentWorld: WashiContentWorld.world)
             guard let bad = result as? [Int] else {
                 throw HarnessError.unexpectedJavaScriptResult("whitespace set")
             }
@@ -290,7 +290,7 @@ final class EPUBTextMappingTests: XCTestCase {
         configuration.websiteDataStore = .nonPersistent()
         configuration.userContentController.addUserScript(WKUserScript(
             source: ReaderScripts.pageScript, injectionTime: .atDocumentStart,
-            forMainFrameOnly: true, in: EPUBReaderView.washiWorld))
+            forMainFrameOnly: true, in: WashiContentWorld.world))
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 320, height: 240),
                                 configuration: configuration)
         // NavigationWaiter は washi-epub 以外のナビゲーションを拒否するため、
@@ -316,7 +316,7 @@ final class EPUBTextMappingTests: XCTestCase {
             let result = try await webView.callAsyncJavaScript(
                 "return __washi.setup(\(optionsJSON));",
                 arguments: [:], in: nil,
-                contentWorld: EPUBReaderView.washiWorld)
+                contentWorld: WashiContentWorld.world)
             guard let dictionary = result as? [String: Any],
                   let pageCount = dictionary["pageCount"] as? Int else {
                 throw HarnessError.unexpectedJavaScriptResult("setup")
@@ -386,7 +386,7 @@ final class EPUBTextMappingTests: XCTestCase {
                 if (targets.length === 0) { bad.push('no targets'); }
                 return bad;
                 """, arguments: [:], in: nil,
-                contentWorld: EPUBReaderView.washiWorld)
+                contentWorld: WashiContentWorld.world)
             guard let bad = result as? [String] else {
                 throw HarnessError.unexpectedJavaScriptResult("textOffsetFor diff")
             }
@@ -406,7 +406,7 @@ final class EPUBTextMappingTests: XCTestCase {
                 }
                 return -1;
                 """, arguments: [:], in: nil,
-                contentWorld: EPUBReaderView.washiWorld)
+                contentWorld: WashiContentWorld.world)
             guard let index = result as? Int else {
                 throw HarnessError.unexpectedJavaScriptResult("map order")
             }
@@ -419,7 +419,7 @@ final class EPUBTextMappingTests: XCTestCase {
             let result = try await webView.callAsyncJavaScript(
                 "return __washi.buildTextMap().text;",
                 arguments: [:], in: nil,
-                contentWorld: EPUBReaderView.washiWorld)
+                contentWorld: WashiContentWorld.world)
             guard let text = result as? String else {
                 throw HarnessError.unexpectedJavaScriptResult("buildTextMap")
             }
@@ -433,7 +433,7 @@ final class EPUBTextMappingTests: XCTestCase {
             let result = try await webView.callAsyncJavaScript(
                 "return __washi.locateAndShow(o, l);",
                 arguments: ["o": offset, "l": length], in: nil,
-                contentWorld: EPUBReaderView.washiWorld)
+                contentWorld: WashiContentWorld.world)
             guard let result else { return nil }
             if let dictionary = result as? [String: Any],
                dictionary["found"] as? Bool == false {

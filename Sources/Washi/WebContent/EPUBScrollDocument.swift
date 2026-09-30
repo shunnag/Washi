@@ -23,7 +23,7 @@ enum EPUBScrollDocument {
         """
         controller.addUserScript(WKUserScript(
             source: source, injectionTime: .atDocumentStart,
-            forMainFrameOnly: false, in: EPUBReaderView.washiWorld))
+            forMainFrameOnly: false, in: WashiContentWorld.world))
     }
 
     static func options(_ json: String, publication: EPUBPublication,
@@ -44,7 +44,7 @@ enum EPUBScrollDocument {
             let roll = layout == .roll || layout == .prePaginated
             var item: [String: Any] = [
                 "index": itemIndex, "url": url.absoluteString, "roll": roll,
-                "renderable": EPUBReaderView.canRenderSpineResource(entry, in: publication)
+                "renderable": publication.canRenderSpineResource(entry)
             ]
             if roll {
                 let info = try? publication.fixedLayoutInfo(forSpineIndex: itemIndex)

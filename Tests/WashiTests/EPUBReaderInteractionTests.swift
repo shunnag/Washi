@@ -117,7 +117,7 @@ final class EPUBReaderInteractionTests: XCTestCase {
                 window.getSelection().setBaseAndExtent(node, 0, node, 6);
                 return true;
                 """,
-                arguments: [:], in: nil, contentWorld: EPUBReaderView.washiWorld)
+                arguments: [:], in: nil, contentWorld: WashiContentWorld.world)
             return result as? Bool ?? false
         }.value
         XCTAssertTrue(selected)

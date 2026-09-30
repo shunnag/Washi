@@ -24,4 +24,16 @@ extension EPUBPublication {
         while upper < readingOrder.count, renderingFlow(at: upper) == .scrolledContinuous { upper += 1 }
         return lower..<upper
     }
+
+    /// Core の公開 API を変えず、既に fallback 解決された項目の形式と実在性を
+    /// 確認する。対応形式は Core の解決条件と揃え、未知形式を推測で許可しない。
+    func canRenderSpineResource(_ entry: ReadingOrderItem) -> Bool {
+        let mediaType = entry.resolvedItem.mediaType
+            .split(separator: ";", maxSplits: 1).first.map {
+                String($0).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            } ?? ""
+        return (mediaType == EPUBMediaType.xhtml
+                || EPUBMediaType.coreImageTypes.contains(mediaType))
+            && resourceExists(at: entry.resolvedContainerPath)
+    }
 }

@@ -356,7 +356,7 @@ final class TrailingSpreadPageTests: XCTestCase {
                 return {landed:landed, ids:visible.map(element => element.id).join(','),
                         center:rect.left + rect.width / 2};
                 """,
-                in: nil, contentWorld: EPUBReaderView.washiWorld)
+                in: nil, contentWorld: WashiContentWorld.world)
             let result = try XCTUnwrap(raw as? [String: Any])
             return PageMeasurement(
                 landed: try XCTUnwrap(result["landed"] as? Int),

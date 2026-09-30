@@ -80,7 +80,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
         let publication = try EPUBPublication(
             data: ZipBuilder.build(entries, method: 8),
             displayURL: URL(fileURLWithPath: "/tmp/washi-unrenderable-second.epub"))
-        XCTAssertFalse(EPUBReaderView.canRenderSpineResource(publication.readingOrder[1], in: publication))
+        XCTAssertFalse(publication.canRenderSpineResource(publication.readingOrder[1]))
         return publication
     }
 
@@ -236,14 +236,14 @@ final class SpineTransitionAppearanceTests: XCTestCase {
 
     func testFrameWaitGivesUpAtTheTimeout() async {
         let start = ContinuousClock.now
-        let completed = await EPUBReaderView.race(
+        let completed = await TimeoutRace.run(
             { try? await Task.sleep(for: .seconds(30)) }, timeout: .milliseconds(50))
         XCTAssertFalse(completed)
         XCTAssertLessThan(ContinuousClock.now - start, .seconds(2))
     }
 
     func testFrameWaitReportsCompletion() async {
-        let completed = await EPUBReaderView.race({}, timeout: .seconds(30))
+        let completed = await TimeoutRace.run({}, timeout: .seconds(30))
         XCTAssertTrue(completed)
     }
 
@@ -251,7 +251,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
     func testFrameWaitReturnsPromptlyWhenCancelled() async {
         let start = ContinuousClock.now
         let task = Task { @MainActor in
-            await EPUBReaderView.race(
+            await TimeoutRace.run(
                 { try? await Task.sleep(for: .seconds(30)) }, timeout: .seconds(30))
         }
         try? await Task.sleep(for: .milliseconds(20))
@@ -274,7 +274,7 @@ final class SpineTransitionAppearanceTests: XCTestCase {
             try await openAndSettle(view, try makePublication(), delegate: MoveCountingDelegate())
             let web = try webView(of: view)
             views.add(web)
-            let completed = await EPUBReaderView.race({
+            let completed = await TimeoutRace.run({
                 await EPUBReaderView.waitForWashiScript(
                     "await new Promise(() => {}); return true;", in: web)
             }, timeout: .milliseconds(100))

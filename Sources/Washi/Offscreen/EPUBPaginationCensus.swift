@@ -152,7 +152,7 @@ final class EPUBPaginationCensus {
             ) { completion in
                 webView.callAsyncJavaScript(
                     "return __washi.setup(\(setupJSON));",
-                    arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
+                    arguments: [:], in: nil, in: WashiContentWorld.world,
                     completionHandler: { result in
                         completion(result.map {
                             ($0 as? [String: Any])?["pageCount"] as? Int

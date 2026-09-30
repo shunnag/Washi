@@ -297,8 +297,6 @@ public final class EPUBReaderView: NSView {
         webContentReloadTask != nil || pendingWebContentReloadDelay != nil
     }
 
-    static let washiWorld = WKContentWorld.world(name: "washi")  // census と共用
-
     /// 外部ネットワークを遮断するコンテンツルール(コンパイルは初回のみ)
     private static let contentRuleList: Task<WKContentRuleList?, Never> = Task { @MainActor in
         let json = """
@@ -560,7 +558,7 @@ public final class EPUBReaderView: NSView {
     private func applyTheme() {
         let colors = settings.effectiveColors(
             isDark: isDarkEffective, increaseContrast: shouldIncreaseContrast)
-        layer?.backgroundColor = Self.parseCSSColor(colors.background)
+        layer?.backgroundColor = CSSColorParser.parse(colors.background)
             ?? NSColor.textBackgroundColor.cgColor
         // ノンブルは紙の本らしく控えめなグレー
         let furnitureColor = isDarkEffective
@@ -580,7 +578,7 @@ public final class EPUBReaderView: NSView {
         // 撮り直しの描画待ちより前に届くよう、Task を挟まずに送る
         webView.callAsyncJavaScript(
             "return __washi.setUserCSS(css);", arguments: ["css": css],
-            in: nil, in: Self.washiWorld, completionHandler: nil)
+            in: nil, in: WashiContentWorld.world, completionHandler: nil)
         if retakesCover {
             retakePageCoverAfterRestyle()
         } else if prefetchedPageCover == nil {
@@ -595,160 +593,6 @@ public final class EPUBReaderView: NSView {
         let milliseconds = 1_000 * (interval > 0 ? interval : 0.5)
         evaluate("__washi.setTapDeferral(\(enabled), \(milliseconds));")
     }
-
-    /// cooViewer-oxr.35: 一般的な CSS 色表記を解釈し、ネイティブ余白と
-    /// ページ CSS が同じ解決済み色を共有できるようにする。
-    static func parseCSSColor(_ css: String) -> CGColor? {
-        let value = css.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if value.hasPrefix("#") {
-            let source = String(value.dropFirst())
-            let expanded: String
-            switch source.count {
-            case 3, 4:
-                expanded = source.map { "\($0)\($0)" }.joined()
-            case 6, 8:
-                expanded = source
-            default:
-                return nil
-            }
-            guard let encoded = UInt64(expanded, radix: 16) else { return nil }
-            let hasAlpha = expanded.count == 8
-            let redShift = hasAlpha ? 24 : 16
-            let greenShift = hasAlpha ? 16 : 8
-            let blueShift = hasAlpha ? 8 : 0
-            let alpha = hasAlpha ? Double(encoded & 0xFF) / 255 : 1
-            return cssColor(red: Double((encoded >> redShift) & 0xFF) / 255,
-                            green: Double((encoded >> greenShift) & 0xFF) / 255,
-                            blue: Double((encoded >> blueShift) & 0xFF) / 255,
-                            alpha: alpha)
-        }
-
-        if let named = cssNamedColors[value] {
-            return cssColor(red: Double(named.0) / 255,
-                            green: Double(named.1) / 255,
-                            blue: Double(named.2) / 255,
-                            alpha: named.3)
-        }
-
-        guard let open = value.firstIndex(of: "("), value.hasSuffix(")") else {
-            return nil
-        }
-        let function = String(value[..<open])
-        let content = value[value.index(after: open)..<value.index(before: value.endIndex)]
-        let components = content
-            .replacingOccurrences(of: ",", with: " ")
-            .replacingOccurrences(of: "/", with: " ")
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
-
-        if function == "rgb" || function == "rgba" {
-            guard components.count == 3 || components.count == 4,
-                  let red = cssRGBComponent(components[0]),
-                  let green = cssRGBComponent(components[1]),
-                  let blue = cssRGBComponent(components[2]),
-                  let alpha = components.count == 4
-                    ? cssAlphaComponent(components[3]) : 1
-            else { return nil }
-            return cssColor(red: red, green: green, blue: blue, alpha: alpha)
-        }
-
-        if function == "hsl" || function == "hsla" {
-            guard components.count == 3 || components.count == 4,
-                  let hue = cssHue(components[0]),
-                  let saturation = cssPercentage(components[1]),
-                  let lightness = cssPercentage(components[2]),
-                  let alpha = components.count == 4
-                    ? cssAlphaComponent(components[3]) : 1
-            else { return nil }
-            let chroma = (1 - abs(2 * lightness - 1)) * saturation
-            let sector = hue / 60
-            let x = chroma * (1 - abs(sector.truncatingRemainder(
-                dividingBy: 2) - 1))
-            let (r1, g1, b1): (Double, Double, Double)
-            switch sector {
-            case 0..<1: (r1, g1, b1) = (chroma, x, 0)
-            case 1..<2: (r1, g1, b1) = (x, chroma, 0)
-            case 2..<3: (r1, g1, b1) = (0, chroma, x)
-            case 3..<4: (r1, g1, b1) = (0, x, chroma)
-            case 4..<5: (r1, g1, b1) = (x, 0, chroma)
-            default: (r1, g1, b1) = (chroma, 0, x)
-            }
-            let match = lightness - chroma / 2
-            return cssColor(red: r1 + match, green: g1 + match,
-                            blue: b1 + match, alpha: alpha)
-        }
-        return nil
-    }
-
-    private static func cssColor(red: Double, green: Double, blue: Double,
-                                 alpha: Double) -> CGColor {
-        CGColor(srgbRed: CGFloat(min(1, max(0, red))),
-                green: CGFloat(min(1, max(0, green))),
-                blue: CGFloat(min(1, max(0, blue))),
-                alpha: CGFloat(min(1, max(0, alpha))))
-    }
-
-    private static func cssRGBComponent(_ value: String) -> Double? {
-        if value.hasSuffix("%") {
-            return cssPercentage(value)
-        }
-        guard let number = Double(value), number.isFinite else { return nil }
-        return min(255, max(0, number)) / 255
-    }
-
-    private static func cssAlphaComponent(_ value: String) -> Double? {
-        if value.hasSuffix("%") { return cssPercentage(value) }
-        guard let number = Double(value), number.isFinite else { return nil }
-        return min(1, max(0, number))
-    }
-
-    private static func cssPercentage(_ value: String) -> Double? {
-        guard value.hasSuffix("%"),
-              let number = Double(value.dropLast()), number.isFinite else {
-            return nil
-        }
-        return min(100, max(0, number)) / 100
-    }
-
-    private static func cssHue(_ value: String) -> Double? {
-        let degrees: Double?
-        if value.hasSuffix("turn") {
-            degrees = Double(value.dropLast(4)).map { $0 * 360 }
-        } else if value.hasSuffix("grad") {
-            degrees = Double(value.dropLast(4)).map { $0 * 0.9 }
-        } else if value.hasSuffix("rad") {
-            degrees = Double(value.dropLast(3)).map { $0 * 180 / .pi }
-        } else if value.hasSuffix("deg") {
-            degrees = Double(value.dropLast(3))
-        } else {
-            degrees = Double(value)
-        }
-        guard let degrees, degrees.isFinite else { return nil }
-        let normalized = degrees.truncatingRemainder(dividingBy: 360)
-        return normalized < 0 ? normalized + 360 : normalized
-    }
-
-    private static let cssNamedColors: [String: (UInt8, UInt8, UInt8, Double)] = [
-        "aqua": (0, 255, 255, 1), "black": (0, 0, 0, 1),
-        "blue": (0, 0, 255, 1), "fuchsia": (255, 0, 255, 1),
-        "gray": (128, 128, 128, 1), "grey": (128, 128, 128, 1),
-        "green": (0, 128, 0, 1), "lime": (0, 255, 0, 1),
-        "maroon": (128, 0, 0, 1), "navy": (0, 0, 128, 1),
-        "olive": (128, 128, 0, 1), "purple": (128, 0, 128, 1),
-        "red": (255, 0, 0, 1), "silver": (192, 192, 192, 1),
-        "teal": (0, 128, 128, 1), "white": (255, 255, 255, 1),
-        "yellow": (255, 255, 0, 1), "transparent": (0, 0, 0, 0),
-        "ivory": (255, 255, 240, 1), "beige": (245, 245, 220, 1),
-        "linen": (250, 240, 230, 1), "wheat": (245, 222, 179, 1),
-        "cornsilk": (255, 248, 220, 1), "floralwhite": (255, 250, 240, 1),
-        "oldlace": (253, 245, 230, 1), "antiquewhite": (250, 235, 215, 1),
-        "papayawhip": (255, 239, 213, 1), "seashell": (255, 245, 238, 1),
-        "snow": (255, 250, 250, 1), "whitesmoke": (245, 245, 245, 1),
-        "ghostwhite": (248, 248, 255, 1), "mintcream": (245, 255, 250, 1),
-        "honeydew": (240, 255, 240, 1), "azure": (240, 255, 255, 1),
-        "aliceblue": (240, 248, 255, 1), "lavender": (230, 230, 250, 1),
-    ]
 
     // MARK: - 本の読み込み
 
@@ -931,7 +775,7 @@ public final class EPUBReaderView: NSView {
         let proxy = MessageProxy(owner: self)
         self.messageProxy = proxy
         let controller = configuration.userContentController
-        controller.add(proxy, contentWorld: Self.washiWorld, name: "washi")
+        controller.add(proxy, contentWorld: WashiContentWorld.world, name: "washi")
         EPUBScriptedContentHardening.install(
             in: controller,
             allowsScriptedContent: settings.allowsScriptedContent)
@@ -1197,67 +1041,13 @@ public final class EPUBReaderView: NSView {
     static func waitForWashiScript(_ script: String, in webView: WKWebView) async {
         let _: Bool? = await waitForOffscreenResult(timeout: .seconds(60)) { completion in
             webView.callAsyncJavaScript(
-                script, arguments: [:], in: nil, in: washiWorld) { _ in
+                script, arguments: [:], in: nil, in: WashiContentWorld.world) { _ in
                     completion(true)
                 }
         }
     }
     /// 描画フレームの待ちを打ち切るまでの時間。テストで差し替えられる
     var animationFrameWaitTimeout = Duration.milliseconds(600)
-
-    /// `operation` の完了か `timeout` の早い方まで待つ。完了したら true。
-    /// 呼び出し側のタスクが取り消されたときも、その時点で戻る。
-    ///
-    /// `requestAnimationFrame` は合成されていないウィンドウ(最小化・別 Space・
-    /// 遮蔽)では進まないので、打ち切らないと表示が戻らなくなる。
-    static func race(_ operation: @escaping @MainActor () async -> Void,
-                     timeout: Duration) async -> Bool {
-        let gate = RaceGate()
-        let work = Task { @MainActor in
-            await operation()
-            gate.finish(completed: true)
-        }
-        let timer = Task {
-            try? await Task.sleep(for: timeout)
-            gate.finish(completed: false)
-        }
-        let completed = await withTaskCancellationHandler {
-            await withCheckedContinuation { gate.install($0) }
-        } onCancel: {
-            gate.finish(completed: false)
-        }
-        timer.cancel()
-        work.cancel()
-        return completed
-    }
-
-    /// race の結果を一度だけ返すための門。
-    private final class RaceGate: @unchecked Sendable {
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<Bool, Never>?
-        private var result: Bool?
-
-        func install(_ continuation: CheckedContinuation<Bool, Never>) {
-            lock.lock()
-            if let result {
-                lock.unlock()
-                continuation.resume(returning: result)
-                return
-            }
-            self.continuation = continuation
-            lock.unlock()
-        }
-
-        func finish(completed: Bool) {
-            lock.lock()
-            guard result == nil else { lock.unlock(); return }
-            result = completed
-            let continuation = self.continuation
-            self.continuation = nil
-            lock.unlock()
-            continuation?.resume(returning: completed)
-        }
-    }
 
     // MARK: - 先撮りカバー
 
@@ -1320,7 +1110,7 @@ public final class EPUBReaderView: NSView {
         let timeout = animationFrameWaitTimeout
         pageCoverPrefetchTask = Task { @MainActor [weak self] in
             guard !Task.isCancelled else { return }
-            _ = await EPUBReaderView.race({ await wait(webView) }, timeout: timeout)
+            _ = await TimeoutRace.run({ await wait(webView) }, timeout: timeout)
             guard let self, !Task.isCancelled, webView === self.webView else { return }
             self.schedulePageCoverPrefetch()
         }
@@ -1572,30 +1362,16 @@ public final class EPUBReaderView: NSView {
         currentNavigation = navigation
     }
 
-    /// Core の公開 API を変えず、既に fallback 解決された項目の形式と実在性を
-    /// 確認する。対応形式は Core の解決条件と揃え、未知形式を推測で許可しない。
-    static func canRenderSpineResource(
-        _ entry: ReadingOrderItem, in publication: EPUBPublication
-    ) -> Bool {
-        let mediaType = entry.resolvedItem.mediaType
-            .split(separator: ";", maxSplits: 1).first.map {
-                String($0).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            } ?? ""
-        return (mediaType == EPUBMediaType.xhtml
-                || EPUBMediaType.coreImageTypes.contains(mediaType))
-            && publication.resourceExists(at: entry.resolvedContainerPath)
-    }
-
     private func canRenderSpine(at index: Int) -> Bool {
         guard let publication, publication.readingOrder.indices.contains(index) else { return false }
-        return Self.canRenderSpineResource(publication.readingOrder[index], in: publication)
+        return publication.canRenderSpineResource(publication.readingOrder[index])
     }
 
     /// 読み込めない理由。描画可能な fallback と URL を状態変更前に検証する。
     static func spineLoadFailure(
         _ entry: ReadingOrderItem, in publication: EPUBPublication, url: URL?
     ) -> EPUBError? {
-        guard Self.canRenderSpineResource(entry, in: publication) else {
+        guard publication.canRenderSpineResource(entry) else {
             return .malformed(
                 "Cannot display spine resource: \(entry.containerPath) (no renderable fallback)")
         }
@@ -1647,7 +1423,7 @@ public final class EPUBReaderView: NSView {
                             arguments: [String: Any] = [:]) async -> Any? {
         guard let webView else { return nil }
         return try? await webView.callAsyncJavaScript(
-            body, arguments: arguments, in: nil, contentWorld: Self.washiWorld)
+            body, arguments: arguments, in: nil, contentWorld: WashiContentWorld.world)
     }
 
     /// テスト用: washi world で任意の式を評価する
@@ -1752,7 +1528,7 @@ public final class EPUBReaderView: NSView {
               let webView else { return locator }
         let result = try? await webView.callAsyncJavaScript(
             "return __washi.visibleTextOffset();",
-            arguments: [:], in: nil, contentWorld: Self.washiWorld)
+            arguments: [:], in: nil, contentWorld: WashiContentWorld.world)
         if let offset = result as? Int, offset >= 0 {
             locator.textOffset = offset
         }
@@ -1993,7 +1769,7 @@ public final class EPUBReaderView: NSView {
             oldPage: oldPage, cover: cover, forward: forward)
         let result = try? await webView.callAsyncJavaScript(
             "return __washi.turnInDoc(\(forward));",
-            arguments: [:], in: nil, contentWorld: Self.washiWorld)
+            arguments: [:], in: nil, contentWorld: WashiContentWorld.world)
         switch result as? String {
         case "turned":
             guard canContinueTurn(context), turnOverlays.contains(cover) else {
@@ -2397,7 +2173,7 @@ public final class EPUBReaderView: NSView {
             scriptEvaluationHandler(script)
             return
         }
-        webView?.evaluateJavaScript(script, in: nil, in: Self.washiWorld)
+        webView?.evaluateJavaScript(script, in: nil, in: WashiContentWorld.world)
     }
 
     /// washi ワールドで JS を評価する(メディアオーバーレイ拡張から使う)
@@ -2418,7 +2194,7 @@ public final class EPUBReaderView: NSView {
     /// Task を挟まず、後から送る控えの撮り直しの描画待ちより先に実行する。
     func sendWashiNow(_ body: String, arguments: [String: Any]) {
         webView?.callAsyncJavaScript(body, arguments: arguments, in: nil,
-                                     in: Self.washiWorld, completionHandler: nil)
+                                     in: WashiContentWorld.world, completionHandler: nil)
     }
 
     /// 読み込み中は旧文書の読み上げハイライトを消さず、最後の要求を保留する。
@@ -2432,7 +2208,7 @@ public final class EPUBReaderView: NSView {
         _ body: String, arguments: [String: Any], in webView: WKWebView
     ) async -> Any? {
         try? await webView.callAsyncJavaScript(
-            body, arguments: arguments, in: nil, contentWorld: Self.washiWorld)
+            body, arguments: arguments, in: nil, contentWorld: WashiContentWorld.world)
     }
 
     private func locateTextRange(
@@ -2735,7 +2511,7 @@ public final class EPUBReaderView: NSView {
             : "return __washi.setup(\(setupOptionsJSON()));"
         do {
             let result = try await webView.callAsyncJavaScript(
-                call, arguments: [:], in: nil, contentWorld: Self.washiWorld)
+                call, arguments: [:], in: nil, contentWorld: WashiContentWorld.world)
             guard !Task.isCancelled,
                   generation == spineLoadGeneration,
                   webView === self.webView else { return }
@@ -2774,8 +2550,8 @@ public final class EPUBReaderView: NSView {
             // 既に見えている再ページ割りでは待たない
             if webView.alphaValue < 1 {
                 let wait = animationFrameWait
-                _ = await Self.race({ await wait(webView) },
-                                    timeout: animationFrameWaitTimeout)
+                _ = await TimeoutRace.run({ await wait(webView) },
+                                          timeout: animationFrameWaitTimeout)
                 guard generation == spineLoadGeneration,
                       webView === self.webView else { return }
             }

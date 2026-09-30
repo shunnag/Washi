@@ -205,7 +205,7 @@ final class EPUBScreenThumbnailRenderer {
             let didSetup = await waitForOffscreenResult { completion in
                 webView.callAsyncJavaScript(
                     "return __washi.setup(\(setupJSON));",
-                    arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
+                    arguments: [:], in: nil, in: WashiContentWorld.world,
                     completionHandler: { result in
                         completion((try? result.get()) != nil)
                     })
@@ -220,7 +220,7 @@ final class EPUBScreenThumbnailRenderer {
         let didShowPage = await waitForOffscreenResult { completion in
             webView.callAsyncJavaScript(
                 "__washi.showPage(\(pageInItem)); return true;",
-                arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
+                arguments: [:], in: nil, in: WashiContentWorld.world,
                 completionHandler: { _ in completion(true) })
         }
         guard didShowPage == true, !Task.isCancelled, !isInvalidated else {
@@ -242,7 +242,7 @@ final class EPUBScreenThumbnailRenderer {
                     new Promise(resolve => setTimeout(() => resolve(false), 1500))
                 ]);
                 """,
-                arguments: [:], in: nil, in: EPUBReaderView.washiWorld,
+                arguments: [:], in: nil, in: WashiContentWorld.world,
                 completionHandler: { result in
                     // JS エラーは従来どおり許容し、期限切れの false は失敗にする。
                     completion((try? result.get()) as? Bool != false)

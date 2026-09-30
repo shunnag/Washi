@@ -59,11 +59,11 @@ private final class RenderingLifecycleScriptHarness {
         schemeHandler = EPUBSchemeHandler(publication: publication, allowsScripts: false)
         configuration.setURLSchemeHandler(schemeHandler, forURLScheme: EPUBSchemeHandler.scheme)
         let controller = configuration.userContentController
-        controller.add(messages, contentWorld: EPUBReaderView.washiWorld, name: "washi")
+        controller.add(messages, contentWorld: WashiContentWorld.world, name: "washi")
         for source in [ReaderScripts.pageScript, ReaderScripts.baseCSSInjector] {
             controller.addUserScript(WKUserScript(
                 source: source, injectionTime: .atDocumentStart,
-                forMainFrameOnly: true, in: EPUBReaderView.washiWorld))
+                forMainFrameOnly: true, in: WashiContentWorld.world))
         }
         webView = WKWebView(frame: NSRect(origin: .zero, size: size),
                             configuration: configuration)
@@ -84,7 +84,7 @@ private final class RenderingLifecycleScriptHarness {
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: "washi", contentWorld: EPUBReaderView.washiWorld)
+            forName: "washi", contentWorld: WashiContentWorld.world)
         window.contentView = nil
         window.close()
     }
@@ -92,7 +92,7 @@ private final class RenderingLifecycleScriptHarness {
     func evaluate<T: Sendable>(_ body: String, as type: T.Type = T.self) async throws -> T {
         try await Task(priority: .userInitiated) { @MainActor in
             let result = try await webView.callAsyncJavaScript(
-                body, in: nil, contentWorld: EPUBReaderView.washiWorld)
+                body, in: nil, contentWorld: WashiContentWorld.world)
             return try XCTUnwrap(result as? T)
         }.value
     }

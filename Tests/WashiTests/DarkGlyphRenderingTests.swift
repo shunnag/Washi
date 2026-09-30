@@ -244,7 +244,7 @@ final class DarkGlyphRenderingTests: XCTestCase {
     ) async throws -> T {
         let result = try await harness.webView.callAsyncJavaScript(
             body, arguments: arguments, in: nil,
-            contentWorld: EPUBReaderView.washiWorld)
+            contentWorld: WashiContentWorld.world)
         return try XCTUnwrap(result as? T)
     }
 

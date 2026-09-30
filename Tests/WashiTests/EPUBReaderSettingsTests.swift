@@ -179,7 +179,7 @@ final class EPUBReaderSettingsTests: XCTestCase {
         ]
         for (css, expected) in cases {
             let parsed = EPUBRGBAColor(
-                cgColor: try XCTUnwrap(EPUBReaderView.parseCSSColor(css), css))
+                cgColor: try XCTUnwrap(CSSColorParser.parse(css), css))
             XCTAssertEqual(parsed.r, expected.r, accuracy: 0.002, css)
             XCTAssertEqual(parsed.g, expected.g, accuracy: 0.002, css)
             XCTAssertEqual(parsed.b, expected.b, accuracy: 0.002, css)
@@ -195,7 +195,7 @@ final class EPUBReaderSettingsTests: XCTestCase {
         let decoded = try JSONDecoder().decode(
             EPUBRGBAColor.self, from: JSONEncoder().encode(original))
         XCTAssertEqual(decoded, original)
-        let parsed = try XCTUnwrap(EPUBReaderView.parseCSSColor(original.cssString))
+        let parsed = try XCTUnwrap(CSSColorParser.parse(original.cssString))
         let bridged = EPUBRGBAColor(cgColor: parsed)
         XCTAssertEqual(bridged.r, original.r, accuracy: 0.0001)
         XCTAssertEqual(bridged.g, original.g, accuracy: 0.0001)

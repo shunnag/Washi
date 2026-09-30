@@ -28,10 +28,10 @@ final class VerticalSpreadPagingTests: XCTestCase {
         let controller = configuration.userContentController
         controller.addUserScript(WKUserScript(
             source: ReaderScripts.pageScript, injectionTime: .atDocumentStart,
-            forMainFrameOnly: true, in: EPUBReaderView.washiWorld))
+            forMainFrameOnly: true, in: WashiContentWorld.world))
         controller.addUserScript(WKUserScript(
             source: ReaderScripts.baseCSSInjector, injectionTime: .atDocumentStart,
-            forMainFrameOnly: true, in: EPUBReaderView.washiWorld))
+            forMainFrameOnly: true, in: WashiContentWorld.world))
         let webView = WKWebView(frame: NSRect(origin: .zero, size: size),
                                 configuration: configuration)
         window.contentView = webView
@@ -48,19 +48,19 @@ final class VerticalSpreadPagingTests: XCTestCase {
         func intJS(_ body: String) async throws -> Int? {
             try await Task(priority: .userInitiated) { @MainActor in
                 (try await webView.callAsyncJavaScript(
-                    body, in: nil, contentWorld: EPUBReaderView.washiWorld)) as? Int
+                    body, in: nil, contentWorld: WashiContentWorld.world)) as? Int
             }.value
         }
         func boolJS(_ body: String) async throws -> Bool? {
             try await Task(priority: .userInitiated) { @MainActor in
                 (try await webView.callAsyncJavaScript(
-                    body, in: nil, contentWorld: EPUBReaderView.washiWorld)) as? Bool
+                    body, in: nil, contentWorld: WashiContentWorld.world)) as? Bool
             }.value
         }
         func doubleJS(_ body: String) async throws -> Double? {
             try await Task(priority: .userInitiated) { @MainActor in
                 (try await webView.callAsyncJavaScript(
-                    body, in: nil, contentWorld: EPUBReaderView.washiWorld)) as? Double
+                    body, in: nil, contentWorld: WashiContentWorld.world)) as? Double
             }.value
         }
 

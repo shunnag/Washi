@@ -31,7 +31,7 @@ final class ReaderScriptTestHarness {
         for source in [ReaderScripts.pageScript, ReaderScripts.baseCSSInjector] {
             configuration.userContentController.addUserScript(WKUserScript(
                 source: source, injectionTime: .atDocumentStart,
-                forMainFrameOnly: true, in: EPUBReaderView.washiWorld))
+                forMainFrameOnly: true, in: WashiContentWorld.world))
         }
         webView = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: configuration)
         window.contentView = webView
@@ -57,7 +57,7 @@ final class ReaderScriptTestHarness {
     func evaluate<T: Sendable>(_ body: String, as type: T.Type = T.self) async throws -> T {
         try await Task(priority: .userInitiated) { @MainActor in
             let result = try await webView.callAsyncJavaScript(
-                body, in: nil, contentWorld: EPUBReaderView.washiWorld)
+                body, in: nil, contentWorld: WashiContentWorld.world)
             return try XCTUnwrap(result as? T)
         }.value
     }

@@ -450,7 +450,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
                 data: ZipBuilder.build(entries),
                 displayURL: URL(fileURLWithPath: "/tmp/unrenderable-fallback.epub"))
             let entry = publication.readingOrder[0]
-            XCTAssertEqual(EPUBReaderView.canRenderSpineResource(entry, in: publication), renderable)
+            XCTAssertEqual(publication.canRenderSpineResource(entry), renderable)
             // 状態を変える前に使う判定なので、通知ではなく失敗理由を直接確かめる。
             let failure = EPUBReaderView.spineLoadFailure(
                 entry, in: publication, url: URL(string: "washi-epub://test/fallback"))
@@ -781,7 +781,7 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
                 }));
                 return true;
                 """,
-                in: nil, contentWorld: EPUBReaderView.washiWorld)
+                in: nil, contentWorld: WashiContentWorld.world)
             return result as? Bool ?? false
         }.value
         XCTAssertTrue(dispatched)
