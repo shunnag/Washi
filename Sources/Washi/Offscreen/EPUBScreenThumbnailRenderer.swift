@@ -52,11 +52,16 @@ final class EPUBScreenThumbnailRenderer {
         // cooViewer-oxr.62: delegate を外す前に現在の待機を解決し、
         // 15 秒タイムアウトまでサムネイル要求を残さない。
         host.release()
-        loadedSpineIndex = nil
-        loadedOptionsJSON = nil
+        forgetLoadedDocument()
         fxlRasterizer?.invalidate()
         fxlRasterizer = nil
         fxlAllowsScriptedContent = nil
+    }
+
+    /// 読み込み済みの文書を忘れ、次の要求で読み込み直させる
+    private func forgetLoadedDocument() {
+        loadedSpineIndex = nil
+        loadedOptionsJSON = nil
     }
 
     /// 指定画面のサムネイル。失敗時は nil(一覧側は空セルのまま先へ進める)
@@ -145,8 +150,7 @@ final class EPUBScreenThumbnailRenderer {
             guard let url = flow == .scrolledContinuous ? schemeHandler.scrollDocumentURL
                     : schemeHandler.url(forReadingOrderItem: entry)
             else { return nil }
-            loadedSpineIndex = nil  // 途中失敗時に半端な状態を再利用しない
-            loadedOptionsJSON = nil
+            forgetLoadedDocument()  // 途中失敗時に半端な状態を再利用しない
             host.setContentSize(contentSize)
             let setupJSON = EPUBScrollDocument.options(
                 optionsJSON, publication: publication, index: spineIndex, handler: schemeHandler)
@@ -169,15 +173,14 @@ final class EPUBScreenThumbnailRenderer {
             loadedOptionsJSON = optionsJSON
         }
         // 指定画面へジャンプ(描画確定は afterScreenUpdates が担う)
-        let didShowPage = await waitForOffscreenResult { completion in
+        let didShowPage = await EPUBOffscreenWaiting.waitForResult { completion in
             webView.callAsyncJavaScript(
                 "__washi.showPage(\(pageInItem)); return true;",
                 arguments: [:], in: nil, in: WashiContentWorld.world,
                 completionHandler: { _ in completion(true) })
         }
         guard didShowPage == true, !Task.isCancelled, !isInvalidated else {
-            loadedSpineIndex = nil
-            loadedOptionsJSON = nil
+            forgetLoadedDocument()
             return nil
         }
         // 画像を含むページ(表紙・挿絵)はデコード完了を待ってから撮る。
@@ -185,7 +188,7 @@ final class EPUBScreenThumbnailRenderer {
         // 白紙に写ることがある(実測)。img.decode() は Promise ベースで
         // rAF/可視性に依存しない。ラスタライザと同じ 1500ms の JS 側上限に
         // Swift 側 5 秒の上限を重ね、デコードも WebKit 自体の無応答も打ち切る。
-        let didDecode = await waitForOffscreenResult { completion in
+        let didDecode = await EPUBOffscreenWaiting.waitForResult { completion in
             webView.callAsyncJavaScript(
                 ReaderScripts.awaitDecodedImagesScript(awaitFonts: false),
                 arguments: [:], in: nil, in: WashiContentWorld.world,
@@ -195,14 +198,13 @@ final class EPUBScreenThumbnailRenderer {
                 })
         }
         guard didDecode == true, !Task.isCancelled, !isInvalidated else {
-            loadedSpineIndex = nil
-            loadedOptionsJSON = nil
+            forgetLoadedDocument()
             return nil
         }
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = true
         configuration.snapshotWidth = NSNumber(value: Double(snapshotWidth))
-        var cgImage = try? await takeOffscreenSnapshot(
+        var cgImage = try? await EPUBOffscreenWaiting.takeSnapshot(
             webView: webView, configuration: configuration)
         guard !Task.isCancelled, !isInvalidated else { return nil }
         // 新規 webview の最初のナビゲーションが画像ページ(表紙等)だと、
@@ -217,7 +219,7 @@ final class EPUBScreenThumbnailRenderer {
                 return nil
             }
             guard !isInvalidated else { return nil }
-            cgImage = try? await takeOffscreenSnapshot(
+            cgImage = try? await EPUBOffscreenWaiting.takeSnapshot(
                 webView: webView, configuration: configuration)
             guard !Task.isCancelled, !isInvalidated else { return nil }
             retries += 1
@@ -266,8 +268,7 @@ final class EPUBScreenThumbnailRenderer {
         if didRebuildWebView {
             // cooViewer-oxr.75: 著者スクリプト許可が変われば、構成が不変の
             // WKWebView と scheme handler を同じ条件で作り直す。
-            loadedSpineIndex = nil
-            loadedOptionsJSON = nil
+            forgetLoadedDocument()
         }
     }
 }

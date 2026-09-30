@@ -8,10 +8,13 @@ extension EPUBReaderView {
     ///
     /// async 版の callAsyncJavaScript は取り消しに応じず、rAF が進まない間
     /// (最小化・遮蔽・ビューの取り外し)は TimeoutRace.run が打ち切った後も
-    /// WKWebView を保持し続ける。応答側が弱参照だけを持つ waitForOffscreenResult
-    /// で待ち、取り消されたら WebView を手放す。60 秒は取り消されなかった場合の保険
+    /// WKWebView を保持し続ける。応答側が弱参照だけを持つ
+    /// EPUBOffscreenWaiting.waitForResult で待ち、取り消されたら WebView を
+    /// 手放す。60 秒は取り消されなかった場合の保険
     static func waitForWashiScript(_ script: String, in webView: WKWebView) async {
-        let _: Bool? = await waitForOffscreenResult(timeout: .seconds(60)) { completion in
+        let _: Bool? = await EPUBOffscreenWaiting.waitForResult(
+            timeout: .seconds(60)
+        ) { completion in
             webView.callAsyncJavaScript(
                 script, arguments: [:], in: nil, in: WashiContentWorld.world) { _ in
                     completion(true)

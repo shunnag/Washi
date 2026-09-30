@@ -1,5 +1,13 @@
 import Foundation
 
+/// async 操作を期限付きで待つ単発の競走。表示中のリーダーの描画待ち
+/// (rAF・控えの撮影)が使う。
+///
+/// EPUBOffscreenWaiting(Offscreen)も「先着だけを採る」門を持つが、形が
+/// 違う。あちらは WebKit の完了コールバックを MainActor 隔離の門で受け、
+/// キャンセルは Task { @MainActor } を経て閉じる。こちらは async 操作を
+/// 子 Task で走らせ、NSLock の RaceGate を非隔離の onCancel から同期的に
+/// 閉じる。この取り消しのタイミングの差は意図したもので、2 つを統合しない。
 @MainActor
 enum TimeoutRace {
     /// `operation` の完了か `timeout` の早い方まで待つ。完了したら true。

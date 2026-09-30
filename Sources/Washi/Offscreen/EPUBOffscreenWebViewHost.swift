@@ -89,6 +89,10 @@ final class EPUBOffscreenWebViewHost {
         webView?.frame = NSRect(origin: .zero, size: size)
     }
 
+    // ホストは所有者の一つである EPUBPageRasterizer の公開型
+    // RasterizeError(loadFailed)を意図して投げる。公開型は改名・移動
+    // できないため、census・サムネイルなどラスタライザ以外の所有者も同じ
+    // エラーを共有する(EPUBOffscreenWaiting.takeSnapshot の snapshotFailed も同じ)。
     /// URL を読み込み、didFinish / didFail を待つ。キャンセル時は読み込みを
     /// 止めてから投げ直す。
     func load(url: URL, timeout: Duration) async throws {
@@ -126,7 +130,7 @@ final class EPUBOffscreenWebViewHost {
         guard let webView else { throw EPUBPageRasterizer.RasterizeError.loadFailed }
         try await load(url: url, timeout: timeout, in: webView)
         if Task.isCancelled { return nil }
-        return await waitForOffscreenResult(
+        return await EPUBOffscreenWaiting.waitForResult(
             timeoutScheduler: timeoutScheduler
         ) { completion in
             webView.callAsyncJavaScript(
