@@ -37,9 +37,6 @@ final class EPUBPaginationCensus {
         self.javaScriptTimeoutScheduler = javaScriptTimeoutScheduler
     }
 
-    /// 各 spine 項目のページ数を実測する。cooViewer-oxr.22: 欠損などの
-    /// 決定的な項目失敗は 1 ページとして続行し、タイムアウト・WebContent
-    /// 終了・キャンセルのような一過性失敗では全体を nil にする。
     /// オフスクリーンリソース(不可視 NSWindow + WebContent プロセス)を
     /// 明示的に畳む。ホストが計測を使い終えたとき(ビューのウインドウ離脱・
     /// アトラスの破棄)に呼ぶ。以後 measure が呼ばれれば作り直される
@@ -54,6 +51,9 @@ final class EPUBPaginationCensus {
         host.release()
     }
 
+    /// 各 spine 項目のページ数を実測する。cooViewer-oxr.22: 欠損などの
+    /// 決定的な項目失敗は 1 ページとして続行し、タイムアウト・WebContent
+    /// 終了・キャンセルのような一過性失敗では全体を nil にする。
     func measure(publication: EPUBPublication, optionsJSON: String,
                  contentSize: NSSize) async -> [Int]? {
         // cooViewer-oxr.68: actor の再入可能区間へ入る前に busy とし、古い
@@ -167,12 +167,12 @@ final class EPUBPaginationCensus {
                 return true
             }
         }
-        let nsError = error as NSError
         // cooViewer-oxr.22/53: policy change による load 中断(旧
         // WebKitErrorDomain の 102)と WebContent 終了は決定的な項目破損ではない。
-        if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
+        if NavigationWaiter.isCancellation(error) {
             return true
         }
+        let nsError = error as NSError
         if nsError.domain == WKError.errorDomain,
            nsError.code == WKError.Code.webContentProcessTerminated.rawValue {
             return true

@@ -249,18 +249,7 @@ public final class EPUBPageRasterizer {
         // async 版で WebView を保持せず、期限後は応答の有無によらず解放する。
         let result: Bool? = await waitForOffscreenResult(timeout: timeout) { completion in
             webView.callAsyncJavaScript(
-                """
-                const work = (async () => {
-                    await document.fonts.ready;
-                    await Promise.all([...document.images].map(
-                        image => image.decode().catch(() => {})));
-                    return true;
-                })();
-                return await Promise.race([
-                    work,
-                    new Promise(resolve => setTimeout(() => resolve(false), 1500))
-                ]);
-                """,
+                ReaderScripts.awaitDecodedImagesScript(awaitFonts: true),
                 arguments: [:], in: nil, in: .defaultClient) { _ in
                     // 読み込み済みの内容は従来どおり最善努力で描画する。
                     completion(true)

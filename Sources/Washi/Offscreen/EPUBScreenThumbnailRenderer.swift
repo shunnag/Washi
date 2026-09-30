@@ -187,13 +187,7 @@ final class EPUBScreenThumbnailRenderer {
         // Swift 側 5 秒の上限を重ね、デコードも WebKit 自体の無応答も打ち切る。
         let didDecode = await waitForOffscreenResult { completion in
             webView.callAsyncJavaScript(
-                """
-                return await Promise.race([
-                    Promise.all(Array.from(document.images).map(
-                        image => image.decode().catch(() => {}))).then(() => true),
-                    new Promise(resolve => setTimeout(() => resolve(false), 1500))
-                ]);
-                """,
+                ReaderScripts.awaitDecodedImagesScript(awaitFonts: false),
                 arguments: [:], in: nil, in: WashiContentWorld.world,
                 completionHandler: { result in
                     // JS エラーは従来どおり許容し、期限切れの false は失敗にする。

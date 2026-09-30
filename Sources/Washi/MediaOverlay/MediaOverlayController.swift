@@ -77,17 +77,17 @@ final class MediaOverlayController {
         if let startPar {
             parIndex = max(0, startPar)
         } else {
-            // One SMIL can describe several spine documents. Starting playback
-            // from a later document must enter at its first par, not jump back
-            // to par 0 in the earlier document.
+            // 1 つの SMIL が複数の spine 文書を記述することがある。後ろの文書から
+            // 再生を始めるときはその文書の最初の par から入り、前の文書の
+            // par 0 へ巻き戻さない。
             if let first = overlay.parallels.firstIndex(where: {
                 spineIndex(forPar: $0, in: overlay) == index
             }) {
                 parIndex = first
             } else if overlayWasIntroducedBefore(spineIndex: index) {
-                // A malformed shared SMIL may omit this document entirely.
-                // Do not fall back to an earlier document and pull the reader
-                // backwards; there is no valid narration entry for this item.
+                // 不正な共有 SMIL はこの文書をまったく含まないことがある。
+                // 前の文書へ戻ってリーダーを後ろへ引き戻さない。この項目には
+                // 有効なナレーションの入口がない。
                 finish()
                 return
             } else {
@@ -116,8 +116,8 @@ final class MediaOverlayController {
             play(fromSpineIndex: spineIndex)
             return
         }
-        // A silent or unavailable-audio par also has a resumable position.
-        // Recreate its advance timer instead of restarting the entire chapter.
+        // 無音・音声なしの par にも再開できる位置がある。章全体をやり直さず、
+        // その par の送りタイマーを作り直す。
         let generation = playbackGeneration
         if startCurrentPar(seek: false), generation == playbackGeneration {
             setPlaying(true)
@@ -156,8 +156,8 @@ final class MediaOverlayController {
         var shouldSeek = seek
         var mayContinueAudio = continuingAudio != nil
         var changedItem = false
-        // A flat SMIL may contain tens of thousands of skipped pars. Do not
-        // recurse through advancePar/startCurrentPar (or across spine items).
+        // 平坦な SMIL には読み飛ばす par が数万個あることがある。advancePar /
+        // startCurrentPar を(spine 項目をまたいでも)再帰させない。
         while true {
             if let candidateOverlay,
                candidateParIndex < candidateOverlay.parallels.count {
@@ -171,8 +171,8 @@ final class MediaOverlayController {
                 break
             }
             if !changedItem {
-                // Stop if the user left the narrated chapter. This check is
-                // made before any automatic navigation for this operation.
+                // ユーザーがナレーション中の章を離れていたら止める。この判定は
+                // この操作での自動移動より前に行う。
                 if let displayed = reader?.currentSpineIndex, displayed != initialSpineIndex {
                     finish()
                     return false
@@ -194,8 +194,8 @@ final class MediaOverlayController {
             return false
         }
         if changedItem {
-            // Navigate only after finding a playable par, not once per skipped
-            // chapter. A delegate may stop/restart playback or replace the book.
+            // 読み飛ばした章ごとではなく、再生できる par が見つかってから移動する。
+            // delegate が再生を停止・再開したり本を差し替えたりすることがある。
             stopAudio()
             reader?.navigateForMediaOverlay(toSpineIndex: candidateSpineIndex)
             guard generation == playbackGeneration,
@@ -210,8 +210,8 @@ final class MediaOverlayController {
         overlay = candidateOverlay
         let overlay = candidateOverlay
         let par = overlay.parallels[parIndex]
-        // Navigation and host callbacks must settle before audio starts. If a
-        // callback supersedes this transition, no orphan player is left running.
+        // 音声を始める前に、移動とホストのコールバックを落ち着かせる。コール
+        // バックがこの遷移を上書きしても、取り残された player を鳴らし続けない。
         guard highlight(par: par), generation == playbackGeneration else {
             finishTransitionIfStillCurrent(generation: generation)
             return false
@@ -325,15 +325,15 @@ final class MediaOverlayController {
 
     private func advancePar() {
         guard let overlay, overlay.parallels.indices.contains(parIndex) else { return }
-        // If the user navigated away while this clip was playing, do not keep
-        // narrating the old chapter or pull the view back on the next highlight.
+        // このクリップの再生中にユーザーが別の場所へ移動していたら、古い章の
+        // ナレーションを続けず、次のハイライトで表示を引き戻さない。
         if let displayed = reader?.currentSpineIndex, displayed != spineIndex {
             finish()
             return
         }
         let previousAudio = overlay.parallels[parIndex].audioHref
-        // Every transition passes the skip filter, including contiguous clips
-        // in the same audio file. Only unskipped adjacent clips keep playing.
+        // 同じ音声ファイル内の連続クリップも含め、すべての遷移が読み飛ばし
+        // フィルタを通る。読み飛ばされない隣接クリップだけが再生を続ける。
         startCurrentPar(seek: true, continuingAudio: previousAudio,
                         startingAt: parIndex + 1)
     }
@@ -350,8 +350,8 @@ final class MediaOverlayController {
         clearHighlight()
         overlay = nil
         setPlaying(false)
-        // The state callback can load another book, restart playback or stop.
-        // Do not deliver the old completion into that new operation.
+        // 状態コールバックは別の本の読み込み・再生の再開・停止を行いうる。
+        // 古い完了通知をその新しい操作へ届けない。
         guard generation == playbackGeneration,
               reader?.mediaOverlayController === self else { return }
         reader?.mediaOverlayDidFinish()
