@@ -43,8 +43,7 @@ public final class EPUBPageRasterizer {
     /// cooViewer-oxr.68: 所有するサムネイルレンダラのアイドル診断用。
     var hasLiveWebView: Bool { host.hasLiveWebView }
     /// 直列化: 直前の要求が終わるまで次を待たせる
-    private var lastJob: Task<Void, Never>?
-    private var renderJobs: [UUID: Task<CGImage, any Error>] = [:]
+    private let queue = EPUBOffscreenJobQueue()
 
     /// 固定レイアウトページのラスタライズ中に発生するエラー。
     ///
@@ -103,9 +102,7 @@ public final class EPUBPageRasterizer {
     /// then fails with loadFailed).
     public func invalidate() {
         isInvalidated = true
-        lastJob?.cancel()
-        for job in renderJobs.values { job.cancel() }
-        renderJobs.removeAll()
+        queue.cancelAll()
         // cooViewer-oxr.53: delegate を外す前に現在の待機を解決し、
         // 30 秒タイムアウトを待たず FIFO を終了させる。
         host.release()
@@ -152,33 +149,13 @@ public final class EPUBPageRasterizer {
         deviceViewportSize: CGSize?
     ) async throws -> CGImage {
         guard !isInvalidated else { throw RasterizeError.loadFailed }
-        let previous = lastJob
         // 優先度は明示的に userInitiated へ(低優先度の呼び出し元 — 例:
         // .utility のサムネイル先読み — の QoS を継ぐと、WebKit への JS 実行が
         // 応答しないことがある。EPUBScreenThumbnailRenderer で実測した逆転)
-        let job = Task(priority: .userInitiated) { () throws -> CGImage in
-            guard await waitForOffscreenPredecessor(previous) else {
-                throw CancellationError()
-            }
-            return try await self.performRender(atSpineIndex: index,
-                                                maxPixelSize: maxPixelSize,
-                                                deviceViewportSize: deviceViewportSize)
-        }
-        let jobID = UUID()
-        renderJobs[jobID] = job
-        defer { renderJobs[jobID] = nil }
-        // cooViewer-oxr.53: キャンセルされた待機ジョブが先行ジョブより先に
-        // 終了しても、次の要求が先行描画を追い越さない FIFO barrier を残す。
-        lastJob = Task(priority: .userInitiated) {
-            _ = await previous?.value
-            _ = try? await job.value
-        }
-        return try await withTaskCancellationHandler {
-            try await job.value
-        } onCancel: {
-            // cooViewer-oxr.53: 非構造化 FIFO ジョブへ呼び出し元の
-            // キャンセルを明示的に伝播する。
-            job.cancel()
+        return try await queue.enqueue(priority: .userInitiated) {
+            try await self.performRender(atSpineIndex: index,
+                                         maxPixelSize: maxPixelSize,
+                                         deviceViewportSize: deviceViewportSize)
         }
     }
 

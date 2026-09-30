@@ -19,8 +19,8 @@ final class EPUBScreenThumbnailRenderer {
     private var pendingRenderRequestCount = 0
     private var loadedSpineIndex: Int?
     private var loadedOptionsJSON: String?
-    private var lastJob: Task<Void, Never>?
-    private var renderJobs: [UUID: Task<CGImage?, Never>] = [:]
+    /// FIFO 直列化(EPUBPageRasterizer と同じチェーン方式)
+    private let queue = EPUBOffscreenJobQueue()
     /// invalidate 後は新規レンダーを受け付けない(再利用はしない前提)
     private var isInvalidated = false
 
@@ -44,10 +44,7 @@ final class EPUBScreenThumbnailRenderer {
     func invalidate() {
         isInvalidated = true
         idleReleaseTimer.cancel()
-        lastJob?.cancel()
-        for job in renderJobs.values { job.cancel() }
-        renderJobs.removeAll()
-        lastJob = nil
+        queue.cancelAll()
         releaseOffscreenResources()
     }
 
@@ -77,44 +74,26 @@ final class EPUBScreenThumbnailRenderer {
             pendingRenderRequestCount -= 1
             scheduleIdleReleaseIfNeeded()
         }
-        let previous = lastJob
         // 優先度は明示的に userInitiated へ引き上げる。呼び出し元はサムネイル
         // 先読み(.utility の detached タスク)で、その優先度のまま WebKit へ
         // JS 実行を発行すると応答が返らない(QoS 逆転で永久待ち。実測)。
-        let job = Task(priority: .userInitiated) { () -> CGImage? in
-            guard await waitForOffscreenPredecessor(previous) else { return nil }
-            return await self.render(
+        return await queue.enqueue(priority: .userInitiated) {
+            await self.render(
                 spineIndex: spineIndex, pageInItem: pageInItem,
                 optionsJSON: optionsJSON, contentSize: contentSize,
                 snapshotWidth: snapshotWidth)
-        }
-        let jobID = UUID()
-        renderJobs[jobID] = job
-        defer { renderJobs[jobID] = nil }
-        // cooViewer-oxr.62: キャンセルされた待機ジョブが先行ジョブより先に
-        // 終了しても、次の要求が先行描画を追い越さない FIFO barrier を残す。
-        lastJob = Task(priority: .userInitiated) {
-            _ = await previous?.value
-            _ = await job.value
-        }
-        return await withTaskCancellationHandler {
-            await job.value
-        } onCancel: {
-            // cooViewer-oxr.62: 非構造化 FIFO ジョブへ呼び出し元の
-            // キャンセルを明示的に伝播する。
-            job.cancel()
         }
     }
 
     private func scheduleIdleReleaseIfNeeded() {
         guard !isInvalidated, pendingRenderRequestCount == 0,
-              renderJobs.isEmpty, hasLiveWebView else { return }
+              queue.isIdle, hasLiveWebView else { return }
         idleReleaseTimer.restart { [weak self] in
             guard let self, !isInvalidated, pendingRenderRequestCount == 0,
-                  renderJobs.isEmpty else { return }
+                  queue.isIdle else { return }
             // cooViewer-oxr.68: 永続 invalidate にはせず、同じ解放経路だけを
             // 通して次の thumbnail で prepareIfNeeded から再構築する。
-            lastJob = nil
+            queue.clearChain()
             releaseOffscreenResources()
         }
     }
