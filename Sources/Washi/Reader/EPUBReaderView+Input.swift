@@ -316,6 +316,12 @@ extension EPUBReaderView {
             super.scrollWheel(with: event)
             return
         }
+        turnPageByWheel(event)
+    }
+
+    /// 余白と WebView の上(ページ表示)のホイールを「1 ジェスチャ = 1 ページ」に
+    /// 量子化して送る(250ms 静穏で解除・軸は最初のイベントで確定)。慣性はラッチが飲み込む
+    func turnPageByWheel(_ event: NSEvent) {
         guard let (horizontal, positive) = marginWheelLatch.register(event) else { return }
         // AppKit の scrollingDelta は DOM の wheel と符号が逆(正=文書の
         // 先頭方向へのスクロール)なので、JS の wheelTurn と対になる写像

@@ -166,6 +166,16 @@ extension EPUBReaderView {
         webView.contextMenuHandler = { [weak self] menu, event in
             self?.contextMenu(menu, for: event)
         }
+        webView.wheelHandler = { [weak self] event in
+            // スクロール表示は WebKit の連続した移動と慣性に委ねる(固定レイアウトの
+            // 項目もスクロール表示では isFixedLayoutItem が false になり、JS の
+            // scrolled と同じ条件になる)
+            guard let self, !EPUBScreenMetrics.isScrolled(self.effectiveFlow) else {
+                return false
+            }
+            self.turnPageByWheel(event)
+            return true
+        }
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.autoresizingMask = []
