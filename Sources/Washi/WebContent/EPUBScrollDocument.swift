@@ -34,10 +34,10 @@ enum EPUBScrollDocument {
               var options = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return json }
         let range = onlyItem ? index..<(index + 1) : publication.scrollGroup(containing: index)
-        let width = (options["width"] as? Double) ?? 400
-        let height = (options["height"] as? Double) ?? 600
-        options["spineIndex"] = index
-        options["continuousItems"] = range.compactMap { itemIndex -> [String: Any]? in
+        let width = (options[.width] as? Double) ?? 400
+        let height = (options[.height] as? Double) ?? 600
+        options[.spineIndex] = index
+        options[.continuousItems] = range.compactMap { itemIndex -> [String: Any]? in
             let entry = publication.readingOrder[itemIndex]
             guard let url = handler.url(forReadingOrderItem: entry) else { return nil }
             let layout = publication.package.effectiveLayout(for: entry.itemRef)

@@ -134,7 +134,7 @@ final class EPUBOffscreenWebViewHost {
                 arguments: [:], in: nil, in: WashiContentWorld.world,
                 completionHandler: { result in
                     completion(result.map {
-                        SetupResult(pageCount: ($0 as? [String: Any])?["pageCount"] as? Int)
+                        SetupResult(pageCount: ($0 as? [String: Any])?[.pageCount] as? Int)
                     })
                 })
         }

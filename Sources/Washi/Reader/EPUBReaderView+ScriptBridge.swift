@@ -114,11 +114,11 @@ extension EPUBReaderView {
                   generation == spineLoadGeneration else { return }
             applyHighlights()
         }
-        if dict["printPageMarkers"] != nil { applySetupResult(dict) }
+        if dict[.printPageMarkers] != nil { applySetupResult(dict) }
         pageInItem = dict["page"] as? Int ?? 0
-        pageCountInItem = max(1, dict["pageCount"] as? Int ?? 1)
+        pageCountInItem = max(1, dict[.pageCount] as? Int ?? 1)
         scrollProgression = (dict["progression"] as? Double).map(Self.clampedProgression)
-        pagesPerScreen = max(1, dict["pagesPerScreen"] as? Int ?? pagesPerScreen)
+        pagesPerScreen = max(1, dict[.pagesPerScreen] as? Int ?? pagesPerScreen)
         spineLoad.pendingRestoreLocator = nil  // 実位置が確定した
         updateCurrentPrintPage()
         guard request == navigationRequestGeneration,
