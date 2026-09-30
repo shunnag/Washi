@@ -80,17 +80,23 @@ final class WheelPageTurnTests: XCTestCase {
         guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
                                wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0)
         else { return nil }
-        // kCGScrollWheelEventIsContinuous(88)=1・kCGScrollWheelEventScrollPhase(99):
-        // トラックパッドや横ホイール付きマウスと同じ「精密・phase 付き」の形にする
-        cg.setIntegerValueField(CGEventField(rawValue: 88)!, value: 1)
-        cg.setIntegerValueField(CGEventField(rawValue: 99)!, value: phase)
+        // 連続(精密)・phase 付き: トラックパッドや横ホイール付きマウスと同じ形にする
+        cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
         let frame = webView.convert(webView.bounds, to: nil)
         let screenHeight = NSScreen.screens.first?.frame.height ?? frame.maxY
         cg.location = CGPoint(x: frame.midX, y: screenHeight - frame.midY)
         // 時刻を必ず入れる。CGEvent は既定で timestamp が 0 になり、送りの処理の
         // 「0.25 秒の静穏で区切る」判定が一度も効かない(調査中に実際に踏んだ)
         cg.timestamp = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        return NSEvent(cgEvent: cg)
+        guard let event = NSEvent(cgEvent: cg) else { return nil }
+        // NSEvent.timestamp は systemUptime と同じ時計のはず。機種(Apple Silicon 等)で
+        // 時計の単位がずれると 0.25 秒の判定が壊れるので、ここで理由つきで落とす
+        let skew = abs(event.timestamp - ProcessInfo.processInfo.systemUptime)
+        if skew > 1 {
+            XCTFail("合成イベントの時刻が systemUptime とずれている(\(skew) 秒)")
+        }
+        return event
     }
 
     /// 1 ジェスチャ: began(1) → changed(2) を `changes` 回 → ended(4)。
@@ -214,19 +220,34 @@ final class WheelPageTurnTests: XCTestCase {
     func testScrolledFlowLeavesWheelToWebKit() async throws {
         let harness = try await makeReader(
             try scrollPublication(flow: "scrolled-doc"), double: false)
+        // scrollY が増えるだけでは足りない(native が横取りしても goForward が
+        // 1 画面スクロールするので増える)。wheel が DOM まで届いたことを数える
+        try await runJS(harness.webView, """
+            globalThis.__wheelCount = 0;
+            window.addEventListener('wheel', () => { globalThis.__wheelCount += 1; },
+                                    { capture: true, passive: true });
+            return 0;
+            """)
         let before = try await scrollY(harness.webView)
         try await gesture(harness, dy: -12)
         try await Task.sleep(for: .milliseconds(600))
         let after = try await scrollY(harness.webView)
         XCTAssertGreaterThan(after, before, "スクロール表示では WebKit がスクロールする")
+        let wheelCount = try await runJS(harness.webView, "return globalThis.__wheelCount;")
+        XCTAssertGreaterThan(wheelCount, 0, "スクロール表示では wheel が WebKit(DOM)に届く")
+    }
+
+    @discardableResult
+    private func runJS(_ webView: WKWebView, _ body: String) async throws -> Double {
+        try await Task(priority: .userInitiated) { @MainActor in
+            let raw = try await webView.callAsyncJavaScript(
+                body, in: nil, contentWorld: WashiContentWorld.world)
+            return (raw as? Double) ?? Double((raw as? Int) ?? -1)
+        }.value
     }
 
     private func scrollY(_ webView: WKWebView) async throws -> Double {
-        try await Task(priority: .userInitiated) { @MainActor in
-            let raw = try await webView.callAsyncJavaScript(
-                "return window.scrollY;", in: nil, contentWorld: WashiContentWorld.world)
-            return (raw as? Double) ?? Double((raw as? Int) ?? -1)
-        }.value
+        try await runJS(webView, "return window.scrollY;")
     }
 
     // MARK: テスト 5 — 章をまたいだ直後の慣性で余分に送らない
@@ -263,5 +284,27 @@ final class WheelPageTurnTests: XCTestCase {
         XCTAssertEqual(harness.view.currentSpineIndex, 1)
         XCTAssertEqual(harness.view.pageInItem, 0, "読み込みの直後に続くホイールでは送らない")
         try await turn(harness, dy: -12, expect: 1, "静かになってからのジェスチャでは送る")
+    }
+
+    /// 5c: 読み込みの間にホイールが無くても、読み込みの直後(開始から 0.25 秒以内)に
+    /// 来たホイールでは送らない(読み込み開始時のラッチだけが守る)
+    func testWheelJustAfterChapterLoadWithoutEarlierWheelDoesNotTurn() async throws {
+        let harness = try await makeReader(
+            try twoChapterPublication(), double: false,
+            at: EPUBLocator(spineIndex: 0, progression: 1))
+        let movesBefore = harness.spy.moveCount
+        let loadStart = ContinuousClock.now
+        harness.view.goForward()
+        let loaded = await waitUntil(timeout: .seconds(3)) {
+            harness.spy.moveCount > movesBefore && harness.view.currentSpineIndex == 1
+        }
+        XCTAssertTrue(loaded, "次の章が読み込まれる")
+        let elapsed = ContinuousClock.now - loadStart
+        try XCTSkipIf(elapsed > .milliseconds(200),
+                      "読み込みに \(elapsed) かかり、0.25 秒のラッチの内側で当てられない")
+        try await gesture(harness, dy: -12, changes: 4)
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(harness.view.currentSpineIndex, 1)
+        XCTAssertEqual(harness.view.pageInItem, 0, "読み込み開始から 0.25 秒以内のホイールでは送らない")
     }
 }
