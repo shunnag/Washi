@@ -29,15 +29,22 @@ extension ReaderScripts {
             message.token = options.documentToken || '';
             try { window.webkit.messageHandlers.washi.postMessage(message); } catch (_) {}
         }
+        // pageChanged の mode は章の computed writing-mode('htb' / 'vrl' / 'vlr'。
+        // roll は 'htb')。この文書では setup の戻り値の mode も同じ値で、
+        // 'fxl' は返さない。値は従来どおり。
         function report() {
             if (!ready || !active) { return; }
             post({ type: 'pageChanged', spineIndex: active.index, page: page(active),
                    pageCount: count(active), pagesPerScreen: 1, mode: active.mode,
                    progression: progression(active), printPageMarkers: active.markers });
         }
+        // 本体スクリプトの setupResult と同じ鍵集合を返す。連続スクロールに
+        // 見開き末尾の空列はないので paddedPageCount は pageCount と同じ。
         function setupResult() {
-            return { pageCount: count(active), pagesPerScreen: 1, imagePage: false,
-                     mode: active.mode, printPageMarkers: active.markers,
+            const pageCount = count(active);
+            return { pageCount: pageCount, pagesPerScreen: 1, imagePage: false,
+                     mode: active.mode, paddedPageCount: pageCount,
+                     printPageMarkers: active.markers,
                      firstPageOnRight: false, supportsColumnAxis: true };
         }
         function sameOptions(a, b) {

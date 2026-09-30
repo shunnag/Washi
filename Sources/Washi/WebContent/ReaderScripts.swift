@@ -51,6 +51,8 @@ enum ReaderScripts {
         const washi = {};
         window.__washi = washi;
 
+        // ---- 状態 ----
+
         let mode = 'htb';        // 'htb' | 'vrl' | 'vlr'
         let pageW = 0, pageH = 0, gap = 0;
         let pageCount = 1;
@@ -106,6 +108,8 @@ enum ReaderScripts {
             try { window.webkit.messageHandlers.washi.postMessage(message); }
             catch (e) { /* ハンドラ未登録(ラスタライザ等)は黙って無視 */ }
         }
+
+        // ---- スタイル所有と既定フォント ----
 
         \#(styleOwnershipScript)
 
@@ -205,6 +209,8 @@ enum ReaderScripts {
                 s.textContent = rootRule + 'body { font-size: 1rem !important; }\n';
             }
         }
+
+        // ---- 画像ページ・外字判定 ----
 
         // 表紙・口絵など「画像 1 枚だけで本文テキストがないページ」の判定。
         // 電書協テンプレートの p-cover(hltr + img.fit)もこの形。
@@ -354,6 +360,8 @@ enum ReaderScripts {
                     object-fit: contain;
                 }`;
         }
+
+        // ---- ページ割りの幾何 ----
 
         // body の writing-mode は主書字方向としてルートへ伝播するため両方見る
         function detectMode() {
@@ -585,6 +593,8 @@ enum ReaderScripts {
             return { ready: ready, scrolled: scrolled, mode: mode, extent: scrollExtent(),
                      viewport: clientExtent(), offset: scrollOffset() };
         };
+
+        // ---- 末尾スプレッドの padding ----
 
         function resetPaginationMarkers() {
             // cooViewer-oxr.58: 前回だけに使った pseudo selector を無効化し、
@@ -835,6 +845,8 @@ enum ReaderScripts {
             paddedPageCount = pageCount;
         }
 
+        // ---- ページ数の実測とページ移動 ----
+
         function firstPageOnRight() {
             return pagesPerScreen === 2
                 && (mode === 'vrl' || (mode === 'htb' && horizontalRTL));
@@ -916,6 +928,9 @@ enum ReaderScripts {
             }
         }
 
+        // pageChanged の mode は computed writing-mode('htb' / 'vrl' / 'vlr')。
+        // setup の戻り値だけは FXL で 'fxl' を返す(repaginate が進行率の復元
+        // 要否に使う)。値は従来どおり。
         function report() {
             const message = { type: 'pageChanged', page: currentPage, pageCount: pageCount,
                               mode: mode, pagesPerScreen: pagesPerScreen };
@@ -1020,6 +1035,8 @@ enum ReaderScripts {
             const rect = el.getClientRects()[0] || el.getBoundingClientRect();
             return washi.showPage(pageForRect(rect));
         };
+
+        // ---- 本文地図 ----
 
         // WashiCore の appendPlainText / collapsingWhitespace と同じ本文を
         // 作りながら、正規化後の UTF-16 各単位を元 Text ノードへ対応づける。
@@ -1409,6 +1426,8 @@ enum ReaderScripts {
             return -1;
         };
 
+        // ---- 選択とハイライト ----
+
         // cooViewer-oxr.46 C40: 保存済みハイライトの描画。CSS Custom Highlight
         // API を使うので本文の DOM には一切触れない(著者 CSS・選択・検索と
         // 干渉せず、範囲が重なっても入れ子要素を作らない)。
@@ -1569,6 +1588,8 @@ enum ReaderScripts {
             }
         };
 
+        // ---- 音声同期 ----
+
         /// メディアオーバーレイ再生: 直前の active を外して id 要素へ付け直し、
         /// その要素が現在のスプレッドに無ければそのページへめくる(ページ計数は
         /// showPage 経由で同期)。id が空なら全 active を解除するだけ
@@ -1600,6 +1621,8 @@ enum ReaderScripts {
             }
             return currentPage;
         };
+
+        // ---- 文書内のページ送り ----
 
         /// 文書内で 1 画面(単ページ=1、見開き=2 ページ)進む/戻る。
         /// ページが変わったら true。境界を越えるときは native へ通知して false。
@@ -1637,6 +1660,22 @@ enum ReaderScripts {
         };
 
         // ---- セットアップ(native から didFinish 後に呼ぶ) ----
+
+        // setup の戻り値。native の applySetupResult と census が読む鍵集合は
+        // 全経路で同じにする(EPUBScriptSetupResultKey と ReaderScriptContractTests
+        // が一致を検証する)。singlePage は FXL・画像ページ用で、印刷ページ境界を
+        // 全て 0 ページに置く。overrides は状態変数と返す値が違う経路(FXL は
+        // pagesPerScreen / imagePage を更新せず 1 / false を返す)のためで、
+        // 状態そのものは変えない。
+        function setupResult(singlePage, overrides) {
+            return Object.assign({
+                pageCount: pageCount, mode: mode, imagePage: imagePage,
+                pagesPerScreen: pagesPerScreen, paddedPageCount: paddedPageCount,
+                printPageMarkers: collectPrintPageMarkers(singlePage),
+                firstPageOnRight: firstPageOnRight(),
+                supportsColumnAxis: supportsColumnAxis()
+            }, overrides);
+        }
 
         washi.setup = function (options) {
             if (typeof options.documentToken === 'string') {
@@ -1676,11 +1715,7 @@ enum ReaderScripts {
                 horizontalRTL = false;
                 paddedPageCount = 1;
                 ready = true;
-                return { pageCount: 1, mode: 'fxl', imagePage: false,
-                         pagesPerScreen: 1, paddedPageCount: 1,
-                         printPageMarkers: collectPrintPageMarkers(true),
-                         firstPageOnRight: false,
-                         supportsColumnAxis: columnAxisSupported };
+                return setupResult(true, { mode: 'fxl', imagePage: false, pagesPerScreen: 1 });
             }
             viewportW = Math.max(1, Math.floor(Number(options.width) || 1));
             pageH = Math.max(1, Math.floor(Number(options.height) || 1));
@@ -1705,11 +1740,7 @@ enum ReaderScripts {
                 horizontalRTL = false;
                 ensureStyle('washi-font-scale').textContent = '';
                 ready = true;
-                return { pageCount: 1, mode: mode, imagePage: true,
-                         pagesPerScreen: 1, paddedPageCount: 1,
-                         printPageMarkers: collectPrintPageMarkers(true),
-                         firstPageOnRight: false,
-                         supportsColumnAxis: columnAxisSupported };
+                return setupResult(true);
             }
             mode = detectMode();
             // cooViewer-oxr.33: 縦組みでは reader の letter-spacing 規則を
@@ -1727,10 +1758,7 @@ enum ReaderScripts {
                 paddedPageCount = pageCount;
                 currentPage = Math.max(0, Math.min(currentPage, pageCount - 1));
                 ready = true;
-                return { pageCount: pageCount, mode: mode, imagePage: false,
-                         pagesPerScreen: 1, paddedPageCount: pageCount,
-                         printPageMarkers: collectPrintPageMarkers(),
-                         firstPageOnRight: false, supportsColumnAxis: columnAxisSupported };
+                return setupResult(false);
             }
             if (options.spread && viewportW >= 2
                 && (mode === 'htb' || columnAxisSupported)) {
@@ -1757,12 +1785,7 @@ enum ReaderScripts {
             currentPage = spreadStart(Math.min(currentPage, pageCount - 1));
             scrollToPage(currentPage);
             ready = true;
-            return { pageCount: pageCount, mode: mode, imagePage: false,
-                     pagesPerScreen: pagesPerScreen,
-                     paddedPageCount: paddedPageCount,
-                     printPageMarkers: collectPrintPageMarkers(),
-                     firstPageOnRight: firstPageOnRight(),
-                     supportsColumnAxis: columnAxisSupported };
+            return setupResult(false);
         };
 
         /// 配色などページ割りに影響しない CSS の差し替え(再ページ割りなし)
@@ -2134,6 +2157,8 @@ enum ReaderScripts {
             }
             if (handled) { event.preventDefault(); }
         }, true);
+
+        // ---- スクロール guard ----
 
         // 中途半端なスクロール位置をページ境界へ揃える。
         // cooViewer-oxr.46 C10: 以前は必ず currentPage へ戻していたため、
