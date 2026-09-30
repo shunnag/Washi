@@ -18,8 +18,6 @@ import Foundation
 //   spineIndex・progression・printPageMarkers([{ label, page }])が加わり、
 //   pagesPerScreen は常に 1。
 // - boundary: forward(Bool)。文書の端でこれ以上めくれないときに送る。
-// - wheelTurn: forward(Bool、蓄積量が正)、horizontal(Bool、水平ジェスチャ)。
-//   ページ送り表示だけが送る。
 // - link: href、epubType(String?)、role(String?)、anchorId(String?)、
 //   anchorRect({ x, y, w, h }、viewport 座標)、backlink(Bool)、
 //   targetTag(String?)、targetEpubType(String?)。同一文書内の行き先が
@@ -41,7 +39,6 @@ import Foundation
 enum EPUBScriptMessage: String, CaseIterable {
     case pageChanged
     case boundary
-    case wheelTurn
     case link
     case tap
     case selection

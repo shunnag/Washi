@@ -194,4 +194,60 @@ final class WheelPageTurnTests: XCTestCase {
         XCTAssertEqual(reversed.view.pageInItem, 2)
         try await turn(reversed, dx: -12, expect: 1, "反転: 右向きで戻る")
     }
+
+    // MARK: テスト 4 — スクロール表示は WebKit に任せる
+
+    func testScrolledFlowLeavesWheelToWebKit() async throws {
+        let harness = try await makeReader(
+            try scrollPublication(flow: "scrolled-doc"), double: false)
+        let before = try await scrollY(harness.webView)
+        try await gesture(harness, dy: -12)
+        try await Task.sleep(for: .milliseconds(600))
+        let after = try await scrollY(harness.webView)
+        XCTAssertGreaterThan(after, before, "スクロール表示では WebKit がスクロールする")
+    }
+
+    private func scrollY(_ webView: WKWebView) async throws -> Double {
+        try await Task(priority: .userInitiated) { @MainActor in
+            let raw = try await webView.callAsyncJavaScript(
+                "return window.scrollY;", in: nil, contentWorld: WashiContentWorld.world)
+            return (raw as? Double) ?? Double((raw as? Int) ?? -1)
+        }.value
+    }
+
+    // MARK: テスト 5 — 章をまたいだ直後の慣性で余分に送らない
+
+    private func twoChapterPublication() throws -> EPUBPublication {
+        try scrollPublication(flow: "paginated", modes: ["horizontal-tb", "horizontal-tb"])
+    }
+
+    /// 5a: 章の最後から送ったジェスチャの続き(慣性)で、次の章をもう 1 ページ送らない
+    func testMomentumAfterCrossingChapterDoesNotTurnAgain() async throws {
+        let harness = try await makeReader(
+            try twoChapterPublication(), double: false,
+            at: EPUBLocator(spineIndex: 0, progression: 1))
+        XCTAssertEqual(harness.view.currentSpineIndex, 0)
+        // 約 0.5 秒続く 1 ジェスチャ(最初の数イベントで閾値を超え、残りは慣性相当)
+        try await gesture(harness, dy: -12, changes: 30)
+        let crossed = await waitUntil(timeout: .seconds(3)) { harness.view.currentSpineIndex == 1 }
+        XCTAssertTrue(crossed, "次の章へ送られる")
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(harness.view.currentSpineIndex, 1)
+        XCTAssertEqual(harness.view.pageInItem, 0, "慣性で次の章をさらに送らない")
+    }
+
+    /// 5b: ホイール以外(キー等)で章をまたいだ直後に続くホイールでは送らず、
+    /// 0.25 秒静かになってからのジェスチャで送る
+    func testWheelRightAfterChapterLoadIsIgnoredUntilQuiet() async throws {
+        let harness = try await makeReader(
+            try twoChapterPublication(), double: false,
+            at: EPUBLocator(spineIndex: 0, progression: 1))
+        harness.view.goForward()
+        try await gesture(harness, dy: -12, changes: 12)
+        _ = await waitUntil(timeout: .seconds(3)) { harness.view.currentSpineIndex == 1 }
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(harness.view.currentSpineIndex, 1)
+        XCTAssertEqual(harness.view.pageInItem, 0, "読み込みの直後に続くホイールでは送らない")
+        try await turn(harness, dy: -12, expect: 1, "静かになってからのジェスチャでは送る")
+    }
 }

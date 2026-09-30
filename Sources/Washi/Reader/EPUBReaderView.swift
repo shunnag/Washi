@@ -289,9 +289,10 @@ public final class EPUBReaderView: NSView {
     }
     var marginPress = MarginPress()
 
-    /// 余白のホイール/トラックパッドを「1 ジェスチャ = 1 ページ」に量子化するラッチ。
+    /// 余白と WebView の上(ページ表示)のホイール/トラックパッドを
+    /// 「1 ジェスチャ = 1 ページ」に量子化するラッチ。
     /// 定数(0.25 秒の静穏・±50 の蓄積・非精密デルタの ×40・軸のラッチ)は
-    /// JS 側の wheelTurn と cooViewer が同じ値を持つので変えない
+    /// cooViewer が同じ値を持つので変えない
     struct WheelTurnLatch {
         var accumulator: CGFloat = 0
         var lastTime: TimeInterval = 0
@@ -301,7 +302,7 @@ public final class EPUBReaderView: NSView {
         /// ホイールイベントを蓄積し、1 ページぶんに達したら軸と向きを返す
         /// (ラッチ中・蓄積が足りない間は nil)
         mutating func register(_ event: NSEvent) -> (horizontal: Bool, positive: Bool)? {
-            // JS 側と同じ「1 ジェスチャ = 1 ページ」量子化(250ms 静穏で解除・
+            // 「1 ジェスチャ = 1 ページ」量子化(250ms 静穏で解除・
             // 軸は最初のイベントで確定)。慣性はラッチが飲み込む
             if event.timestamp - lastTime > 0.25 {
                 latched = false
