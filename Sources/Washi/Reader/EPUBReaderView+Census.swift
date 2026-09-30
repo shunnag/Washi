@@ -55,7 +55,7 @@ extension EPUBReaderView {
               record.releaseIdentifier == publication.metadata.releaseIdentifier
         else { return false }
         census.cache[record.metricsKey] = record.counts
-        if record.metricsKey == censusOptionsJSON() {
+        if record.metricsKey == censusScreenMetrics.censusOptionsJSON {
             census.key = record.metricsKey
             pageCensus = record.counts
             delegate?.readerViewDidUpdatePageCensus(self)
@@ -112,14 +112,11 @@ extension EPUBReaderView {
             if remaining < count {
                 let divisions = censusProgressionDivisions(at: index, count: count)
                 let progression = divisions <= 0 ? 0 : Double(remaining) / Double(divisions)
-                return publication?.locator(forSpineIndex: index,
-                                            progression: progression)
-                    ?? EPUBLocator(spineIndex: index, progression: progression)
+                return makeLocator(spineIndex: index, progression: progression)
             }
             remaining -= count
         }
-        return publication?.locator(forSpineIndex: counts.count - 1, progression: 1)
-            ?? EPUBLocator(spineIndex: counts.count - 1, progression: 1)
+        return makeLocator(spineIndex: counts.count - 1, progression: 1)
     }
 
     /// 位置を本全体のページ番号(0 始まり)へ変換する。census 完了前、または
@@ -212,18 +209,6 @@ extension EPUBReaderView {
             contentSize: itemMetrics.contentSize, snapshotWidth: width)
     }
 
-    /// リフロー時のコンテンツ寸法(現在項目が FXL でも「リフロー項目なら
-    /// こうなる」寸法。census のメトリクスは現在項目に依存させない)
-    private func reflowContentSize() -> NSSize {
-        censusScreenMetrics.contentSize
-    }
-
-    /// census 用のセットアップオプション(= リフロー項目の setup と同値。
-    /// メトリクスの同一性キーとしても使う)
-    private func censusOptionsJSON() -> String {
-        censusScreenMetrics.censusOptionsJSON
-    }
-
     /// バックグラウンドの census を停止する(ホストが EPUB ビューから
     /// 離れるときに使う。次回の runSetup / layout で自動的に再予約される)。
     ///
@@ -232,6 +217,16 @@ extension EPUBReaderView {
     public func cancelPageCensus() {
         census.task?.cancel()
         census.task = nil
+    }
+
+    /// census とサムネイルのオフスクリーン(不可視 NSWindow + WebContent プロセス)を
+    /// 畳む(ウインドウ離脱・非表示・本の差し替え)。次の measure / thumbnail で作り直す
+    func tearDownOffscreenRenderers() {
+        cancelPageCensus()
+        census.engine?.invalidate()
+        census.engine = nil
+        thumbnailRenderer?.invalidate()
+        thumbnailRenderer = nil
     }
 
     /// メトリクスが変わっていれば census を(デバウンス付きで)再実測する。
@@ -247,10 +242,14 @@ extension EPUBReaderView {
             repagination.pendingVisibleLayout = true
             return
         }
-        let key = censusOptionsJSON()
+        // census 用のセットアップオプション(= リフロー項目の setup と同値)を
+        // メトリクスの同一性キーにする。寸法は現在項目が FXL でも「リフロー項目なら
+        // こうなる」寸法(census のメトリクスは現在項目に依存させない)
+        let metrics = censusScreenMetrics
+        let key = metrics.censusOptionsJSON
         // 実測に使う寸法はキーと同じ瞬間に採る(デバウンス起床時に採ると、
         // 窓の終盤のリサイズで「旧キーに新寸法の実測」が入りキャッシュが汚れる)
-        let size = reflowContentSize()
+        let size = metrics.contentSize
         if census.key == key {
             if pageCensus != nil { return }
             // 同一メトリクスで実測中なら継続させる(spine 遷移のたびに

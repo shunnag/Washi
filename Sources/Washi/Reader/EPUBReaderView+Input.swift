@@ -219,15 +219,7 @@ extension EPUBReaderView {
     /// イベント位置は tap/余白 click と同じ座標系。
     func contextMenu(_ menu: NSMenu, for event: NSEvent) -> NSMenu? {
         _ = effectiveContextMenuPolicy.filter(menu)
-        let location = convert(event.locationInWindow, from: nil)
-        let flags = event.modifierFlags
-        let click = EPUBClickEvent(
-            x: Double(location.x / max(1, bounds.width)),
-            y: Double(1 - location.y / max(1, bounds.height)),
-            locationInView: location,
-            button: event.buttonNumber,
-            shift: flags.contains(.shift), option: flags.contains(.option),
-            control: flags.contains(.control), command: flags.contains(.command))
+        let click = clickEvent(for: event, button: event.buttonNumber)
         guard let delegate else { return menu }
         guard let resolved = delegate.readerView(
             self, willShowContextMenu: menu, at: click) else {
@@ -296,9 +288,16 @@ extension EPUBReaderView {
               max(abs(location.x - marginPress.location.x),
                   abs(location.y - marginPress.location.y)) <= 30
         else { return true }
+        dispatchClick(clickEvent(for: event, button: button))
+        return true
+    }
+
+    /// ネイティブのマウスイベントを、JS の tap と同じ座標系のクリックへ写す
+    /// (y は「上端 0」の正規化。この view は非 flipped)
+    private func clickEvent(for event: NSEvent, button: Int) -> EPUBClickEvent {
+        let location = convert(event.locationInWindow, from: nil)
         let flags = event.modifierFlags
-        // y は JS の tap と同じ「上端 0」の正規化(この view は非 flipped)
-        dispatchClick(EPUBClickEvent(
+        return EPUBClickEvent(
             x: Double(location.x / max(1, bounds.width)),
             y: Double(1 - location.y / max(1, bounds.height)),
             locationInView: location,
@@ -306,8 +305,7 @@ extension EPUBReaderView {
             shift: flags.contains(.shift),
             option: flags.contains(.option),
             control: flags.contains(.control),
-            command: flags.contains(.command)))
-        return true
+            command: flags.contains(.command))
     }
 
     public override func scrollWheel(with event: NSEvent) {

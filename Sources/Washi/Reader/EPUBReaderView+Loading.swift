@@ -102,8 +102,7 @@ extension EPUBReaderView {
         printPageMarkers.removeAll()
         setCurrentPrintPage(nil)
         guard request == navigationRequestGeneration else { return nil }
-        accessibilityAnnouncementTask?.cancel()
-        accessibilityAnnouncementTask = nil
+        cancelAccessibilityAnnouncement()
         lastAnnouncedPage = nil
         // 本の差し替え・終了では位置も不要なので再生を完全に止める。
         mediaOverlayController?.stop()
@@ -120,15 +119,11 @@ extension EPUBReaderView {
         fxlViewportCache = FixedLayoutViewportCache()
         // 旧本あての再ページ割り予約を破棄(新 webView に古い設定同期由来の
         // repaginate が発火しないように)
-        repagination.repaginateWork?.cancel()
-        repagination.repaginateWork = nil
-        repagination.pendingRepaginate = false
-        // census は本に紐づく(scheme handler ごと作り直す)
-        census.task?.cancel()
-        census.engine?.invalidate()  // 旧本のオフスクリーンを確実に畳む
+        cancelScheduledRepagination()
+        // census とサムネイルレンダラは本に紐づく(scheme handler ごと作り直す)。
+        // 旧本のオフスクリーンを確実に畳む
+        tearDownOffscreenRenderers()
         census = CensusState()
-        thumbnailRenderer?.invalidate()  // サムネイルレンダラも本に紐づく
-        thumbnailRenderer = nil
         pageCensus = nil
         return request
     }
@@ -238,9 +233,7 @@ extension EPUBReaderView {
         if !isTextRangeTarget { cancelPendingTextRangeRequest() }
         // cooViewer-oxr.47: 旧 spine の WebContent 終了に対するバックオフを、
         // ユーザーが移動した新 spine へ遅配しない。
-        webContentReload.task?.cancel()
-        webContentReload.task = nil
-        webContentReload.pendingDelay = nil
+        cancelPendingWebContentReload()
         setCurrentSelection(nil)
         guard request == navigationRequestGeneration,
               previousGeneration == spineLoadGeneration,
@@ -289,8 +282,7 @@ extension EPUBReaderView {
         // currentSpineIndex を書き換える前に控えを取り置く
         armSpineCoverForTransition()
         printPageMarkers.removeAll(keepingCapacity: true)
-        accessibilityAnnouncementTask?.cancel()
-        accessibilityAnnouncementTask = nil
+        cancelAccessibilityAnnouncement()
         currentSpineIndex = index
         spineLoad.pendingTarget = target
         // cooViewer-oxr.23: pageChanged 前の保存にも、読み込み先の意図した
@@ -451,10 +443,16 @@ extension EPUBReaderView {
             abandonSpineLoad()
             spineLoad.resetRecovery()
             webView?.alphaValue = 1
-            let request = navigationRequestGeneration
-            updateCurrentPrintPage()
-            if request == navigationRequestGeneration { updateFurniture() }
+            refreshFurnitureAfterAbandon()
         }
         delegate?.readerView(self, didFailWith: error)
+    }
+
+    /// 打ち切った読み込みの後、印刷ページと柱を今の位置で描き直す。
+    /// 印刷ページの通知中にホストが移動を始めたら、柱はその移動に任せる
+    func refreshFurnitureAfterAbandon() {
+        let request = navigationRequestGeneration
+        updateCurrentPrintPage()
+        if request == navigationRequestGeneration { updateFurniture() }
     }
 }

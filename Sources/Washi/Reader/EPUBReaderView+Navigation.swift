@@ -80,11 +80,14 @@ extension EPUBReaderView {
         }
         let progression = scrollProgression ?? (pageCountInItem <= 1
             ? 0 : Double(pageInItem) / Double(pageCountInItem - 1))
-        // idref 併記(publication.resolve で改版追跡できる形)で返す
-        return publication?.locator(forSpineIndex: currentSpineIndex,
-                                    progression: progression)
-            ?? EPUBLocator(spineIndex: currentSpineIndex,
-                           progression: progression)
+        return makeLocator(spineIndex: currentSpineIndex, progression: progression)
+    }
+
+    /// idref 併記(publication.resolve で改版追跡できる形)の locator。
+    /// 本が無い(または spine 外)ときは index だけの locator
+    func makeLocator(spineIndex: Int, progression: Double) -> EPUBLocator {
+        publication?.locator(forSpineIndex: spineIndex, progression: progression)
+            ?? EPUBLocator(spineIndex: spineIndex, progression: progression)
     }
 
     /// 読書順に進む(項目内の次ページ → 次の spine 項目)。
@@ -323,8 +326,7 @@ extension EPUBReaderView {
 
     func locator(for target: PendingTarget, at index: Int) -> EPUBLocator {
         let progression = progression(for: target)
-        var locator = publication?.locator(forSpineIndex: index, progression: progression)
-            ?? EPUBLocator(spineIndex: index, progression: progression)
+        var locator = makeLocator(spineIndex: index, progression: progression)
         if case .textRange(let offset, _, _) = target { locator.textOffset = offset }
         return locator
     }

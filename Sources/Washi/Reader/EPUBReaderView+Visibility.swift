@@ -39,11 +39,7 @@ extension EPUBReaderView {
             return
         }
         repagination.pendingVisibleLayout = webView != nil
-        cancelPageCensus()
-        census.engine?.invalidate()
-        census.engine = nil
-        thumbnailRenderer?.invalidate()
-        thumbnailRenderer = nil
+        tearDownOffscreenRenderers()
         // 遅れて届く再生開始の JS 応答も無効化し、非表示中の再生復活を防ぐ。
         pauseMediaOverlay()
         discardPageCovers()
@@ -53,16 +49,10 @@ extension EPUBReaderView {
         super.viewDidHide()
         // cooViewer-oxr.54: 進行中の計測も隠れたビューのために継続しない。
         repagination.pendingVisibleLayout = webView != nil
-        repagination.repaginateWork?.cancel()
-        repagination.repaginateWork = nil
-        repagination.pendingRepaginate = false
-        cancelPageCensus()
+        cancelScheduledRepagination()
         // cooViewer-oxr.54: cancel 済み measure の離脱前に再表示されても同じ
         // WKWebView へ新旧 census を並走させないよう、エンジンごと交換する。
-        census.engine?.invalidate()
-        census.engine = nil
-        thumbnailRenderer?.invalidate()
-        thumbnailRenderer = nil
+        tearDownOffscreenRenderers()
         pauseMediaOverlay()
         discardPageCovers()
     }

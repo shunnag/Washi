@@ -18,8 +18,7 @@ extension EPUBReaderView {
     public func contentSnapshot(scale: CGFloat) async throws
         -> (image: NSImage, frame: CGRect) {
         guard let webView else { throw EPUBError.malformed("本が開かれていない") }
-        let configuration = WKSnapshotConfiguration()
-        configuration.afterScreenUpdates = true
+        let configuration = Self.snapshotConfiguration(afterScreenUpdates: true)
         // cooViewer-hnt: snapshotWidth の単位は画素ではなく点。拡大要求は
         // WebKit にクランプされるため、live view の幅を上限にする。
         configuration.snapshotWidth = NSNumber(
@@ -40,10 +39,17 @@ extension EPUBReaderView {
     /// headless verification, thumbnails, and the page-turn effects).
     public func snapshot() async throws -> NSImage {
         guard let webView else { throw EPUBError.malformed("本が開かれていない") }
-        let configuration = WKSnapshotConfiguration()
-        configuration.afterScreenUpdates = true
-        let webImage = try await webView.takeSnapshot(configuration: configuration)
+        let webImage = try await webView.takeSnapshot(
+            configuration: Self.snapshotConfiguration(afterScreenUpdates: true))
         return composeFullPage(webImage: webImage, in: webView.frame)
+    }
+
+    /// takeSnapshot の設定。afterScreenUpdates は「描画完了を待つか」
+    /// (演出の新ページは待つ。旧ページと控えは今の合成を即座に撮る)
+    static func snapshotConfiguration(afterScreenUpdates: Bool) -> WKSnapshotConfiguration {
+        let configuration = WKSnapshotConfiguration()
+        configuration.afterScreenUpdates = afterScreenUpdates
+        return configuration
     }
 
     /// 背景(余白)+本文+ノンブルを 1 枚に焼いた「紙のページ全体」の像。

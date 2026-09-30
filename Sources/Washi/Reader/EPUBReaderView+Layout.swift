@@ -17,8 +17,7 @@ extension EPUBReaderView {
         applyTheme()
         updateAccessibilityMetadata()
         if oldValue.announcesPageChanges && !settings.announcesPageChanges {
-            accessibilityAnnouncementTask?.cancel()
-            accessibilityAnnouncementTask = nil
+            cancelAccessibilityAnnouncement()
         }
         if oldValue.forwardsKeyEventsNatively
             != settings.forwardsKeyEventsNatively {
@@ -101,25 +100,23 @@ extension EPUBReaderView {
     // 見開き判定・ノド幅は EPUBScreenMetrics が単一の正(リーダー外の
     // 一覧展開と式を共有し、ページ割りの一致を保証する)
 
-    func spreadGutter(forContentWidth width: CGFloat) -> CGFloat {
-        EPUBScreenMetrics.spreadGutter(forContentWidth: width)
+    /// 現在の表示寸法と flow で、与えた設定と項目の画面計画を立てる
+    func screenMetrics(for settings: EPUBReaderSettings,
+                       spineIndex: Int) -> EPUBScreenMetrics {
+        EPUBScreenMetrics(
+            viewportSize: bounds.size, settings: settings,
+            renditionSpread: effectiveSpread(forSpineIndex: spineIndex))
+            .applyingRenditionFlow(effectiveFlow)
     }
 
     /// 現在の表示条件の画面計画(census・サムネイルのオプションもここから)
     var currentScreenMetrics: EPUBScreenMetrics {
-        EPUBScreenMetrics(
-            viewportSize: bounds.size, settings: settings,
-            renditionSpread: effectiveSpread(forSpineIndex: currentSpineIndex))
-            .applyingRenditionFlow(effectiveFlow)
+        screenMetrics(for: settings, spineIndex: currentSpineIndex)
     }
 
     /// cooViewer-oxr.24: ライブ再ページ割りの判定にも census と同じ導出値を使う。
     func layoutKey(for settings: EPUBReaderSettings) -> String {
-        EPUBScreenMetrics(
-            viewportSize: bounds.size, settings: settings,
-            renditionSpread: effectiveSpread(forSpineIndex: currentSpineIndex))
-            .applyingRenditionFlow(effectiveFlow)
-            .cacheKey
+        screenMetrics(for: settings, spineIndex: currentSpineIndex).cacheKey
     }
 
     /// census のキーは表示中の項目で揺らさず、文書既定を基底にする。
@@ -229,6 +226,13 @@ extension EPUBReaderView {
         webView.pageZoom = scale
     }
 
+    /// 予約と繰り越しの再ページ割りを捨てる(本の差し替え・非表示)
+    func cancelScheduledRepagination() {
+        repagination.repaginateWork?.cancel()
+        repagination.repaginateWork = nil
+        repagination.pendingRepaginate = false
+    }
+
     /// リサイズ・設定変更後の再ページ割り(連続リサイズをデバウンス)。
     /// セットアップ実行中に届いた要求は捨てずに完了後へ繰り越す(捨てると
     /// lastLaidOutSize が先に更新され、以後そのサイズでは再ページ割りされない)
@@ -265,7 +269,7 @@ extension EPUBReaderView {
             "height": Double(frame.height.rounded(.down)),
             "gap": settings.pageGap,
             "spread": isSpread,
-            "gutter": Double(spreadGutter(forContentWidth: frame.width)),
+            "gutter": Double(EPUBScreenMetrics.spreadGutter(forContentWidth: frame.width)),
             "fixedLayout": isFixedLayoutItem,
             "flow": effectiveFlow.rawValue,
             "keysEnabled": settings.handlesKeyboardNavigation,

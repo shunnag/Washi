@@ -142,9 +142,8 @@ extension EPUBReaderView {
         let size = bounds.size
         let rect = webView.frame
         let backingScale = currentBackingScale
-        let config = WKSnapshotConfiguration()
-        config.afterScreenUpdates = false
-        guard let image = try? await webView.takeSnapshot(configuration: config)
+        guard let image = try? await webView.takeSnapshot(
+            configuration: Self.snapshotConfiguration(afterScreenUpdates: false))
         else { return }
         // 撮影中にページや表示条件が変わっていたら捨てる
         guard !Task.isCancelled, webView === self.webView,
@@ -190,16 +189,10 @@ extension EPUBReaderView {
     /// 取り置いた控えをカバーとして撮影時の矩形に貼る。既存のカバーの回収経路
     /// (pendingSpineTurn・時間切れ・runSetup)に乗せる
     func installSpineCover(_ held: PrefetchedPageCover) {
-        guard let webView, allowsVisibleRenderingWork else { return }
-        let cover = NSImageView(image: held.image)
-        cover.imageScaling = .scaleAxesIndependently
-        cover.frame = held.rect
-        addSubview(cover, positioned: .above, relativeTo: webView)
-        turn.turnOverlays.append(cover)
-        updateFurnitureSuppression()
-        clearPendingSpineTurn()
-        turn.pendingSpineTurn = PendingSpineTurn(
-            oldPage: held.image, cover: cover, forward: true, animated: false)
+        guard webView != nil, allowsVisibleRenderingWork else { return }
+        let cover = presentTurnCover(image: held.image, frame: held.rect)
+        takeOverPendingSpineTurn(PendingSpineTurn(
+            oldPage: held.image, cover: cover, forward: true, animated: false))
         // 重い画像ページの読み込みにも耐えるよう、時間切れは長めにする
         scheduleSpineTurnTimeout(for: cover, after: .seconds(8))
     }

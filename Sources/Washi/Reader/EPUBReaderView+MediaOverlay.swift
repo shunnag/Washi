@@ -47,14 +47,24 @@ extension EPUBReaderView {
             }
             return
         }
+        configuredMediaOverlayController(for: publication)
+            .play(fromSpineIndex: currentSpineIndex)
+    }
+
+    /// 現在のコントローラ(無ければ本の active-class で新しく作る)に、設定の
+    /// 再生速度と読み飛ばし種別を写して返す
+    private func configuredMediaOverlayController(
+        for publication: EPUBPublication
+    ) -> MediaOverlayController {
         let activeClass = publication.metadata.mediaOverlayActiveClass
             ?? Self.defaultActiveClass
-        let controller = MediaOverlayController(
-            reader: self, publication: publication, activeClass: activeClass)
+        let controller = mediaOverlayController
+            ?? MediaOverlayController(reader: self, publication: publication,
+                                      activeClass: activeClass)
         controller.playbackRate = settings.mediaOverlayPlaybackRate
         controller.skippedTypes = settings.mediaOverlaySkippedTypes
         mediaOverlayController = controller
-        controller.play(fromSpineIndex: currentSpineIndex)
+        return controller
     }
 
     /// 章の先頭ではなく、現在のページに本文が見えているクリップから
@@ -141,15 +151,8 @@ extension EPUBReaderView {
                                    parIndex: Int) -> Bool {
         guard self.publication === publication,
               publication.mediaOverlay(forSpineIndex: index) != nil else { return false }
-        let activeClass = publication.metadata.mediaOverlayActiveClass
-            ?? Self.defaultActiveClass
-        let controller = mediaOverlayController
-            ?? MediaOverlayController(reader: self, publication: publication,
-                                      activeClass: activeClass)
-        controller.playbackRate = settings.mediaOverlayPlaybackRate
-        controller.skippedTypes = settings.mediaOverlaySkippedTypes
-        mediaOverlayController = controller
-        controller.play(fromSpineIndex: index, parIndex: parIndex)
+        configuredMediaOverlayController(for: publication)
+            .play(fromSpineIndex: index, parIndex: parIndex)
         return true
     }
 

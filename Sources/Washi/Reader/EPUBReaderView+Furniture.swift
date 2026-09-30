@@ -28,7 +28,7 @@ extension EPUBReaderView {
         // ページスロットの中心 x(見開きはノドを挟んだ半幅 2 面)
         let centers: [CGFloat]
         if pagesPerScreen == 2 {
-            let gutter = spreadGutter(forContentWidth: contentWidth)
+            let gutter = EPUBScreenMetrics.spreadGutter(forContentWidth: contentWidth)
             let pageWidth = (contentWidth - gutter) / 2
             centers = [insets.left + pageWidth / 2,
                        insets.left + contentWidth - pageWidth / 2]
@@ -133,11 +133,16 @@ extension EPUBReaderView {
         setAccessibilityValue(value)
     }
 
+    /// 遅延中の読み上げ通知を取り消す(位置が変わる・通知を止める・本を替えるとき)
+    func cancelAccessibilityAnnouncement() {
+        accessibilityAnnouncementTask?.cancel()
+        accessibilityAnnouncementTask = nil
+    }
+
     /// cooViewer-oxr.37: pageChanged の短い連続を最後の確定位置へ畳み、同じ
     /// spine/page/count の重複通知を読み上げない。
     func scheduleAccessibilityPageAnnouncement() {
-        accessibilityAnnouncementTask?.cancel()
-        accessibilityAnnouncementTask = nil
+        cancelAccessibilityAnnouncement()
         guard settings.announcesPageChanges else { return }
         let identity = SettledPageIdentity(
             spineIndex: currentSpineIndex, page: pageInItem,

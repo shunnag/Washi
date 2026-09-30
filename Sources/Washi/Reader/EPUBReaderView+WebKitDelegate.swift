@@ -41,9 +41,7 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
         // JS のクリック捕捉をすり抜けたリンク(area 等)の安全網
         if ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? ""),
            navigationAction.navigationType == .linkActivated {
-            if delegate?.readerView(self, shouldOpenExternalURL: url) ?? true {
-                NSWorkspace.shared.open(url)
-            }
+            openExternalURLIfAllowed(url)
         }
         return (.cancel, preferences)
     }
@@ -161,14 +159,10 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
             webContentReload.requestCount += 1
             scheduleWebContentReload(after: delay)
         case .suppress(let reportFailure):
-            webContentReload.task?.cancel()
-            webContentReload.task = nil
-            webContentReload.pendingDelay = nil
+            cancelPendingWebContentReload()
             if spineLoad.isLoadingSpineItem {
                 abandonSpineLoad()
-                let request = navigationRequestGeneration
-                updateCurrentPrintPage()
-                if request == navigationRequestGeneration { updateFurniture() }
+                refreshFurnitureAfterAbandon()
             }
             if reportFailure {
                 delegate?.readerView(
@@ -177,6 +171,13 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
                         "web content process terminated repeatedly"))
             }
         }
+    }
+
+    /// 予約・保留中の再読み込みを取り消す(本の差し替え、別 spine への移動、抑止)
+    func cancelPendingWebContentReload() {
+        webContentReload.task?.cancel()
+        webContentReload.task = nil
+        webContentReload.pendingDelay = nil
     }
 
     private func scheduleWebContentReload(after delay: Duration) {

@@ -123,6 +123,13 @@ extension EPUBReaderView {
         return encoded.removingPercentEncoding ?? encoded
     }
 
+    /// 外部 URL を delegate が拒否しなければ既定のアプリで開く(delegate 未設定は許可)
+    func openExternalURLIfAllowed(_ url: URL) {
+        if delegate?.readerView(self, shouldOpenExternalURL: url) ?? true {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func handleLink(_ message: [String: Any]) {
         guard let publication,
               publication.readingOrder.indices.contains(currentSpineIndex),
@@ -130,9 +137,7 @@ extension EPUBReaderView {
         // 外部リンク(スキーム付き)
         if let url = URL(string: href), let scheme = url.scheme?.lowercased(),
            ["http", "https", "mailto"].contains(scheme) {
-            if delegate?.readerView(self, shouldOpenExternalURL: url) ?? true {
-                NSWorkspace.shared.open(url)
-            }
+            openExternalURLIfAllowed(url)
             return
         }
         let currentPath = publication.readingOrder[currentSpineIndex]
