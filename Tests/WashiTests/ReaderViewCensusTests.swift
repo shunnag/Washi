@@ -4,7 +4,7 @@ import XCTest
 @testable import Washi
 
 // ページ数の実測(census)の取り込みと、通しページ番号と locator の相互変換。
-// delegate の観測には EPUBReaderViewRegressionTests.swift の ReaderViewDelegateSpy を使う
+// delegate の観測には ReaderViewTestSupport の ReaderViewDelegateSpy を使う
 
 @MainActor
 final class ReaderViewCensusTests: XCTestCase {

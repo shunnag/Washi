@@ -139,3 +139,46 @@ final class ReaderObservationSpy: EPUBReaderViewDelegate {
         censusUpdateCount += 1
     }
 }
+
+/// 方針を返すメソッド(shouldConsumeKey・didReceiveDroppedFileURL)も実装する
+/// delegate の記録係。実装するとリーダーの挙動が変わる(転送したキーの消費・ドロップの
+/// 受理)ので、観測だけで足りるテストは ReaderObservationSpy を使う
+@MainActor
+final class ReaderViewDelegateSpy: EPUBReaderViewDelegate {
+    var keys: [EPUBKeyEvent] = []
+    var consumeQuery: [EPUBKeyEvent] = []
+    var onShouldConsumeKey: ((EPUBKeyEvent) -> Bool)?
+    var droppedURLs: [URL] = []
+    var failures: [any Error] = []
+    var censusUpdateCount = 0
+    var moveCount = 0
+
+    func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator,
+                    pageInItem: Int, pageCountInItem: Int) {
+        moveCount += 1
+    }
+
+    func readerView(_ view: EPUBReaderView, didReceiveKey event: EPUBKeyEvent) {
+        keys.append(event)
+    }
+
+    func readerView(_ view: EPUBReaderView,
+                    shouldConsumeKey event: EPUBKeyEvent) -> Bool {
+        consumeQuery.append(event)
+        return onShouldConsumeKey?(event) ?? true
+    }
+
+    func readerView(_ view: EPUBReaderView,
+                    didReceiveDroppedFileURL url: URL) -> Bool {
+        droppedURLs.append(url)
+        return true
+    }
+
+    func readerView(_ view: EPUBReaderView, didFailWith error: any Error) {
+        failures.append(error)
+    }
+
+    func readerViewDidUpdatePageCensus(_ view: EPUBReaderView) {
+        censusUpdateCount += 1
+    }
+}

@@ -4,7 +4,7 @@ import XCTest
 @testable import Washi
 
 // WebContent プロセスの終了後の再読み込みの回数制限と延期(cooViewer-oxr.47)。
-// delegate の観測には EPUBReaderViewRegressionTests.swift の ReaderViewDelegateSpy を使う
+// delegate の観測には ReaderViewTestSupport の ReaderViewDelegateSpy を使う
 
 @MainActor
 final class WebContentReloadTests: XCTestCase {

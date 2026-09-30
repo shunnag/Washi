@@ -7,7 +7,7 @@ import XCTest
 // responder チェーンへの受け渡し。ウインドウのキー監視による転送は
 // NativeKeyRoutingTests、公開 API で組んだ EPUBKeyEvent の配送は
 // WashiPublicAPITests/EPUBKeyEventTests を参照。方針を返す delegate の記録には
-// EPUBReaderViewRegressionTests.swift の ReaderViewDelegateSpy を使う
+// ReaderViewTestSupport の ReaderViewDelegateSpy を使う
 
 @MainActor
 private final class KeyDownResponderSpy: NSResponder {
