@@ -79,7 +79,7 @@ extension EPUBPublication {
         estimatedPageCounts(charactersPerPage: charactersPerPage).reduce(0, +)
     }
 
-    // MARK: - 実装(内部コメントは日本語)
+    // MARK: - 実装
 
     /// cooViewer-oxr.89/92: 要素配下のテキストを不可視要素と改行境界を
     /// 尊重しつつ連結する。

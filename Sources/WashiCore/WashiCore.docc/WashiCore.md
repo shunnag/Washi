@@ -83,6 +83,7 @@ func inspectBook(at epubURL: URL) async throws {
 - ``EPUBFlatTOCEntry``
 - ``EPUBSearchOptions``
 - ``EPUBSearchHit``
+- ``EPUBHighlight``
 
 ### コンテナとリソース / Container and Resources
 
@@ -91,6 +92,7 @@ func inspectBook(at epubURL: URL) async throws {
 - ``ZipError``
 - ``ContainerPath``
 - ``EPUBMediaType``
+- ``EPUBPrefixedCSS``
 - ``EPUBEncryptionInfo``
 - ``FontDeobfuscator``
 - ``MediaOverlay``

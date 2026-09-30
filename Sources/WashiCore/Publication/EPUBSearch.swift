@@ -168,7 +168,7 @@ extension EPUBPublication {
         return hits
     }
 
-    // MARK: - 実装(内部コメントは日本語)
+    // MARK: - 実装
 
     /// cooViewer-oxr.11: 検索用の 1 文字畳み込み。半角濁点カナ(ｶﾞ 等)は 1 書記素で、
     /// widthInsensitive では全角(ガ)に畳まれず取りこぼす。全角/半角形ブロック

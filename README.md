@@ -37,7 +37,7 @@ Scripts/run-sample.sh SwiftUIReader
 
 - [導入と最初の表示 / Installation and first display](Sources/Washi/Washi.docc/Installation.md)
 - [サンプルの構成・実行方法 / Sample apps](Samples/README.md)
-- [公開ドキュメント / Online documentation](https://shunnag.github.io/Washi/)(ガイド一覧は下の「使い方」 / guide list under Usage)
+- [公開ドキュメント / Online documentation](https://shunnag.github.io/Washi/)
 
 公開ガイドとサンプルは main ブランチに追従し、最新の GitHub Release の公開 API で動作する。
 MIT ライセンスで、第三者パッケージには依存しない。
@@ -51,6 +51,7 @@ the latest GitHub Release. MIT-licensed, with no third-party package dependencie
 |---|---|
 | `Package.swift` | SwiftPM manifest。プロダクト `WashiCore` / `Washi` / `WashiDynamic`(cooViewer 向け dylib、契約はコメント参照) / Manifest; products and the WashiDynamic contract |
 | `Sources/WashiCore/` | 解析層(AppKit / WebKit なし)。話題ごとのフォルダ / Parsing layer, one folder per topic |
+| `Sources/WashiCore/EPUBError.swift` | 両層で共有する `EPUBError` と `EPUBReadStrategy`(フォルダに属さない唯一のファイル) / Shared error and read-strategy types, the only root-level file |
 | `Sources/WashiCore/Container/` | ZIP・OCF コンテナの読み出しと CRC / ZIP, OCF container, CRC |
 | `Sources/WashiCore/Package/` | パッケージ文書(OPF)とメタデータ・アクセシビリティ / Package document and metadata |
 | `Sources/WashiCore/Navigation/` | nav 文書と NCX / Navigation document and NCX |
