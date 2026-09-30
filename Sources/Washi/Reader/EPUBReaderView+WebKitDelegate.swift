@@ -1,8 +1,6 @@
 import AppKit
 import WebKit
 
-// MARK: - WKNavigationDelegate / WKUIDelegate
-
 /// EPUBReaderView の WKNavigationDelegate / WKUIDelegate: 遷移の許可判定、
 /// コミットと完了・失敗の受け取り、WebContent プロセス終了時の再読み込み。
 extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {

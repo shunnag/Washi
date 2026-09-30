@@ -48,6 +48,7 @@ public final class EPUBReaderView: NSView {
     /// empty or collapsed.
     public internal(set) var currentSelection: EPUBTextSelection?
 
+    // cooViewer-oxr.46 C40
     /// 本文に重ねて描画する、保存済みのハイライトとメモ。
     ///
     /// Saved highlights (and notes) to draw over the book.
@@ -65,7 +66,7 @@ public final class EPUBReaderView: NSView {
     /// is never modified and overlapping ranges do not nest elements.
     /// Anchors are extracted-text UTF-16 ranges, so they survive font-size,
     /// viewport and theme changes.
-    public var highlights: [EPUBHighlight] = [] {  // cooViewer-oxr.46 C40
+    public var highlights: [EPUBHighlight] = [] {
         didSet {
             guard highlights != oldValue else { return }
             applyHighlights()

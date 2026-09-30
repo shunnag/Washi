@@ -28,7 +28,7 @@ final class MediaOverlayPlaybackTests: XCTestCase {
         controller.continuesToNextItem = false
         controller.play(fromSpineIndex: 0)
         XCTAssertTrue(controller.isPlaying)
-        XCTAssertEqual(controller.currentParIndex, 0)
+        XCTAssertEqual(controller.parIndex, 0)
 
         // 音声の無い par は 0.4 秒で次へ進む。追跡モードだけで 1.4 秒回す。
         let deadline = Date().addingTimeInterval(1.4)
@@ -37,7 +37,7 @@ final class MediaOverlayPlaybackTests: XCTestCase {
                              before: Date().addingTimeInterval(0.05))
         }
 
-        XCTAssertGreaterThan(controller.currentParIndex, 0,
+        XCTAssertGreaterThan(controller.parIndex, 0,
                              "追跡モード中に par が進まない(タイマーが .default モード)")
         controller.stop()
     }
@@ -59,15 +59,15 @@ final class MediaOverlayPlaybackTests: XCTestCase {
         view.mediaOverlayController = controller
         controller.continuesToNextItem = false
         controller.play(fromSpineIndex: 0)
-        XCTAssertEqual(controller.currentSpineIndex, 0)
+        XCTAssertEqual(controller.spineIndex, 0)
 
         // 無音 par は 0.4 秒で進む。3 つめ(b.xhtml)まで進める
         let deadline = Date().addingTimeInterval(2.0)
-        while Date() < deadline, controller.currentParIndex < 2 {
+        while Date() < deadline, controller.parIndex < 2 {
             RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
         }
-        XCTAssertGreaterThanOrEqual(controller.currentParIndex, 2, "par が進まない")
-        XCTAssertEqual(controller.currentSpineIndex, 1,
+        XCTAssertGreaterThanOrEqual(controller.parIndex, 2, "par が進まない")
+        XCTAssertEqual(controller.spineIndex, 1,
                        "別文書を指す par で文書を移っていない")
         controller.stop()
     }
@@ -148,7 +148,7 @@ final class MediaOverlayUXTests: XCTestCase {
         // fixture の par は epub:type を持たないので、飛ばし指定は効かない
         controller.skippedTypes = ["pagebreak"]
         controller.play(fromSpineIndex: 0)
-        XCTAssertEqual(controller.currentParIndex, 0)
+        XCTAssertEqual(controller.parIndex, 0)
         controller.stop()
     }
 

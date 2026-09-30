@@ -60,6 +60,10 @@ extension ReaderScripts {
             return { x: bounds.left + rect.x * item.scale, y: bounds.top + rect.y * item.scale,
                      w: rect.w * item.scale, h: rect.h * item.scale };
         }
+        // DOMRect を素の { x, y, w, h } に写す(pageScript の plainRect と同じ形)。
+        function plainRect(rect) {
+            return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+        }
         function sync(shouldReport = true) {
             if (!ready || syncing) { return; }
             syncing = true;
@@ -309,8 +313,7 @@ extension ReaderScripts {
                 return transformRect(item, { x:0, y:0, w:item.frame.contentWindow.innerWidth,
                     h:item.frame.contentWindow.innerHeight });
             }
-            const bounds = item.wrapper.getBoundingClientRect();
-            return { x:bounds.x, y:bounds.y, w:bounds.width, h:bounds.height };
+            return plainRect(item.wrapper.getBoundingClientRect());
         }
         api.scrollMetrics = () => ({ ready: ready, scrolled: true, continuous: true,
             mode: active ? active.mode : 'htb', extent: total, viewport: viewport(), offset: offset(),
@@ -362,7 +365,7 @@ extension ReaderScripts {
                 if (!target) { continue; }
                 const raw = target.getClientRects()[0];
                 if (!raw) { continue; }
-                const rect = transformRect(active, { x:raw.x, y:raw.y, w:raw.width, h:raw.height });
+                const rect = transformRect(active, plainRect(raw));
                 if (rect.x + rect.w > 0 && rect.x < width && rect.y + rect.h > 0 && rect.y < height) { return id; }
             }
             return null;

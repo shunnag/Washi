@@ -1803,7 +1803,7 @@ enum ReaderScripts {
             return result;
         };
 
-        // ---- 入力(ホイール・キー・リンク) ----
+        // ---- 入力(タップ・リンク・ホイール・キー) ----
 
         // ページ内リンクは native が行き先(別 spine 項目 / フラグメント)を
         // 解決するため、既定動作を止めて通知する。リンク以外のクリックは
@@ -1976,8 +1976,7 @@ enum ReaderScripts {
                 epubType: epubTypeOf(anchor),
                 role: anchor.getAttribute('role') || null,
                 anchorId: anchorID,
-                anchorRect: { x: rect.x, y: rect.y,
-                              w: rect.width, h: rect.height },
+                anchorRect: plainRect(rect),
                 backlink: false,
                 targetTag: null,
                 targetEpubType: null

@@ -3,13 +3,14 @@ import AppKit
 /// EPUBReaderView の柱・ノンブルと印刷ページ、アクセシビリティ:
 /// ノンブルの配置と更新、現在の印刷ページ、読み上げ用のメタデータと通知。
 extension EPUBReaderView {
+    // cooViewer-oxr.35
     /// native のノンブルは見た目だけの furniture なので、
     /// NSTextField に hit を奪わせず余白と同じ reader-view 入力経路へ通す。
     ///
     /// Native folios are purely visual page furniture, so
     /// route hits through the reader-view input path used for the margins
     /// instead of letting NSTextField intercept them.
-    public override func hitTest(_ point: NSPoint) -> NSView? {  // cooViewer-oxr.35
+    public override func hitTest(_ point: NSPoint) -> NSView? {
         guard let target = super.hitTest(point) else { return nil }
         if pageNumberLabels.contains(where: {
             target === $0 || target.isDescendant(of: $0)

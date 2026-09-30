@@ -7,6 +7,8 @@
 //   - Washi: 表示層(AppKit / WebKit を追加)。リフロー/FXL リーダービュー・
 //     ページ census・サムネイル。WashiCore を @_exported 再輸出するので、
 //     `import Washi` だけで両層の公開 API が見える(従来互換)。
+// 型名の規約: EPUB 接頭辞は公開 API の印で、内部型には付けない(既存の内部型は
+// 触るときに揃える)。
 // cooViewer から独立した MIT ライセンスのパッケージであり、単体で再利用できる。
 import PackageDescription
 

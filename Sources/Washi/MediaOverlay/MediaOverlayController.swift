@@ -28,13 +28,11 @@ final class MediaOverlayController {
     private let activeClass: String
 
     private var overlay: MediaOverlay?
-    /// 再生中の spine 項目(ホストが現在項目と突き合わせて古い章の再開を防ぐ)
+    /// 再生中の spine 項目(ホストが現在項目と突き合わせて古い章の再開を防ぐ。
+    /// テストの観測点でもある)
     private(set) var spineIndex = 0
-    /// 再生中の spine 項目(テストの観測点)
-    var currentSpineIndex: Int { spineIndex }
-    private var parIndex = 0
     /// 再生中の par 番号(テストの観測点)
-    var currentParIndex: Int { parIndex }
+    private(set) var parIndex = 0
     private var player: (any MediaOverlayAudioPlayer)?
     private var loadedAudioPath: String?
     private var ticker: Timer?

@@ -178,16 +178,16 @@ final class MediaOverlaySkippingTests: XCTestCase {
         controller.play(fromSpineIndex: 0)
         defer { controller.stop() }
         XCTAssertTrue(controller.isPlaying)
-        XCTAssertEqual(controller.currentParIndex, 0)
+        XCTAssertEqual(controller.parIndex, 0)
         XCTAssertEqual(player.playCount, 1)
         player.currentTime = 0.15
 
         let deadline = Date().addingTimeInterval(0.5)
-        while Date() < deadline, controller.currentParIndex == 0 {
+        while Date() < deadline, controller.parIndex == 0 {
             RunLoop.main.run(mode: .default,
                              before: Date().addingTimeInterval(0.02))
         }
-        XCTAssertEqual(controller.currentParIndex, 2,
+        XCTAssertEqual(controller.parIndex, 2,
                        "A contiguous clip must pass through the skip filter")
         XCTAssertEqual(player.currentTime, 1.25, accuracy: 0.001)
         XCTAssertEqual(player.playCount, 2)
@@ -208,11 +208,11 @@ final class MediaOverlaySkippingTests: XCTestCase {
         player.currentTime = 0.15
 
         let deadline = Date().addingTimeInterval(0.5)
-        while Date() < deadline, controller.currentParIndex == 0 {
+        while Date() < deadline, controller.parIndex == 0 {
             RunLoop.main.run(mode: .default,
                              before: Date().addingTimeInterval(0.02))
         }
-        XCTAssertEqual(controller.currentParIndex, 1)
+        XCTAssertEqual(controller.parIndex, 1)
         XCTAssertEqual(player.currentTime, 0.15, accuracy: 0.001)
         XCTAssertEqual(player.playCount, 1,
                        "A contiguous playable clip must not restart its audio")

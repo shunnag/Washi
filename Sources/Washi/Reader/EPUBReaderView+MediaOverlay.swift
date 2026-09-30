@@ -67,6 +67,7 @@ extension EPUBReaderView {
         return controller
     }
 
+    // cooViewer-oxr.46 C26
     /// 章の先頭ではなく、現在のページに本文が見えているクリップから
     /// 読み上げを開始する。ページ内に読み上げ対象が
     /// なければ、章の先頭から始める。
@@ -74,7 +75,7 @@ extension EPUBReaderView {
     /// Starts narration at the clip whose text is visible on the current page,
     /// instead of at the start of the chapter.
     /// Falls back to the chapter start when nothing on the page is narrated.
-    public func playMediaOverlayFromCurrentPage() async {  // cooViewer-oxr.46 C26
+    public func playMediaOverlayFromCurrentPage() async {
         mediaOverlayCommandGeneration &+= 1
         let command = mediaOverlayCommandGeneration
         guard let publication,
