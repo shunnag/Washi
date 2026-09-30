@@ -9,7 +9,6 @@ enum XMLNamespace {
     static let epubOps = "http://www.idpf.org/2007/ops"
     static let ncx = "http://www.daisy.org/z3986/2005/ncx/"
     static let xmlEnc = "http://www.w3.org/2001/04/xmlenc#"
-    static let xmlDSig = "http://www.w3.org/2000/09/xmldsig#"
     static let smil = "http://www.w3.org/ns/SMIL"
     static let svg = "http://www.w3.org/2000/svg"
     static let mathML = "http://www.w3.org/1998/Math/MathML"
@@ -463,6 +462,7 @@ enum WashiXML {
 extension XMLElement {
     // cooViewer-oxr.7/89: 本文抽出と JavaScript のテキスト地図が共有する
     // 非表示要素名。表示層は同じ名前一覧だけを複製して DOM を走査する。
+    // ReaderScriptContractTests が JS 側の一覧とこの集合の一致を検証する。
     static let readableTextSkippedElementNames =
         alwaysSkippedReadableTextElementNames
             .union(svgSkippedReadableTextElementNames)

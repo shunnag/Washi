@@ -51,6 +51,15 @@ public enum EPUBMediaType {
         return byExtension[ext] ?? "application/octet-stream"
     }
 
+    /// マニフェスト宣言のメディアタイプを比較用に正規化する(`;charset=…` 等の
+    /// パラメータを落とし、前後の空白を除いて小文字化する)。
+    static func normalized(_ mediaType: String) -> String {
+        mediaType.split(separator: ";", maxSplits: 1).first.map {
+            String($0).trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        } ?? ""
+    }
+
     /// メディアタイプがフォントかどうか(難読化対象の判定などに使う)。
     ///
     /// Whether the media type is a font (used, for example, to decide obfuscation targets).

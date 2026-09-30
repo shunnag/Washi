@@ -86,7 +86,7 @@ enum NavigationDocumentParser {
 
     /// nav 直下の ol(なければ子孫最初の ol)を木として読む
     private static func parseList(_ nav: XMLElement) -> [EPUBNavItem] {
-        guard let list = firstDescendant("ol", in: nav) else { return [] }
+        guard let list = nav.firstDescendant(localName: "ol") else { return [] }
         return parseListItems(list)
     }
 
@@ -128,16 +128,6 @@ enum NavigationDocumentParser {
             if let found = firstLabelDescendant(localName, in: child) {
                 return found
             }
-        }
-        return nil
-    }
-
-    private static func firstDescendant(_ localName: String,
-                                        in element: XMLElement) -> XMLElement? {
-        for node in element.children ?? [] {
-            guard let child = node as? XMLElement else { continue }
-            if child.localName == localName { return child }
-            if let found = firstDescendant(localName, in: child) { return found }
         }
         return nil
     }
