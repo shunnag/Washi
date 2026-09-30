@@ -136,6 +136,13 @@ extension EPUBReaderView {
         updateCanGoBack()
     }
 
+    // 移動の入口は 5 つ: navigate(go(to:) と goBack)、go(to:textRange:)、
+    // go(to navItem)、goToContainerPath の同一項目と別項目。骨格はどれも
+    // 「拒否判定 → 要求世代を進める → 履歴に積む → 世代が同じなら適用か読み込み」で、
+    // 共通化しないのは拒否と履歴の材料が違うため: navigate は idref で解決した先を
+    // 拒否判定にかけ、go(to:textRange:) は delegate へ拒否を通知せず(描画不能なら nil)、
+    // 継続を登録してから履歴に積む。go(to navItem) は fragment を拒否判定の後で解く。
+    // goToContainerPath は同一項目でも拒否判定を通す(読み込みに失敗した項目に留まらない)。
     private func navigate(to locator: EPUBLocator, recordsHistory: Bool) {
         guard let publication,
               // cooViewer-oxr.72: idref があれば index より優先して改版追跡する。
