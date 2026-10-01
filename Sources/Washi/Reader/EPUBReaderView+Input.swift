@@ -316,9 +316,30 @@ extension EPUBReaderView {
             super.scrollWheel(with: event)
             return
         }
-        guard let (horizontal, positive) = marginWheelLatch.register(event) else { return }
-        // AppKit の scrollingDelta は DOM の wheel と符号が逆(正=文書の
-        // 先頭方向へのスクロール)なので、JS の wheelTurn と対になる写像
+        turnPageByWheel(event)
+    }
+
+    /// 余白と WebView の上(ページ表示)のホイールを「1 ジェスチャ = 1 ページ」に
+    /// 量子化して送る(250ms 静穏で解除・軸は最初のイベントで確定)。慣性はラッチが飲み込む
+    func turnPageByWheel(_ event: NSEvent) {
+        // ホストが「ホイールでページを送る」を切っている。ページ表示のイベントは
+        // 呼び出し元が WebKit に渡さずに捨てる(スクロールして戻る動きを出さない)
+        guard settings.wheelTurnsPages else { return }
+        // トラックパッドは指を置いた時点で移動量 0 のイベント(mayBegin)を送る。
+        // これで軸を決めると縦になり、続く横スワイプを取りこぼす(WebKit は
+        // 移動量 0 のイベントを DOM に渡さないので、JS 経路では起きなかった)
+        guard event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0 else { return }
+        // spine 読み込み中の残存慣性は送りに使わない(boundary と同じく、FXL 項目が
+        // 表示される前に advanceSpine で飛ばされるカスケードを防ぐ)。手が動いている
+        // ことは記録し、ラッチしたままにする(読み込み後も同じジェスチャが続く間は送らない)
+        guard !spineLoad.isLoadingSpineItem else {
+            wheelTurnLatch.lastTime = event.timestamp
+            wheelTurnLatch.latched = true
+            return
+        }
+        guard let (horizontal, positive) = wheelTurnLatch.register(event) else { return }
+        // AppKit の scrollingDelta は DOM の wheel と符号が逆
+        // (正=文書の先頭方向へのスクロール)
         if horizontal {
             // 水平めくりはホスト設定でゲート・反転できる(ホストが自前の
             // スワイプめくりを持つ場合に二重発火を避け、綴じ方向をそろえる)

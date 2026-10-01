@@ -2051,59 +2051,15 @@ enum ReaderScripts {
             postTap(event);
         }, true);
 
-        // ホイール/トラックパッド: 「1 ジェスチャ = 1 ページ」に量子化する。
-        // 蓄積が閾値を超えたら 1 回だけめくり、以後は**イベントが 250ms
-        // 途切れるまでラッチ**する(トラックパッドの慣性イベントで
-        // 何ページも飛ぶのを防ぐ。画像本のスワイプめくりと同じ感覚)。
-        // めくり自体は native へ通知して行う(スライドアニメーション付与のため)
-        let wheelAccumulator = 0;
-        let wheelQuietTimer = 0;
-        // 文書ロード直後は前文書から続くトラックパッド慣性を「新しい
-        // ジェスチャ」と誤認して章頭で 1 ページ余分に進めないよう、250ms の
-        // 静穏が経過するまでラッチしたまま始める(画像本の
-        // swipeConsumeMomentum と同じ「残慣性は終端まで飲む」意味論)
-        let wheelLatched = true;
-        let wheelHorizontal = false;
-        let wheelAxisChosen = false;
-        function wheelUnlatch() {
-            wheelLatched = false;
-            wheelAccumulator = 0;
-            wheelAxisChosen = false;
-        }
-        wheelQuietTimer = setTimeout(wheelUnlatch, 250);
+        // ホイール/トラックパッド: ページ表示では native(WashiWebView.scrollWheel)が
+        // WebKit より先に受けて「1 ジェスチャ = 1 ページ」で送る。縦書きの見開きで
+        // 章の途中(scrollX が負)にいると、WebKit は wheel を DOM に渡さないため。
+        // ここに届くのはスクロール表示だけで、連続スクロールの子文書は外側へ転送する
         document.addEventListener('wheel', function (event) {
             if (typeof washi.scrollHostWheel === 'function') {
                 event.preventDefault();
                 washi.scrollHostWheel(event);
-                return;
             }
-            // スクロール表示は WebKit の連続した移動と慣性に委ねる。
-            if (scrolled) { return; }
-            // 混在本の FXL ページでも spine 送りとして機能させる
-            // (native 側の goForward が FXL 項目を advanceSpine に振り分ける)
-            event.preventDefault();
-            clearTimeout(wheelQuietTimer);
-            wheelQuietTimer = setTimeout(wheelUnlatch, 250);
-            if (wheelLatched) { return; }
-            // 軸はジェスチャ最初のイベントで確定(画像本の handleSwipeToTurn と
-            // 同じ規則)。イベント毎に再判定すると斜め入力で水平/垂直の delta が
-            // 単一 accumulator に混ざり、打ち消し合いや方向誤りが起きる
-            if (!wheelAxisChosen) {
-                wheelHorizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY);
-                wheelAxisChosen = true;
-            }
-            wheelAccumulator += wheelHorizontal ? event.deltaX : event.deltaY;
-            if (Math.abs(wheelAccumulator) < 50) { return; }
-            // JS は「生のスクロール方向と軸」だけを報告し、綴じ方向への変換は
-            // native(turnPageLeft/Right)に任せる。writing-mode でここで反転
-            // すると、表紙などの画像ページ(mode='htb' 固定)で同じジェスチャの
-            // 向きが本文と食い違う — page-progression-direction を知るのは
-            // native(キー処理のコメントと同じ分業)
-            post({ type: 'wheelTurn',
-                   forward: wheelAccumulator > 0,
-                   horizontal: wheelHorizontal });
-            wheelAccumulator = 0;
-            wheelLatched = true;
         }, { passive: false });
 
         document.addEventListener('keydown', function (event) {
