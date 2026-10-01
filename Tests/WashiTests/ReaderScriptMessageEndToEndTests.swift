@@ -3,7 +3,7 @@ import WebKit
 import XCTest
 @testable import Washi
 
-// WP6b: wheelTurn / key / scrollFailure の端から端までの回帰。JS が post した body を
+// WP6b: key / scrollFailure の端から端までの回帰。JS が post した body を
 // 記録し、native の橋渡し(EPUBReaderView.handleScriptMessage)まで通して確かめる
 
 /// `didReceiveKey` だけを記録する delegate。JS が post した body をそのまま
@@ -107,54 +107,6 @@ private final class ContinuousScrollHarness {
 
 @MainActor
 final class ReaderScriptMessageEndToEndTests: XCTestCase {
-    /// `wheelTurn` を固定する: ページ送り表示でホイール/トラックパッドの蓄積が
-    /// 閾値(50)を超えると、生の方向 `forward` と軸 `horizontal`(いずれも
-    /// Bool)を 1 ジェスチャ 1 回だけ通知し、ラッチ中の追加イベントは通知しない。
-    /// 綴じ方向への変換は native(turnPageLeft/Right・goForward)が担う。
-    func testWheelGesturePostsWheelTurnWithDirectionAndAxis() async throws {
-        let wheelTurn = EPUBScriptMessage.wheelTurn.rawValue
-        let body = (0..<40).map { "<p>ホイール操作の本文 \($0) です。</p>" }.joined()
-        let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: body)
-        defer { harness.close() }
-        try await harness.loadForLifecycleTest()
-        try await harness.setupLifecycle(documentToken: "wp6b-wheel")
-        harness.messages.reset()
-
-        let prevented: String = try await harness.evaluate("""
-            const quiet = () => new Promise(r => setTimeout(r, 300));
-            const wheel = (deltaX, deltaY) => {
-                const event = new WheelEvent('wheel', {
-                    deltaX, deltaY, bubbles:true, cancelable:true
-                });
-                document.dispatchEvent(event);
-                return event.defaultPrevented;
-            };
-            // 文書ロード直後のラッチ(250ms の静穏まで)が解けるのを待ってから、
-            // 下方向のジェスチャ、ラッチ中の追加イベント、静穏後の左方向の
-            // ジェスチャ(水平が優勢)の順に送る
-            await quiet();
-            const results = [wheel(0, 60), wheel(0, 60)];
-            await quiet();
-            results.push(wheel(-60, 10));
-            return results.join('|');
-            """)
-        XCTAssertEqual(prevented, "true|true|true", "ページ送り表示の wheel は既定動作を止める")
-        let received = try await harness.waitForMessageCount(type: wheelTurn, count: 2)
-        XCTAssertTrue(received)
-        try await harness.settleMessages()
-
-        let turns = harness.messages.messages.filter { $0["type"] as? String == wheelTurn }
-        XCTAssertEqual(turns.count, 2, "ラッチ中の追加イベントで余分に通知した")
-        // native は forward / horizontal を `as? Bool` で読む(EPUBReaderView+ScriptBridge)
-        let directions = turns.map { message -> String in
-            let forward = (message["forward"] as? Bool).map(String.init(describing:)) ?? "nil"
-            let horizontal = (message["horizontal"] as? Bool).map(String.init(describing:)) ?? "nil"
-            return "\(forward)/\(horizontal)"
-        }
-        XCTAssertEqual(directions, ["true/false", "false/true"])
-        XCTAssertEqual(turns.map { $0["token"] as? String }, ["wp6b-wheel", "wp6b-wheel"])
-    }
-
     /// `key` を固定する: keysEnabled が false(ホストがキーを扱う)のとき、
     /// 矢印キーの keydown を key・code(String)と shift・alt・ctrl・meta(Bool)
     /// とともに通知して既定動作を止め、native は EPUBKeyEvent

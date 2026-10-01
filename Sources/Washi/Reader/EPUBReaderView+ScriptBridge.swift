@@ -86,7 +86,6 @@ extension EPUBReaderView {
         case .scrollFailure: handleScrollFailure(dict)
         case .pageChanged: handlePageChanged(dict)
         case .boundary: handleBoundary(dict)
-        case .wheelTurn: handleWheelTurn(dict)
         case .link: handleLink(dict)
         case .tap: handleTap(dict)
         case .selection: handleSelection(dict)
@@ -143,27 +142,6 @@ extension EPUBReaderView {
         guard !spineLoad.isLoadingSpineItem else { return }
         let forward = dict["forward"] as? Bool ?? true
         advanceSpine(forward: forward)
-    }
-
-    private func handleWheelTurn(_ dict: [String: Any]) {
-        // ホイール/トラックパッドの 1 ジェスチャ 1 ページ(JS でラッチ済み)。
-        // native 経由にするのはスライド演出を共通で付けるため。
-        // spine 読み込み中の残存慣性は boundary と同じく捨てる(FXL 項目が
-        // 表示される前に advanceSpine で飛ばされるカスケードを防ぐ)。
-        // 水平ジェスチャは物理方向(deltaX>0=右側のページ)として受け、
-        // 綴じ方向への変換はタップと同じく turnPageLeft/Right が担う
-        // (JS は表紙等の画像ページで本の writing-mode を知れない)。
-        // 垂直ジェスチャは内部縦積みと一致するので下=読書順で次
-        guard !spineLoad.isLoadingSpineItem else { return }
-        let forward = dict["forward"] as? Bool ?? true
-        if dict["horizontal"] as? Bool ?? false {
-            // native 経路と同じくホスト設定でゲート・反転する
-            guard settings.horizontalWheelTurnsPages else { return }
-            let towardRight = forward != settings.reversesHorizontalWheelTurn
-            towardRight ? turnPageRight() : turnPageLeft()
-        } else {
-            forward ? goForward() : goBackward()
-        }
     }
 
     private func handleTap(_ dict: [String: Any]) {
