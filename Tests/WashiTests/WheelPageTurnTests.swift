@@ -322,6 +322,7 @@ final class WheelPageTurnTests: XCTestCase {
             try publication(body: verticalBody(), name: "wheel-off"), double: true) {
             $0.wheelTurnsPages = false
         }
+        defer { close(harness) }
         await advance(harness, times: 2)
         XCTAssertEqual(harness.view.pageInItem, 4, "章の途中(scrollX が負)から始める")
         // scrollX が同じでも「スクロールして戻った」可能性は消せない。scroll イベントを数える
@@ -356,6 +357,7 @@ final class WheelPageTurnTests: XCTestCase {
             try scrollPublication(flow: "scrolled-doc"), double: false) {
             $0.wheelTurnsPages = false
         }
+        defer { close(harness) }
         let before = try await scrollY(harness.webView)
         try await gesture(harness, dy: -12)
         try await Task.sleep(for: .milliseconds(600))
