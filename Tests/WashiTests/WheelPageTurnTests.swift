@@ -17,16 +17,6 @@ final class WheelPageTurnTests: XCTestCase {
         let spy: ReaderObservationSpy
     }
 
-    private var harnesses: [Harness] = []
-
-    override func tearDown() async throws {
-        for harness in harnesses {
-            closeReader(harness.view, in: harness.window,
-                        teardown: .cancelPageCensus, clearsDelegate: true)
-        }
-        harnesses = []
-        try await super.tearDown()
-    }
 
     private func verticalBody() -> String {
         "<style>html{writing-mode:vertical-rl;-epub-writing-mode:vertical-rl}</style>"
@@ -71,8 +61,14 @@ final class WheelPageTurnTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(600))
         let webView = try view.firstWebView()
         let harness = Harness(view: view, webView: webView, window: window, spy: spy)
-        harnesses.append(harness)
         return harness
+    }
+
+    /// 上流のテストと同じく、各テストで作った直後に defer で片付ける(古い Swift は
+    /// MainActor の XCTestCase で非同期の tearDown から super を呼ぶことを許さない)
+    private func close(_ harness: Harness) {
+        closeReader(harness.view, in: harness.window,
+                    teardown: .cancelPageCensus, clearsDelegate: true)
     }
 
     private func scrollEvent(dx: Int32, dy: Int32, phase: Int64,
@@ -139,6 +135,7 @@ final class WheelPageTurnTests: XCTestCase {
     func testVerticalSpreadMidChapterTurnsWithHorizontalAndVerticalWheel() async throws {
         let harness = try await makeReader(
             try publication(body: verticalBody(), name: "vrl-spread"), double: true)
+        defer { close(harness) }
         XCTAssertEqual(harness.view.pagesPerScreen, 2)
         await advance(harness, times: 2)
         XCTAssertEqual(harness.view.pageInItem, 4, "章の途中(scrollX が負)から始める")
@@ -155,6 +152,7 @@ final class WheelPageTurnTests: XCTestCase {
     func testOtherLayoutsKeepOneGesturePerPage() async throws {
         let htbSpread = try await makeReader(
             try publication(body: horizontalBody(), name: "htb-spread"), double: true)
+        defer { close(htbSpread) }
         await advance(htbSpread, times: 2)
         XCTAssertEqual(htbSpread.view.pageInItem, 4)
         // 横書き(左綴じ): 右向き(dx<0)= 先へ
@@ -164,6 +162,7 @@ final class WheelPageTurnTests: XCTestCase {
 
         let vrlSingle = try await makeReader(
             try publication(body: verticalBody(), name: "vrl-single"), double: false)
+        defer { close(vrlSingle) }
         await advance(vrlSingle, times: 2)
         XCTAssertEqual(vrlSingle.view.pageInItem, 2)
         try await turn(vrlSingle, dx: 12, expect: 3, "縦書き単ページ 横 左向き")
@@ -172,6 +171,7 @@ final class WheelPageTurnTests: XCTestCase {
 
         let htbSingle = try await makeReader(
             try publication(body: horizontalBody(), name: "htb-single"), double: false)
+        defer { close(htbSingle) }
         await advance(htbSingle, times: 2)
         XCTAssertEqual(htbSingle.view.pageInItem, 2)
         try await turn(htbSingle, dx: -12, expect: 3, "横書き単ページ 横 右向き")
@@ -183,6 +183,7 @@ final class WheelPageTurnTests: XCTestCase {
     func testMayBeginBeforeHorizontalSwipeStillTurns() async throws {
         let harness = try await makeReader(
             try publication(body: horizontalBody(), name: "may-begin"), double: false)
+        defer { close(harness) }
         await advance(harness, times: 2)
         XCTAssertEqual(harness.view.pageInItem, 2)
         // kCGScrollPhaseMayBegin = 128
@@ -199,6 +200,7 @@ final class WheelPageTurnTests: XCTestCase {
             try publication(body: horizontalBody(), name: "gated"), double: false) {
             $0.horizontalWheelTurnsPages = false
         }
+        defer { close(gated) }
         await advance(gated, times: 2)
         let start = gated.view.pageInItem
         try await gesture(gated, dx: -12)
@@ -210,6 +212,7 @@ final class WheelPageTurnTests: XCTestCase {
             try publication(body: horizontalBody(), name: "reversed"), double: false) {
             $0.reversesHorizontalWheelTurn = true
         }
+        defer { close(reversed) }
         await advance(reversed, times: 2)
         XCTAssertEqual(reversed.view.pageInItem, 2)
         try await turn(reversed, dx: -12, expect: 1, "反転: 右向きで戻る")
@@ -220,6 +223,7 @@ final class WheelPageTurnTests: XCTestCase {
     func testScrolledFlowLeavesWheelToWebKit() async throws {
         let harness = try await makeReader(
             try scrollPublication(flow: "scrolled-doc"), double: false)
+        defer { close(harness) }
         // scrollY が増えるだけでは足りない(native が横取りしても goForward が
         // 1 画面スクロールするので増える)。wheel が DOM まで届いたことを数える
         try await runJS(harness.webView, """
@@ -261,6 +265,7 @@ final class WheelPageTurnTests: XCTestCase {
         let harness = try await makeReader(
             try twoChapterPublication(), double: false,
             at: EPUBLocator(spineIndex: 0, progression: 1))
+        defer { close(harness) }
         XCTAssertEqual(harness.view.currentSpineIndex, 0)
         // 約 0.5 秒続く 1 ジェスチャ(最初の数イベントで閾値を超え、残りは慣性相当)
         try await gesture(harness, dy: -12, changes: 30)
@@ -277,6 +282,7 @@ final class WheelPageTurnTests: XCTestCase {
         let harness = try await makeReader(
             try twoChapterPublication(), double: false,
             at: EPUBLocator(spineIndex: 0, progression: 1))
+        defer { close(harness) }
         harness.view.goForward()
         try await gesture(harness, dy: -12, changes: 12)
         _ = await waitUntil(timeout: .seconds(3)) { harness.view.currentSpineIndex == 1 }
@@ -292,6 +298,7 @@ final class WheelPageTurnTests: XCTestCase {
         let harness = try await makeReader(
             try twoChapterPublication(), double: false,
             at: EPUBLocator(spineIndex: 0, progression: 1))
+        defer { close(harness) }
         let movesBefore = harness.spy.moveCount
         let loadStart = ContinuousClock.now
         harness.view.goForward()
