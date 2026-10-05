@@ -285,6 +285,18 @@ public struct EPUBReaderSettings: Sendable, Equatable {
     /// collection whose reading order differs from an individual volume, with
     /// the collection's direction. Default false.
     public var reversesHorizontalWheelTurn = false
+    /// true(既定)なら、ページ表示でトラックパッドやホイールのスクロールでページをめくる。
+    /// false にすると縦横ともめくらない(横方向の 2 設定より優先する)。ページ表示の
+    /// ホイールは WebKit に渡さずに捨てるので、画面がスクロールして戻ることもない。
+    /// スクロール表示(scrolled-doc・scrolled-continuous)のスクロールには影響しない。
+    ///
+    /// When true (default), trackpad and wheel scrolling turns pages in paginated
+    /// display. Set false to turn off wheel page turns in both directions; it takes
+    /// precedence over the two horizontal settings. Paginated wheel events are then
+    /// discarded instead of being handed to WebKit, so the page does not scroll and
+    /// snap back. Scrolling in scrolled flows (scrolled-doc, scrolled-continuous) is
+    /// unaffected.
+    public var wheelTurnsPages = true
 
     public init() {}
 }

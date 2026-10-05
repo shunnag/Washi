@@ -314,4 +314,54 @@ final class WheelPageTurnTests: XCTestCase {
         XCTAssertEqual(harness.view.currentSpineIndex, 1)
         XCTAssertEqual(harness.view.pageInItem, 0, "読み込み開始から 0.25 秒以内のホイールでは送らない")
     }
+
+    // MARK: テスト 6 — 「ホイールでページを送る」OFF
+
+    func testWheelTurnsPagesOffDiscardsPaginatedWheelWithoutScrolling() async throws {
+        let harness = try await makeReader(
+            try publication(body: verticalBody(), name: "wheel-off"), double: true) {
+            $0.wheelTurnsPages = false
+        }
+        defer { close(harness) }
+        await advance(harness, times: 2)
+        XCTAssertEqual(harness.view.pageInItem, 4, "章の途中(scrollX が負)から始める")
+        // scrollX が同じでも「スクロールして戻った」可能性は消せない。scroll イベントを数える
+        // (capture で要素のスクロールも拾う)
+        try await runJS(harness.webView, """
+            globalThis.__scrollCount = 0;
+            window.addEventListener('scroll', () => { globalThis.__scrollCount += 1; },
+                                    { capture: true, passive: true });
+            return 0;
+            """)
+        let before = try await runJS(harness.webView, "return window.scrollX;")
+        try await gesture(harness, dx: 12)
+        try await Task.sleep(for: .milliseconds(400))
+        try await gesture(harness, dy: -12)
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(harness.view.pageInItem, 4, "OFF なら縦横とも送らない")
+        let after = try await runJS(harness.webView, "return window.scrollX;")
+        XCTAssertEqual(after, before, "OFF でも WebKit に渡さない(スクロールして戻る動きを出さない)")
+        let scrollCount = try await runJS(harness.webView, "return globalThis.__scrollCount;")
+        XCTAssertEqual(scrollCount, 0, "OFF の間は一度もスクロールしない")
+
+        harness.view.settings.wheelTurnsPages = true
+        try await Task.sleep(for: .milliseconds(400))
+        try await turn(harness, dx: 12, expect: 6, "ON に戻すと送る")
+        // 数える仕組みが働いていることの確認(送ればスクロールが起きる)
+        let scrollCountAfterTurn = try await runJS(harness.webView, "return globalThis.__scrollCount;")
+        XCTAssertGreaterThan(scrollCountAfterTurn, 0, "送ったときは scroll イベントを数える")
+    }
+
+    func testWheelTurnsPagesOffKeepsScrolledFlowScrolling() async throws {
+        let harness = try await makeReader(
+            try scrollPublication(flow: "scrolled-doc"), double: false) {
+            $0.wheelTurnsPages = false
+        }
+        defer { close(harness) }
+        let before = try await scrollY(harness.webView)
+        try await gesture(harness, dy: -12)
+        try await Task.sleep(for: .milliseconds(600))
+        let after = try await scrollY(harness.webView)
+        XCTAssertGreaterThan(after, before, "OFF でもスクロール表示は WebKit がスクロールする")
+    }
 }
