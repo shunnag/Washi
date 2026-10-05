@@ -275,4 +275,117 @@ final class WheelPageTurnRouteTests: XCTestCase {
         XCTAssertGreaterThan(after, before, "読み込み後のスクロール表示は WebKit がスクロールする")
         XCTAssertTrue(forwarded.isEmpty, "スクロール表示のホイールは受けずにそのまま渡す")
     }
+
+    // MARK: 章をまたいだフリックの慣性(行き先がスクロール表示)
+
+    /// 最後のページからのフリックでスクロール表示の章へ読み込むと、読み込み(0.1〜0.3 秒)の
+    /// 後も慣性(約 1 秒)が続く。その残りで、現れたばかりの章を先頭から動かさない。
+    /// 0.25 秒静かになってからの新しいジェスチャはスクロールする。
+    /// 時刻は 16ms 刻みで付け、実時間の揺れ(読み込み・JS の往復)から切り離す
+    func testMomentumSpanningLoadIntoScrolledChapterDoesNotScrollIt() async throws {
+        let book = try scrollPublication(flow: "paginated", modes: ["horizontal-tb", "horizontal-tb"],
+                                         overrides: ["", "rendition:flow-scrolled-doc"])
+        let harness = try await WheelHarness.make(
+            book, double: false, at: EPUBLocator(spineIndex: 0, progression: 1))
+        defer { harness.close() }
+        XCTAssertFalse(EPUBScreenMetrics.isScrolled(harness.view.effectiveFlow))
+        var time = ProcessInfo.processInfo.systemUptime
+        var sentWhileLoading = 0
+        let send = { (dy: Int32, phase: Int64, momentum: Int64) throws in
+            if harness.view.spineLoad.isLoadingSpineItem { sentWhileLoading += 1 }
+            time += 0.016
+            let event = try XCTUnwrap(harness.scrollEvent(
+                dx: 0, dy: dy, phase: phase, momentumPhase: momentum, timestamp: time))
+            harness.webView.scrollWheel(with: event)
+        }
+        let movesBefore = harness.spy.moveCount
+        let loaded = {
+            harness.spy.moveCount > movesBefore && harness.view.currentSpineIndex == 1
+                && !harness.view.spineLoad.isLoadingSpineItem
+        }
+        // 読み込みはこの環境では 16ms より短く終わりうるので、読み込みを始めた瞬間にも
+        // 慣性を 1 つ当てる(読み込みをまたぐことを確実にする)
+        harness.view.spineLoadHandler = { [weak webView = harness.webView] request in
+            try? send(-12, 0, 2)
+            return webView?.load(request)
+        }
+        defer { harness.view.spineLoadHandler = nil }
+        // フリック: began → changed(5 イベント目で章の最後から送る)→ ended
+        try send(-12, 1, 0)
+        for _ in 0..<5 { try send(-12, 2, 0) }
+        try send(0, 4, 0)
+        // 慣性(momentum begin → continue)を読み込みが終わるまで 16ms ごとに続ける
+        try send(-12, 0, 1)
+        for _ in 0..<300 where !loaded() {
+            try await Task.sleep(for: .milliseconds(16))
+            try send(-12, 0, 2)
+        }
+        XCTAssertTrue(loaded(), "スクロール表示の章が読み込まれる")
+        XCTAssertGreaterThan(sentWhileLoading, 0, "慣性が読み込みをまたぐ")
+        XCTAssertTrue(EPUBScreenMetrics.isScrolled(harness.view.effectiveFlow))
+        let start = try await harness.scrollY()
+        XCTAssertEqual(start, 0, "章の先頭から表示する")
+
+        // 読み込み後も続く慣性(直前のイベントから 16ms 刻み = 0.25 秒以内)
+        for _ in 0..<15 {
+            try send(-12, 0, 2)
+            try await Task.sleep(for: .milliseconds(16))
+        }
+        try send(0, 0, 3)
+        try await Task.sleep(for: .milliseconds(400))
+        let afterTail = try await harness.scrollY()
+        XCTAssertEqual(afterTail, start, "読み込みの前から続く慣性では新しい章を動かさない")
+        XCTAssertEqual(harness.view.currentSpineIndex, 1)
+
+        // 0.3 秒以上静かになってからの新しいジェスチャ(今の時刻)はスクロールする
+        try await Task.sleep(for: .milliseconds(300))
+        try await harness.gesture(dy: -12)
+        try await Task.sleep(for: .milliseconds(600))
+        let afterFresh = try await harness.scrollY()
+        XCTAssertGreaterThan(afterFresh, start, "静かになってからの新しいジェスチャはスクロールする")
+        XCTAssertFalse(harness.view.wheelTurnLatch.holdsLoadGesture, "保持は新しいジェスチャで解ける")
+    }
+
+    /// 読み込みの前から続くジェスチャの保持は、新しいジェスチャの始まり・0.25 秒の静穏・
+    /// ラッチの解除で解け、解けたら次の読み込みまで戻らない(WebKit なしで確かめる)
+    func testLoadGestureHoldEndsOnNewGestureOrQuiet() throws {
+        func event(phase: Int64, momentum: Int64 = 0, at time: TimeInterval) throws -> NSEvent {
+            let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+                                           wheelCount: 2, wheel1: -12, wheel2: 0, wheel3: 0))
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+            cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)
+            cg.timestamp = UInt64(time * 1e9)
+            return try XCTUnwrap(NSEvent(cgEvent: cg))
+        }
+        func held(at time: TimeInterval) -> EPUBReaderView.WheelTurnLatch {
+            var latch = EPUBReaderView.WheelTurnLatch()
+            latch.latched = true
+            latch.lastTime = time
+            latch.holdsLoadGesture = true
+            return latch
+        }
+        let t: TimeInterval = 1000
+
+        var latch = held(at: t)
+        XCTAssertTrue(latch.continuesLoadGesture(try event(phase: 2, at: t + 0.1)), "changed は続き")
+        XCTAssertTrue(latch.continuesLoadGesture(try event(phase: 0, momentum: 2, at: t + 0.2)),
+                      "慣性は続き")
+        // 128 = mayBegin
+        for (phase, label) in [(Int64(1), "began"), (Int64(128), "mayBegin")] {
+            latch = held(at: t)
+            XCTAssertFalse(latch.continuesLoadGesture(try event(phase: phase, at: t + 0.1)), label)
+            XCTAssertFalse(latch.holdsLoadGesture, "\(label) で保持を解く")
+            XCTAssertFalse(latch.continuesLoadGesture(try event(phase: 2, at: t + 0.12)),
+                           "\(label) の後は戻らない")
+        }
+        latch = held(at: t)
+        XCTAssertFalse(latch.continuesLoadGesture(try event(phase: 0, momentum: 2, at: t + 0.26)),
+                       "0.25 秒の静穏で解く")
+        XCTAssertFalse(latch.holdsLoadGesture)
+        latch = held(at: t)
+        latch.latched = false
+        XCTAssertFalse(latch.continuesLoadGesture(try event(phase: 2, at: t + 0.1)),
+                       "ラッチが解けていれば保持しない")
+    }
 }

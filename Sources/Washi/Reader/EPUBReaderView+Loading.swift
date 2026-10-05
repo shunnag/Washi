@@ -169,8 +169,9 @@ extension EPUBReaderView {
         }
         webView.wheelHandler = { [weak self] event in
             guard let self else { return false }
-            // ページ表示と読み込み中は送りの判定へ(consumesWebViewWheel)。
-            if self.consumesWebViewWheel {
+            // ページ表示・読み込み中・読み込みの前から続くジェスチャは送りの判定へ
+            // (consumesWebViewWheel)。
+            if self.consumesWebViewWheel(event) {
                 self.turnPageByWheel(event)
                 return true
             }
@@ -300,9 +301,11 @@ extension EPUBReaderView {
         spineLoad.isLoadingSpineItem = true
         // 文書の読み込み直後は、前の文書から続くトラックパッド慣性を新しい
         // ジェスチャと誤認して 1 ページ余分に進めないよう、0.25 秒の静穏まで
-        // ラッチしたまま始める(NSEvent.timestamp と同じ systemUptime 基準)
+        // ラッチしたまま始める(NSEvent.timestamp と同じ systemUptime 基準)。
+        // スクロール表示の章へ読み込む場合も、そのジェスチャが続く間は WebView に渡さない
         wheelTurnLatch.latched = true
         wheelTurnLatch.lastTime = ProcessInfo.processInfo.systemUptime
+        wheelTurnLatch.holdsLoadGesture = true
         pendingMediaOverlayHighlight = nil
         spineLoadGeneration += 1
         // コミット前に置き換わった読み込みの矩形を、新しい項目へ当てない
