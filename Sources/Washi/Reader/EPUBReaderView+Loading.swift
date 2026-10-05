@@ -171,7 +171,7 @@ extension EPUBReaderView {
             guard let self else { return false }
             if EPUBScreenMetrics.isScrolled(self.effectiveFlow) {
                 // 横書き・roll は従来どおり WebKit に委ねる。縦書きは負の
-                // scrollX で DOM に wheel が届かないため、移動と子文書同期を送る。
+                // scrollX で DOM に wheel が届かないため、縦操作と連続表示の同期を送る。
                 return self.scrollScrolledFlowByWheel(event)
             }
             self.turnPageByWheel(event)

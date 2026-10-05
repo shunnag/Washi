@@ -103,6 +103,24 @@ final class ScrolledFlowWheelHarness {
     func send(dx: Int32 = 0, dy: Int32 = 0, precise: Bool = true,
               phase: Int64 = 2, momentum: Int64 = 0) throws {
         let webView = try reader.firstWebView()
+        let scroll = try scrollEvent(dx: dx, dy: dy, precise: precise, phase: phase,
+                                     momentum: momentum, in: webView)
+        webView.scrollWheel(with: scroll)
+    }
+
+    func sendFractional(dx: CGFloat = 0, dy: CGFloat = 0, phase: Int64 = 2,
+                        momentum: Int64 = 0) throws {
+        let webView = try reader.firstWebView()
+        let base = try scrollEvent(dx: 0, dy: 0, precise: true, phase: phase,
+                                   momentum: momentum, in: webView)
+        let scroll = FractionalWheelEvent(base: base, dx: dx, dy: dy)
+        XCTAssertEqual(scroll.scrollingDeltaX, dx)
+        XCTAssertEqual(scroll.scrollingDeltaY, dy)
+        webView.scrollWheel(with: scroll)
+    }
+
+    private func scrollEvent(dx: Int32, dy: Int32, precise: Bool, phase: Int64,
+                             momentum: Int64, in webView: WKWebView) throws -> NSEvent {
         let event = try XCTUnwrap(CGEvent(
             scrollWheelEvent2Source: nil, units: precise ? .pixel : .line,
             wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0))
@@ -116,7 +134,7 @@ final class ScrolledFlowWheelHarness {
         let scroll = try XCTUnwrap(NSEvent(cgEvent: event))
         XCTAssertEqual(scroll.hasPreciseScrollingDeltas, precise)
         XCTAssertLessThan(abs(scroll.timestamp - ProcessInfo.processInfo.systemUptime), 1)
-        webView.scrollWheel(with: scroll)
+        return scroll
     }
 
     /// 既存の WheelPageTurnTests と同じ began → changed × 10 → ended の 132px。
@@ -140,4 +158,31 @@ final class ScrolledFlowWheelHarness {
         XCTAssertGreaterThan(abs(position - initial), 1, "WebKit がスクロールしない", file: file, line: line)
         return position
     }
+}
+
+// CGEvent の point delta は整数で、NSEvent(cgEvent:) も小数を失う。
+// 実 CGEvent の phase・時刻を保ったまま、精密デルタだけを小数で渡す。
+private final class FractionalWheelEvent: NSEvent, @unchecked Sendable {
+    let base: NSEvent
+    let dx: CGFloat
+    let dy: CGFloat
+
+    init(base: NSEvent, dx: CGFloat, dy: CGFloat) {
+        self.base = base
+        self.dx = dx
+        self.dy = dy
+        super.init()
+    }
+
+    required init?(coder: NSCoder) { return nil }
+
+    override var type: NSEvent.EventType { base.type }
+    override var cgEvent: CGEvent? { base.cgEvent }
+    override var locationInWindow: NSPoint { base.locationInWindow }
+    override var timestamp: TimeInterval { base.timestamp }
+    override var phase: NSEvent.Phase { base.phase }
+    override var momentumPhase: NSEvent.Phase { base.momentumPhase }
+    override var hasPreciseScrollingDeltas: Bool { true }
+    override var scrollingDeltaX: CGFloat { dx }
+    override var scrollingDeltaY: CGFloat { dy }
 }

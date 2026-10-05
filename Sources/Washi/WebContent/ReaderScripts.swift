@@ -577,12 +577,12 @@ enum ReaderScripts {
             return axisIsX() ? (mode === 'vrl' ? -window.scrollX : window.scrollX) : window.scrollY;
         }
 
-        function showScrollOffset(offset) {
+        function showScrollOffset(offset, shouldReport = true) {
             const value = Math.max(0, Math.min(offset, Math.max(0, scrollExtent() - clientExtent())));
             window.scrollTo({ left: axisIsX() ? (mode === 'vrl' ? -value : value) : 0,
                               top: axisIsX() ? 0 : value, behavior: 'instant' });
             currentPage = Math.max(0, Math.min(pageCount - 1, pageFromScroll()));
-            report();
+            if (shouldReport) { report(); }
             return currentPage;
         }
 
@@ -596,16 +596,16 @@ enum ReaderScripts {
         washi.scrollByWheelDelta = function (delta, token = documentToken) {
             if (!ready || !scrolled || token !== documentToken) { return currentPage; }
             // 同じ向きは native が合算する。逆向きの並びは端で制限しながら適用し、
-            // 最後に一度だけ位置を報告する。
+            // 位置通知は横書きと同じく scroll guard に任せ、毎フレームの通知を避ける。
             if (Array.isArray(delta)) {
                 const maximum = Math.max(0, scrollExtent() - clientExtent());
                 let position = scrollOffset();
                 for (const step of delta) {
                     position = Math.max(0, Math.min(maximum, position + (Number(step) || 0)));
                 }
-                return showScrollOffset(position);
+                return showScrollOffset(position, false);
             }
-            return showScrollOffset(scrollOffset() + (Number(delta) || 0));
+            return showScrollOffset(scrollOffset() + (Number(delta) || 0), false);
         };
 
         // ---- 末尾スプレッドの padding ----
@@ -2071,8 +2071,9 @@ enum ReaderScripts {
         // ホイール/トラックパッド: ページ表示では native(WashiWebView.scrollWheel)が
         // WebKit より先に受けて「1 ジェスチャ = 1 ページ」で送る。縦書きの見開きで
         // 章の途中(scrollX が負)にいると、WebKit は wheel を DOM に渡さないため。
-        // 縦書きスクロールも native が受ける。ここに届く横書き連続表示の子文書は
-        // 外側へ転送する(native が消費したイベントは DOM に届かず二重適用しない)。
+        // 縦書きの縦操作と連続表示の横操作も native が受ける。章単位表示の横操作は
+        // WebKit に委ね、ここに届く横書き連続表示の子文書は外側へ転送する。
+        // native が消費したイベントは DOM に届かず二重適用しない。
         document.addEventListener('wheel', function (event) {
             if (typeof washi.scrollHostWheel === 'function') {
                 event.preventDefault();
