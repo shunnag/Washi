@@ -577,18 +577,35 @@ enum ReaderScripts {
             return axisIsX() ? (mode === 'vrl' ? -window.scrollX : window.scrollX) : window.scrollY;
         }
 
-        function showScrollOffset(offset) {
+        function showScrollOffset(offset, shouldReport = true) {
             const value = Math.max(0, Math.min(offset, Math.max(0, scrollExtent() - clientExtent())));
             window.scrollTo({ left: axisIsX() ? (mode === 'vrl' ? -value : value) : 0,
                               top: axisIsX() ? 0 : value, behavior: 'instant' });
             currentPage = Math.max(0, Math.min(pageCount - 1, pageFromScroll()));
-            report();
+            if (shouldReport) { report(); }
             return currentPage;
         }
 
         washi.scrollMetrics = function () {
             return { ready: ready, scrolled: scrolled, mode: mode, extent: scrollExtent(),
                      viewport: clientExtent(), offset: scrollOffset() };
+        };
+
+        // native で書字方向へ写したピクセル量。端では既存のスクロールと同じく
+        // 位置を制限し、キー・ページ送り用の boundary は発行しない。
+        washi.scrollByWheelDelta = function (delta, token = documentToken) {
+            if (!ready || !scrolled || token !== documentToken) { return currentPage; }
+            // 同じ向きは native が合算する。逆向きの並びは端で制限しながら適用し、
+            // 位置通知は横書きと同じく scroll guard に任せ、毎フレームの通知を避ける。
+            if (Array.isArray(delta)) {
+                const maximum = Math.max(0, scrollExtent() - clientExtent());
+                let position = scrollOffset();
+                for (const step of delta) {
+                    position = Math.max(0, Math.min(maximum, position + (Number(step) || 0)));
+                }
+                return showScrollOffset(position, false);
+            }
+            return showScrollOffset(scrollOffset() + (Number(delta) || 0), false);
         };
 
         // ---- 末尾スプレッドの padding ----
@@ -2054,7 +2071,9 @@ enum ReaderScripts {
         // ホイール/トラックパッド: ページ表示では native(WashiWebView.scrollWheel)が
         // WebKit より先に受けて「1 ジェスチャ = 1 ページ」で送る。縦書きの見開きで
         // 章の途中(scrollX が負)にいると、WebKit は wheel を DOM に渡さないため。
-        // ここに届くのはスクロール表示だけで、連続スクロールの子文書は外側へ転送する
+        // 縦書きの縦操作と連続表示の横操作も native が受ける。章単位表示の横操作は
+        // WebKit に委ね、ここに届く横書き連続表示の子文書は外側へ転送する。
+        // native が消費したイベントは DOM に届かず二重適用しない。
         document.addEventListener('wheel', function (event) {
             if (typeof washi.scrollHostWheel === 'function') {
                 event.preventDefault();
@@ -2115,10 +2134,32 @@ enum ReaderScripts {
         // 位置が属するページへ揃え、そのページを通知する。選択ドラッグの
         // ような半ページ未満のずれは同じページへ丸まるので従来どおり戻る。
         let scrollGuard = 0;
+        let pendingFocusTarget = null;
+        let revealTarget = null;
+        let focusRevealTime = 0;
+        document.addEventListener('focusin', function (event) {
+            if (!ready || fixedLayout || scrolled || pagesPerScreen !== 2) { return; }
+            pendingFocusTarget = null;
+            // 可視要素への focus は reveal を起こさず、直後の無関係な scroll を奪わない。
+            const rect = event.target.getClientRects()[0] || event.target.getBoundingClientRect();
+            if (rect.left >= 0 && rect.top >= 0
+                && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight) { return; }
+            pendingFocusTarget = event.target;
+            focusRevealTime = performance.now();
+        }, true);
         window.addEventListener('scroll', function () {
             if (fixedLayout) { return; }
+            // 次フレーム付近の最初の scroll で結び付ける。長い smooth reveal や
+            // guard 待機中の停止では失効させず、遅れて来た無関係な scroll は除外する。
+            if (pendingFocusTarget) {
+                revealTarget = performance.now() - focusRevealTime <= 250
+                    ? pendingFocusTarget : null;
+                pendingFocusTarget = null;
+            }
             clearTimeout(scrollGuard);
             scrollGuard = setTimeout(function () {
+                const focusTarget = revealTarget;
+                revealTarget = null;
                 if (!ready) { return; }
                 if (scrolled) {
                     currentPage = Math.max(0, Math.min(pageCount - 1, pageFromScroll()));
@@ -2128,7 +2169,15 @@ enum ReaderScripts {
                 const off = axisIsX() ? window.scrollX : window.scrollY;
                 const expected = Math.round(clampScroll(scrollTargetFor(currentPage)));
                 if (Math.abs(off - expected) <= 2) { return; }
-                const landed = Math.max(0, Math.min(pageFromScroll(), pageCount - 1));
+                // Washi-huz: 中央寄せの focus reveal は見開き先頭の要素でも
+                // offset の丸めで前の見開きになる。reveal の対象だけ矩形で着地する。
+                let landed = pageFromScroll();
+                if (pagesPerScreen === 2 && focusTarget && focusTarget.isConnected) {
+                    const rect = focusTarget.getClientRects()[0]
+                        || focusTarget.getBoundingClientRect();
+                    landed = pageForRect(rect);
+                }
+                landed = Math.max(0, Math.min(landed, pageCount - 1));
                 if (spreadStart(landed) === currentPage) {
                     scrollToPage(currentPage);
                 } else {
