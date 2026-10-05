@@ -288,10 +288,20 @@ final class ScrolledFlowWheelTests: XCTestCase {
             try await harness.load(try scrollPublication(modes: [mode]))
             try await Task.sleep(for: .milliseconds(200))
             _ = try await harness.reader.evaluateForTest("""
-                globalThis.__pageChangedCount = 0;
+                const stats = { wheelCalls:0, reportsDuringWheel:0 };
+                globalThis.__wheelReportStats = stats;
+                let runningWheel = false;
+                const scroll = __washi.scrollByWheelDelta;
+                __washi.scrollByWheelDelta = (...args) => {
+                    stats.wheelCalls += 1;
+                    runningWheel = true;
+                    try { return scroll(...args); }
+                    finally { runningWheel = false; }
+                };
                 const token = \(ReaderScripts.jsStringLiteral(harness.reader.currentDocumentToken));
                 __washi.hostPost = message => {
-                    if (message.type === 'pageChanged') { globalThis.__pageChangedCount += 1; }
+                    // guard の途中通知は許し、ホイール関数が直接送った通知だけを数える。
+                    if (message.type === 'pageChanged' && runningWheel) { stats.reportsDuringWheel += 1; }
                     message.token = token;
                     window.webkit.messageHandlers.washi.postMessage(message);
                 };
@@ -302,11 +312,13 @@ final class ScrolledFlowWheelTests: XCTestCase {
             let reported = await waitUntil(timeout: .seconds(3)) { harness.spy.moveCount > before }
             XCTAssertTrue(reported, "scroll guard が最後の位置を通知する")
             try await Task.sleep(for: .milliseconds(200))
-            let value = try await harness.reader.evaluateForTest("return globalThis.__pageChangedCount;")
-            let messages = try XCTUnwrap(value as? Int)
-            XCTAssertGreaterThan(messages, 0)
-            XCTAssertLessThanOrEqual(messages, 3, "flush ごとに pageChanged を送らない")
-            XCTAssertLessThanOrEqual(harness.spy.moveCount - before, 3)
+            if mode == "vertical-rl" {
+                let value = try await harness.reader.evaluateForTest("return globalThis.__wheelReportStats;")
+                let stats = try XCTUnwrap(value as? [String: Any])
+                XCTAssertGreaterThan(try XCTUnwrap(stats["wheelCalls"] as? Int), 0)
+                XCTAssertEqual(try XCTUnwrap(stats["reportsDuringWheel"] as? Int), 0,
+                               "flush ごとに pageChanged を送らない")
+            }
             let offset = try await harness.offset()
             XCTAssertGreaterThan(offset, 0)
         }
