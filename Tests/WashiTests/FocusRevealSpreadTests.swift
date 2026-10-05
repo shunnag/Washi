@@ -131,7 +131,7 @@ final class FocusRevealSpreadTests: XCTestCase {
             XCTAssertTrue((view.pageInItem..<(view.pageInItem + view.pagesPerScreen)).contains(page))
         }
 
-        // focus を保持したまま別の見開きへスクロールしても、消費済み focus は使わない。
+        // 確定した対象は時刻で失効しないため、guard の revealTarget 消去がないとここで戻される。
         let moved = try await snapshot(view, """
             window.scrollTo(\(origin) + 8.2 * \(pitch), 0);
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -141,10 +141,26 @@ final class FocusRevealSpreadTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(moved["x"]), origin + 8 * pitch, accuracy: 2)
         XCTAssertEqual(view.pageInItem, 8, "通常のスクロールは offset から着地する")
 
-        // reveal を伴わない focus は guard が来なくても失効し、後の自動スクロールを奪わない。
+        // 可視要素を保留から除外しないと、直後の scroll が reveal 扱いになって 8 へ戻される。
+        let nonRevealing = try await snapshot(view, """
+            const el = document.getElementById('link9');
+            const r = el.getBoundingClientRect();
+            const visible = Number(r.left >= 0 && r.top >= 0
+                && r.right <= innerWidth && r.bottom <= innerHeight);
+            el.focus({preventScroll:true});
+            window.scrollTo(\(origin) + 6.2 * \(pitch), 0);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return {visible:visible, focused:Number(document.activeElement === el), x:window.scrollX};
+            """)
+        XCTAssertEqual(nonRevealing["visible"], 1, "reveal が不要な可視リンクへの focus")
+        XCTAssertEqual(nonRevealing["focused"], 1)
+        XCTAssertEqual(try XCTUnwrap(nonRevealing["x"]), origin + 6 * pitch, accuracy: 2)
+        XCTAssertEqual(view.pageInItem, 6, "reveal を伴わない focus は直後のスクロールを奪わない")
+
+        // 最初の scroll の 250 ms 判定がないと、遅れた scroll でも link18 へ戻される。
         let expired = try await snapshot(view, """
             document.getElementById('link18').focus({preventScroll:true});
-            await new Promise(resolve => setTimeout(resolve, 600));
+            await new Promise(resolve => setTimeout(resolve, 350));
             window.scrollTo(\(origin) + 4.2 * \(pitch), 0);
             await new Promise(resolve => setTimeout(resolve, 500));
             return {focused:Number(document.activeElement.id === 'link18'), x:window.scrollX};
