@@ -167,15 +167,8 @@ extension EPUBReaderView {
             self?.contextMenu(menu, for: event)
         }
         webView.wheelHandler = { [weak self] event in
-            // スクロール表示は WebKit の連続した移動と慣性に委ねる(固定レイアウトの
-            // 項目もスクロール表示では isFixedLayoutItem が false になり、JS の
-            // scrolled と同じ条件になる)。ページ表示の項目からスクロール表示の項目へ
-            // 読み込む間は effectiveFlow が先に新しい項目を指すため、古いページ表示の
-            // 文書の上でも一瞬 WebKit に渡るが害はない(逆向きは turnPageByWheel の
-            // isLoadingSpineItem の guard が受け止める)
-            guard let self, !EPUBScreenMetrics.isScrolled(self.effectiveFlow) else {
-                return false
-            }
+            // 判定は consumesWebViewWheel(読み込み中はどのフローでも受ける)
+            guard let self, self.consumesWebViewWheel else { return false }
             self.turnPageByWheel(event)
             return true
         }

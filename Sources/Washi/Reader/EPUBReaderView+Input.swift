@@ -310,13 +310,32 @@ extension EPUBReaderView {
 
     public override func scrollWheel(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(location),
-              !(webView.map { $0.frame.contains(location) } ?? false)
-        else {
+        guard bounds.contains(location) else {
+            super.scrollWheel(with: event)
+            return
+        }
+        // WebView の上でここへ来るのは、重なったビュー(めくり演出や spine 遷移のカバー・
+        // ノンブル)が当たり判定を取り、AppKit がそれを親へ転送したとき(macOS 27 では
+        // 下にある WebView へ転送するが、それに頼らない)。ページ表示ではそれも送りに回し、
+        // ラッチの時刻を進める(進めないと、カバーが畳まれた後の慣性が新しいジェスチャに
+        // なってもう 1 ページ送る)。WashiWebView は受けたホイールを WebKit に渡さないので、
+        // 二重に数えない(始まりと終わりの移動量 0 の複製が WebKit から上がってきても、
+        // turnPageByWheel は移動量 0 を無視する)。スクロール表示は従来どおり上へ渡す
+        if let webView, webView.frame.contains(location), !consumesWebViewWheel {
             super.scrollWheel(with: event)
             return
         }
         turnPageByWheel(event)
+    }
+
+    /// WebView の上のホイールを WebKit に渡さず送りに回すか。ページ表示なら受ける。
+    /// spine の読み込み中はフローを問わず受ける: ページ表示の項目からスクロール表示の
+    /// 項目へ読み込む間は effectiveFlow が先に新しい項目を指すが、表示されているのは
+    /// まだ古いページ表示の文書で、WebKit に渡すとスクロールしてから戻される。
+    /// turnPageByWheel は読み込み中はラッチするだけで送らない(固定レイアウトの項目も
+    /// スクロール表示では isFixedLayoutItem が false になり、JS の scrolled と同じ条件)
+    var consumesWebViewWheel: Bool {
+        spineLoad.isLoadingSpineItem || !EPUBScreenMetrics.isScrolled(effectiveFlow)
     }
 
     /// 余白と WebView の上(ページ表示)のホイールを「1 ジェスチャ = 1 ページ」に

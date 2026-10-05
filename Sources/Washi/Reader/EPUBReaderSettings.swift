@@ -263,14 +263,16 @@ public struct EPUBReaderSettings: Sendable, Equatable {
     /// true(既定)なら、トラックパッドやホイールの横操作で 1 ページめくる。
     /// ホスト自身が横スワイプによるページめくりを処理する場合は false にして、
     /// 二重実行を防ぎ、ホストの「スワイプでページをめくる」設定を尊重する。
-    /// どちらの場合も、ページ割りされた本文の縦方向のホイールスクロールには
-    /// 影響しない。
+    /// どちらの場合も、ページ割りされた本文の縦方向のホイールによるページめくりには
+    /// 影響しない。ホイールによるページめくりを縦横とも止めるには
+    /// ``wheelTurnsPages`` を使う。
     ///
     /// When true (default), a horizontal trackpad/wheel gesture turns one page.
     /// Set false when the host drives horizontal swipe page-turns itself (so the
     /// two do not both fire, and the host's "swipe turns pages" preference is
-    /// honored). Vertical wheel scrolling through paginated content is
-    /// unaffected either way.
+    /// honored). Vertical wheel page turns through paginated content are not
+    /// affected by this setting either way; use ``wheelTurnsPages`` to turn off
+    /// wheel page turns entirely.
     public var horizontalWheelTurnsPages = true
     /// トラックパッドやホイールの横操作によるページめくりの方向を反転する。
     /// 既定では左向きの操作で左側のページへめくる(本の組み方向に応じて
@@ -288,14 +290,16 @@ public struct EPUBReaderSettings: Sendable, Equatable {
     /// true(既定)なら、ページ表示でトラックパッドやホイールのスクロールでページをめくる。
     /// false にすると縦横ともめくらない(横方向の 2 設定より優先する)。ページ表示の
     /// ホイールは WebKit に渡さずに捨てるので、画面がスクロールして戻ることもない。
-    /// スクロール表示(scrolled-doc・scrolled-continuous)のスクロールには影響しない。
+    /// スクロール表示(scrolled-doc・scrolled-continuous)の本文のスクロールには影響しない。
+    /// 余白はスクロールしないので、余白の上のホイールによるページめくりはどのフローでも止まる。
     ///
     /// When true (default), trackpad and wheel scrolling turns pages in paginated
     /// display. Set false to turn off wheel page turns in both directions; it takes
     /// precedence over the two horizontal settings. Paginated wheel events are then
     /// discarded instead of being handed to WebKit, so the page does not scroll and
-    /// snap back. Scrolling in scrolled flows (scrolled-doc, scrolled-continuous) is
-    /// unaffected.
+    /// snap back. Scrolling of the content in scrolled flows (scrolled-doc,
+    /// scrolled-continuous) is unaffected. The margins never scroll, so wheel page
+    /// turns over the margins stop in every flow.
     public var wheelTurnsPages = true
 
     public init() {}
