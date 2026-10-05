@@ -6,10 +6,10 @@ import WebKit
 final class WashiWebView: WKWebView {
     var contextMenuHandler: ((NSMenu, NSEvent) -> NSMenu?)?
 
-    /// ページ表示のホイールを WebKit より先に受ける回し先。true を返したら
-    /// WebKit には渡さない(ジェスチャの始まりと終わりだけ移動量 0 の複製を渡す)。
-    /// 縦書きの見開きで章の途中(scrollX が負)にいると、
-    /// WebKit は wheel を DOM に渡さず自前でスクロールするため、JS では送れない。
+    /// ページ表示・縦書きスクロール表示のホイールを WebKit より先に受ける回し先。
+    /// true を返したら WebKit には渡さない(ジェスチャの始まりと終わりだけ移動量 0 の
+    /// 複製を渡す)。scrollX が負の文書では WebKit が wheel を DOM に渡さず自前で
+    /// スクロールするため、JS だけでは扱えない。
     var wheelHandler: ((NSEvent) -> Bool)?
 
     /// テスト用: 受けたホイールの代わりに WebKit へ渡した移動量 0 の複製を見る
