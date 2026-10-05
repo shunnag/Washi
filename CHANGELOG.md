@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-10-05
+
 ### 追加
 - `EPUBReaderSettings.wheelTurnsPages`(既定 true)。false にするとトラックパッドや
   ホイールのスクロールでページをめくらない(縦横とも。横方向の 2 設定より優先)。
