@@ -2115,10 +2115,19 @@ enum ReaderScripts {
         // 位置が属するページへ揃え、そのページを通知する。選択ドラッグの
         // ような半ページ未満のずれは同じページへ丸まるので従来どおり戻る。
         let scrollGuard = 0;
+        let pendingFocusTarget = null;
+        let focusRevealTime = 0;
+        document.addEventListener('focusin', function (event) {
+            if (!ready || fixedLayout || scrolled || pagesPerScreen !== 2) { return; }
+            pendingFocusTarget = event.target;
+            focusRevealTime = performance.now();
+        }, true);
         window.addEventListener('scroll', function () {
             if (fixedLayout) { return; }
             clearTimeout(scrollGuard);
             scrollGuard = setTimeout(function () {
+                const focusTarget = pendingFocusTarget;
+                pendingFocusTarget = null;
                 if (!ready) { return; }
                 if (scrolled) {
                     currentPage = Math.max(0, Math.min(pageCount - 1, pageFromScroll()));
@@ -2128,7 +2137,16 @@ enum ReaderScripts {
                 const off = axisIsX() ? window.scrollX : window.scrollY;
                 const expected = Math.round(clampScroll(scrollTargetFor(currentPage)));
                 if (Math.abs(off - expected) <= 2) { return; }
-                const landed = Math.max(0, Math.min(pageFromScroll(), pageCount - 1));
+                // Washi-huz: 中央寄せの focus reveal は見開き先頭の要素でも
+                // offset の丸めで前の見開きになる。直前の focus だけ矩形で着地する。
+                let landed = pageFromScroll();
+                if (pagesPerScreen === 2 && focusTarget && focusTarget.isConnected
+                    && performance.now() - focusRevealTime <= 500) {
+                    const rect = focusTarget.getClientRects()[0]
+                        || focusTarget.getBoundingClientRect();
+                    landed = pageForRect(rect);
+                }
+                landed = Math.max(0, Math.min(landed, pageCount - 1));
                 if (spreadStart(landed) === currentPage) {
                     scrollToPage(currentPage);
                 } else {
