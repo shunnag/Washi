@@ -591,6 +591,23 @@ enum ReaderScripts {
                      viewport: clientExtent(), offset: scrollOffset() };
         };
 
+        // native で書字方向へ写したピクセル量。端では既存のスクロールと同じく
+        // 位置を制限し、キー・ページ送り用の boundary は発行しない。
+        washi.scrollByWheelDelta = function (delta, token = documentToken) {
+            if (!ready || !scrolled || token !== documentToken) { return currentPage; }
+            // 同じ向きは native が合算する。逆向きの並びは端で制限しながら適用し、
+            // 最後に一度だけ位置を報告する。
+            if (Array.isArray(delta)) {
+                const maximum = Math.max(0, scrollExtent() - clientExtent());
+                let position = scrollOffset();
+                for (const step of delta) {
+                    position = Math.max(0, Math.min(maximum, position + (Number(step) || 0)));
+                }
+                return showScrollOffset(position);
+            }
+            return showScrollOffset(scrollOffset() + (Number(delta) || 0));
+        };
+
         // ---- 末尾スプレッドの padding ----
 
         function resetPaginationMarkers() {
@@ -2054,7 +2071,8 @@ enum ReaderScripts {
         // ホイール/トラックパッド: ページ表示では native(WashiWebView.scrollWheel)が
         // WebKit より先に受けて「1 ジェスチャ = 1 ページ」で送る。縦書きの見開きで
         // 章の途中(scrollX が負)にいると、WebKit は wheel を DOM に渡さないため。
-        // ここに届くのはスクロール表示だけで、連続スクロールの子文書は外側へ転送する
+        // 縦書きスクロールも native が受ける。ここに届く横書き連続表示の子文書は
+        // 外側へ転送する(native が消費したイベントは DOM に届かず二重適用しない)。
         document.addEventListener('wheel', function (event) {
             if (typeof washi.scrollHostWheel === 'function') {
                 event.preventDefault();
