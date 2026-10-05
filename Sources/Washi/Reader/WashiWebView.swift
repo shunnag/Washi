@@ -6,9 +6,9 @@ import WebKit
 final class WashiWebView: WKWebView {
     var contextMenuHandler: ((NSMenu, NSEvent) -> NSMenu?)?
 
-    /// ページ表示のホイールを WebKit より先に受ける回し先。true を返したら
-    /// WebKit には渡さない。縦書きの見開きで章の途中(scrollX が負)にいると、
-    /// WebKit は wheel を DOM に渡さず自前でスクロールするため、JS では送れない。
+    /// ページ表示・縦書きスクロール表示のホイールを WebKit より先に受ける回し先。
+    /// true を返したら WebKit には渡さない。scrollX が負の文書では WebKit が
+    /// wheel を DOM に渡さず自前でスクロールするため、JS だけでは扱えない。
     var wheelHandler: ((NSEvent) -> Bool)?
 
     override func scrollWheel(with event: NSEvent) {

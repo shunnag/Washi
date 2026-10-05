@@ -1,0 +1,308 @@
+import AppKit
+import XCTest
+@testable import Washi
+
+@MainActor
+final class ScrolledFlowWheelTests: XCTestCase {
+    func testVerticalRLContinuousWheelKeepsContainerAndChildrenInSync() async throws {
+        let book = try scrollPublication(flow: "scrolled-continuous", modes: ["vertical-rl", "vertical-rl"])
+        let harness = ScrolledFlowWheelHarness()
+        defer { harness.close() }
+        try await harness.load(book, at: book.locator(forSpineIndex: 0, progression: 0.4))
+        let initial = try await harness.offset()
+        XCTAssertGreaterThan(initial, 132)
+        let initialMetrics = try await harness.metrics()
+        XCTAssertLessThan(try XCTUnwrap(initialMetrics["scrollX"] as? Double), 0)
+
+        try await harness.gesture(dy: -12)
+        try await assertPosition(harness, initial + 132)
+        try await assertChildrenInSync(harness)
+        try await harness.gesture(dy: 12)
+        try await assertPosition(harness, initial)
+        try await assertChildrenInSync(harness)
+
+        // WebKit に渡していた横操作は、逆向きで 2 倍戻り、子文書が古い位置に残った。
+        try await harness.gesture(dx: 12)
+        try await assertPosition(harness, initial + 132)
+        try await assertChildrenInSync(harness)
+        try await harness.gesture(dx: -12)
+        try await assertPosition(harness, initial)
+        try await assertChildrenInSync(harness)
+        XCTAssertTrue(harness.consumedEvents.allSatisfy { $0 })
+        let metrics = try await harness.metrics()
+        XCTAssertEqual(metrics["domWheels"] as? Int, 0, "native と DOM の二重適用を防ぐ")
+        XCTAssertGreaterThan(try XCTUnwrap(metrics["nativeCalls"] as? Int), 0)
+        XCTAssertTrue(harness.spy.failures.isEmpty)
+    }
+
+    func testVerticalRLDocumentWheelAtOriginAndNegativeScrollXIncludingNotches() async throws {
+        let book = try scrollPublication(modes: ["vertical-rl", "vertical-rl"])
+        let harness = ScrolledFlowWheelHarness()
+        defer { harness.close() }
+        try await harness.load(book)
+        try await assertPosition(harness, 0)
+        let origin = try await harness.metrics()
+        XCTAssertEqual(origin["scrollX"] as? Double, 0)
+        try await harness.gesture(dy: -12)
+        try await assertPosition(harness, 132)
+        try await harness.gesture(dy: 12)
+        try await assertPosition(harness, 0)
+
+        _ = try await harness.reader.evaluateForTest("return __washi.showProgression(0.4);")
+        let initial = try await harness.offset()
+        let middle = try await harness.metrics()
+        XCTAssertLessThan(try XCTUnwrap(middle["scrollX"] as? Double), 0)
+        try await harness.gesture(dy: -12)
+        try await assertPosition(harness, initial + 132)
+        try await harness.gesture(dy: 12)
+        try await assertPosition(harness, initial)
+
+        try harness.send(dy: -1, precise: false, phase: 0)
+        await harness.drain()
+        try await assertPosition(harness, initial + 20)
+        try harness.send(dy: 1, precise: false, phase: 0)
+        await harness.drain()
+        try await assertPosition(harness, initial)
+        XCTAssertTrue(harness.consumedEvents.allSatisfy { $0 })
+        let metrics = try await harness.metrics()
+        XCTAssertEqual(metrics["domWheels"] as? Int, 0)
+    }
+
+    func testContinuousWheelCrossesChapterBoundaryAndReturnsWithoutReloading() async throws {
+        let book = try scrollPublication(flow: "scrolled-continuous", modes: ["vertical-rl", "vertical-rl"])
+        let harness = ScrolledFlowWheelHarness()
+        defer { harness.close() }
+        try await harness.load(book)
+        let webView = try harness.reader.firstWebView()
+        _ = try await harness.reader.evaluateForTest("""
+            const metrics = __washi.scrollMetrics();
+            return __washi.showProgression((metrics.items[1].start - 66) / metrics.items[0].extent);
+            """)
+        let initial = try await harness.offset()
+        let metrics = try await harness.metrics()
+        XCTAssertLessThan(try XCTUnwrap(metrics["scrollX"] as? Double), 0)
+        try await harness.gesture(dy: -12)
+        try await assertPosition(harness, initial + 132)
+        let crossed = await waitUntil(timeout: .seconds(3)) { harness.reader.currentSpineIndex == 1 }
+        XCTAssertTrue(crossed)
+        try await assertChildrenInSync(harness)
+        try await harness.gesture(dy: 12)
+        try await assertPosition(harness, initial)
+        let returned = await waitUntil(timeout: .seconds(3)) { harness.reader.currentSpineIndex == 0 }
+        XCTAssertTrue(returned)
+        try await assertChildrenInSync(harness)
+        XCTAssertTrue(webView === harness.reader.webView)
+        XCTAssertTrue(harness.spy.failures.isEmpty)
+    }
+
+    func testCoalescedDirectionChangesPreserveMovementAtDocumentEdges() async throws {
+        for flow in ["scrolled-doc", "scrolled-continuous"] {
+            let book = try scrollPublication(flow: flow, modes: ["vertical-rl", "vertical-rl"])
+            let harness = ScrolledFlowWheelHarness()
+            defer { harness.close() }
+            try await harness.load(book)
+            // 先頭での戻りは制限されるが、続く送りは 20px 動く。合計 0 ではない。
+            try harness.send(dy: 20)
+            try harness.send(dy: -20)
+            await harness.drain()
+            try await assertPosition(harness, 20)
+            _ = try await harness.reader.evaluateForTest("""
+                const metrics = __washi.scrollMetrics();
+                window.scrollTo(-(metrics.extent - metrics.viewport), 0);
+                return true;
+                """)
+            let maximum = try await harness.offset()
+            try harness.send(dy: -40)
+            try harness.send(dy: 40)
+            await harness.drain()
+            try await assertPosition(harness, maximum - 40)
+            XCTAssertTrue(harness.spy.edges.isEmpty)
+        }
+    }
+
+    func testDominantAxisIsChosenPerEventForBothVerticalDirectionsAndFlows() async throws {
+        for flow in ["scrolled-doc", "scrolled-continuous"] {
+            for mode in ["vertical-rl", "vertical-lr"] {
+                let book = try scrollPublication(flow: flow, modes: [mode, mode])
+                let harness = ScrolledFlowWheelHarness()
+                defer { harness.close() }
+                try await harness.load(book, at: book.locator(forSpineIndex: 0, progression: 0.4))
+                let initial = try await harness.offset()
+                let forwardX: Int32 = mode == "vertical-rl" ? 35 : -35
+                try harness.send(dx: forwardX, dy: 10)
+                await harness.drain()
+                try await assertPosition(harness, initial + 35)
+                // 同じ phase の次のイベントでも軸を変える。ページ送りの軸ラッチは使わない。
+                try harness.send(dx: -10, dy: -35)
+                await harness.drain()
+                try await assertPosition(harness, initial + 70)
+                try harness.send(dx: 12, dy: -12)
+                await harness.drain()
+                try await assertPosition(harness, initial + 82, "同値なら縦デルタを使う")
+                try harness.send(dx: -forwardX, dy: -10)
+                await harness.drain()
+                try harness.send(dy: 47)
+                await harness.drain()
+                try await assertPosition(harness, initial)
+                if flow == "scrolled-continuous" { try await assertChildrenInSync(harness) }
+            }
+        }
+    }
+
+    func testMomentumAndSmallDeltasCoalesceWhileOneJavaScriptCallIsInFlight() async throws {
+        for flow in ["scrolled-doc", "scrolled-continuous"] {
+            let book = try scrollPublication(flow: flow, modes: ["vertical-rl", "vertical-rl"])
+            let harness = ScrolledFlowWheelHarness()
+            defer { harness.close() }
+            try await harness.load(book, at: book.locator(forSpineIndex: 0, progression: 0.4))
+            let initial = try await harness.offset()
+            _ = try await harness.reader.evaluateForTest("""
+                const scroll = __washi.scrollByWheelDelta;
+                let first = true;
+                __washi.scrollByWheelDelta = (...args) => {
+                    const result = scroll(...args);
+                    if (!first) { return result; }
+                    first = false;
+                    return new Promise(resolve => { globalThis.__releaseWheel = () => resolve(result); });
+                };
+                return true;
+                """)
+            // 同じターンの小さい慣性イベントも閾値なしにすべて加算する。
+            for _ in 0..<7 { try harness.send(dy: -1, phase: 0, momentum: 2) }
+            let started = await waitUntil(timeout: .seconds(3)) { harness.reader.scrolledWheel.isInFlight }
+            XCTAssertTrue(started)
+            try await assertPosition(harness, initial + 7)
+            let firstCall = try await harness.metrics()
+            XCTAssertEqual(firstCall["nativeCalls"] as? Int, 1)
+            for _ in 0..<5 { try harness.send(dy: -1, phase: 0, momentum: 2) }
+            XCTAssertEqual(harness.reader.scrolledWheel.pendingDeltas, [5])
+            XCTAssertFalse(harness.reader.scrolledWheel.isScheduled)
+            // 保留中の JS の実行結果が返るまで、二つ目の JS を送らない。
+            let pending = try await harness.metrics()
+            XCTAssertEqual(pending["nativeCalls"] as? Int, 1)
+            _ = try await harness.reader.evaluateForTest("globalThis.__releaseWheel(); return true;")
+            await harness.drain()
+            try await assertPosition(harness, initial + 12)
+            let completed = try await harness.metrics()
+            XCTAssertEqual(completed["nativeCalls"] as? Int, 2)
+            try harness.send(dy: 12, phase: 0, momentum: 2)
+            try harness.send(phase: 0, momentum: 3)
+            await harness.drain()
+            try await assertPosition(harness, initial)
+        }
+    }
+
+    func testHorizontalWritingKeepsWheelInWebKitForBothScrolledFlows() async throws {
+        for flow in ["scrolled-doc", "scrolled-continuous"] {
+            let harness = ScrolledFlowWheelHarness()
+            defer { harness.close() }
+            try await harness.load(try scrollPublication(flow: flow, modes: ["horizontal-tb", "horizontal-tb"]))
+            let initial = try await harness.offset()
+            try await harness.gesture(dy: -12)
+            let moved = try await harness.waitForMovement(from: initial)
+            XCTAssertGreaterThan(moved, initial)
+            let metrics = try await harness.metrics()
+            XCTAssertGreaterThan(try XCTUnwrap(metrics["domWheels"] as? Int), 0)
+            XCTAssertEqual(metrics["nativeCalls"] as? Int, 0)
+            XCTAssertFalse(harness.consumedEvents.isEmpty)
+            XCTAssertTrue(harness.consumedEvents.allSatisfy { !$0 })
+            try await harness.gesture(dy: 12)
+            let returned = try await harness.waitForMovement(from: moved)
+            XCTAssertLessThan(returned, moved)
+        }
+    }
+
+    func testWheelClampsAtEdgesAndExplicitNavigationStillCrossesSpineBoundaries() async throws {
+        for flow in ["scrolled-doc", "scrolled-continuous"] {
+            for mode in ["horizontal-tb", "vertical-rl"] {
+                let continuous = flow == "scrolled-continuous"
+                let book = try scrollPublication(
+                    flow: continuous ? "paginated" : flow, modes: [mode, mode, mode],
+                    overrides: continuous ? ["rendition:flow-scrolled-continuous",
+                                              "rendition:flow-scrolled-continuous", ""] : [])
+                let harness = ScrolledFlowWheelHarness()
+                defer { harness.close() }
+                let endIndex = continuous ? 1 : 0
+                try await harness.load(book, at: book.locator(forSpineIndex: endIndex, progression: 1))
+                let end = try await harness.metrics()
+                let maximum = try XCTUnwrap(end["extent"] as? Double) - XCTUnwrap(end["viewport"] as? Double)
+                try await harness.gesture(dy: -12)
+                // WebKit の rubber band と既存の 120ms 位置通知が落ち着いてから調べる。
+                try await Task.sleep(for: .milliseconds(600))
+                let endPosition = try await harness.offset()
+                XCTAssertEqual(max(0, min(maximum, endPosition)), maximum, accuracy: 1)
+                XCTAssertEqual(harness.reader.currentSpineIndex, endIndex)
+                XCTAssertTrue(harness.spy.edges.isEmpty, "ホイールは boundary を発行しない")
+                harness.reader.goForward()
+                let crossed = await waitUntil(timeout: .seconds(8)) {
+                    harness.reader.currentSpineIndex == endIndex + 1 && !harness.reader.spineLoad.isLoadingSpineItem
+                }
+                XCTAssertTrue(crossed, "明示的なページ送りは既存の boundary 経路を使う")
+                let moves = harness.spy.moveCount
+                harness.reader.go(to: book.locator(forSpineIndex: 0))
+                let returned = await waitUntil(timeout: .seconds(8)) {
+                    harness.spy.moveCount > moves && harness.reader.currentSpineIndex == 0
+                        && !harness.reader.spineLoad.isLoadingSpineItem
+                }
+                XCTAssertTrue(returned)
+                try await harness.gesture(dy: 12)
+                try await Task.sleep(for: .milliseconds(600))
+                let startPosition = try await harness.offset()
+                XCTAssertEqual(max(0, startPosition), 0, accuracy: 1)
+                XCTAssertEqual(harness.reader.currentSpineIndex, 0)
+                XCTAssertTrue(harness.spy.edges.isEmpty)
+                harness.reader.goBackward()
+                let reachedStart = await waitUntil(timeout: .seconds(3)) { harness.spy.edges == [false] }
+                XCTAssertTrue(reachedStart)
+                XCTAssertTrue(harness.spy.failures.isEmpty)
+            }
+        }
+    }
+
+    func testReloadDiscardsQueuedWheelAndRefreshesWritingMode() async throws {
+        let harness = ScrolledFlowWheelHarness()
+        defer { harness.close() }
+        let vertical = try scrollPublication(modes: ["vertical-rl"])
+        try await harness.load(vertical)
+        try harness.send(dy: -100)
+        XCTAssertTrue(harness.reader.scrolledWheel.isScheduled)
+        let horizontal = try scrollPublication(modes: ["horizontal-tb"])
+        try await harness.load(horizontal)
+        try await assertPosition(harness, 0)
+        XCTAssertEqual(harness.reader.scrolledWheel.mode, "htb")
+        try await harness.gesture(dy: -12)
+        let position = try await harness.waitForMovement(from: 0)
+        XCTAssertGreaterThan(position, 0)
+        XCTAssertTrue(harness.consumedEvents.allSatisfy { !$0 })
+        let metrics = try await harness.metrics()
+        XCTAssertEqual(metrics["nativeCalls"] as? Int, 0)
+    }
+
+    private func assertPosition(_ harness: ScrolledFlowWheelHarness, _ expected: Double,
+                                _ message: String = "", file: StaticString = #filePath,
+                                line: UInt = #line) async throws {
+        let offset = try await harness.offset()
+        XCTAssertEqual(offset, expected, accuracy: 1, message, file: file, line: line)
+    }
+
+    private func assertChildrenInSync(_ harness: ScrolledFlowWheelHarness,
+                                      file: StaticString = #filePath, line: UInt = #line) async throws {
+        let metrics = try await harness.metrics()
+        let offset = try XCTUnwrap(metrics["offset"] as? Double)
+        let viewport = try XCTUnwrap(metrics["viewport"] as? Double)
+        let items = try XCTUnwrap(metrics["items"] as? [[String: Any]])
+        let children = try XCTUnwrap(metrics["children"] as? [[String: Any]])
+        XCTAssertEqual(items.count, children.count, file: file, line: line)
+        for (item, child) in zip(items, children) {
+            let start = try XCTUnwrap(item["start"] as? Double)
+            let extent = try XCTUnwrap(item["extent"] as? Double)
+            guard start <= offset + viewport, start + extent >= offset else { continue }
+            let expected = max(0, min(extent - viewport, offset - start))
+            XCTAssertEqual(try XCTUnwrap(child["offset"] as? Double), expected, accuracy: 1,
+                           "可視 iframe とコンテナの位置", file: file, line: line)
+            let sign = child["mode"] as? String == "vrl" ? -1.0 : 1.0
+            XCTAssertEqual(try XCTUnwrap(child["scrollX"] as? Double), expected * sign, accuracy: 1,
+                           file: file, line: line)
+        }
+    }
+}
