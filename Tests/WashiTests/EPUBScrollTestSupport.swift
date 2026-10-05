@@ -94,4 +94,3 @@ final class ScrollReaderHarness: EPUBReaderViewDelegate {
         return metrics
     }
 }
-
