@@ -328,7 +328,7 @@ public final class EPUBReaderView: NSView {
             }
             lastTime = event.timestamp
             guard !latched else { return nil }
-            let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 40
+            let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : WheelInput.pixelsPerLine
             accumulator += scale * (horizontal
                 ? event.scrollingDeltaX : event.scrollingDeltaY)
             guard abs(accumulator) >= 50 else { return nil }

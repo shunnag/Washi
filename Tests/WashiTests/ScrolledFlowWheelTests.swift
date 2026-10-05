@@ -59,7 +59,7 @@ final class ScrolledFlowWheelTests: XCTestCase {
 
         try harness.send(dy: -1, precise: false, phase: 0)
         await harness.drain()
-        try await assertPosition(harness, initial + 20)
+        try await assertPosition(harness, initial + 40)
         try harness.send(dy: 1, precise: false, phase: 0)
         await harness.drain()
         try await assertPosition(harness, initial)
@@ -120,7 +120,7 @@ final class ScrolledFlowWheelTests: XCTestCase {
         }
     }
 
-    func testDominantAxisIsChosenPerEventForBothVerticalDirectionsAndFlows() async throws {
+    func testGestureAxisStaysLockedThroughChangesAndMomentum() async throws {
         for flow in ["scrolled-doc", "scrolled-continuous"] {
             for mode in ["vertical-rl", "vertical-lr"] {
                 let book = try scrollPublication(flow: flow, modes: [mode, mode])
@@ -129,23 +129,186 @@ final class ScrolledFlowWheelTests: XCTestCase {
                 try await harness.load(book, at: book.locator(forSpineIndex: 0, progression: 0.4))
                 let initial = try await harness.offset()
                 let forwardX: Int32 = mode == "vertical-rl" ? 35 : -35
-                try harness.send(dx: forwardX, dy: 10)
+                try harness.send(phase: 128)
+                XCTAssertNil(harness.reader.scrolledWheel.horizontal)
+                try harness.send(dx: 10, dy: -35, phase: 1)
                 await harness.drain()
                 try await assertPosition(harness, initial + 35)
-                // 同じ phase の次のイベントでも軸を変える。ページ送りの軸ラッチは使わない。
-                try harness.send(dx: -10, dy: -35)
+                // 優勢軸が変わっても縦軸を使い、横デルタで方向を反転させない。
+                try harness.send(dx: forwardX, dy: -10)
                 await harness.drain()
-                try await assertPosition(harness, initial + 70)
-                try harness.send(dx: 12, dy: -12)
+                try await assertPosition(harness, initial + 45)
+                try harness.send(phase: 4)
+                try harness.send(dx: -forwardX, dy: -5, phase: 0, momentum: 1)
+                try harness.send(dx: forwardX, dy: -8, phase: 0, momentum: 2)
+                try harness.send(phase: 0, momentum: 3)
                 await harness.drain()
-                try await assertPosition(harness, initial + 82, "同値なら縦デルタを使う")
-                try harness.send(dx: -forwardX, dy: -10)
-                await harness.drain()
-                try harness.send(dy: 47)
-                await harness.drain()
-                try await assertPosition(harness, initial)
+                try await assertPosition(harness, initial + 58)
+                XCTAssertEqual(harness.reader.scrolledWheel.horizontal, false)
+                if flow == "scrolled-continuous" {
+                    // 次の began で軸を取り直し、横軸も慣性の終わりまで固定する。
+                    try harness.send(dx: forwardX, dy: 10, phase: 1)
+                    try harness.send(dx: forwardX > 0 ? 10 : -10, dy: 35)
+                    try harness.send(phase: 4)
+                    try harness.send(dx: forwardX > 0 ? 5 : -5, dy: 20, phase: 0, momentum: 1)
+                    try harness.send(phase: 0, momentum: 3)
+                    await harness.drain()
+                    try await assertPosition(harness, initial + 108)
+                    try await assertChildrenInSync(harness)
+                }
+            }
+        }
+    }
+
+    func testPhaseLessEventsUseTheirDominantAxisWithoutAGesture() async throws {
+        for mode in ["vertical-rl", "vertical-lr"] {
+            let book = try scrollPublication(flow: "scrolled-continuous", modes: [mode, mode])
+            let harness = ScrolledFlowWheelHarness()
+            defer { harness.close() }
+            try await harness.load(book, at: book.locator(forSpineIndex: 0, progression: 0.4))
+            let initial = try await harness.offset()
+            // 軸を持たないまま phase が終わり、静穏区切りもまだない単発イベント。
+            try harness.send(phase: 1)
+            try harness.send(phase: 4)
+            try harness.send(dx: mode == "vertical-rl" ? 35 : -35, dy: 10, phase: 0)
+            await harness.drain()
+            try await assertPosition(harness, initial + 35)
+            try harness.send(dx: -10, dy: -35, phase: 0)
+            await harness.drain()
+            try await assertPosition(harness, initial + 70)
+            try harness.send(dx: 12, dy: -12, phase: 0)
+            await harness.drain()
+            try await assertPosition(harness, initial + 82, "同値なら縦デルタを使う")
+        }
+    }
+
+    func testPhaseLessMouseWheelLocksAxisUntilQuiet() async throws {
+        let book = try scrollPublication(flow: "scrolled-continuous", modes: ["vertical-rl", "vertical-rl"])
+        let harness = ScrolledFlowWheelHarness()
+        defer { harness.close() }
+        try await harness.load(book, at: book.locator(forSpineIndex: 0, progression: 0.4))
+        let initial = try await harness.offset()
+        try harness.send(dy: -1, precise: false, phase: 0)
+        try harness.send(dx: 2, dy: -1, precise: false, phase: 0)
+        await harness.drain()
+        try await assertPosition(harness, initial + 80, "静穏の後に決めた縦軸を維持する")
+        XCTAssertEqual(harness.reader.scrolledWheel.horizontal, false)
+        harness.reader.scrolledWheel.lastTime -= 0.3
+        try harness.send(dx: 2, dy: -1, precise: false, phase: 0)
+        await harness.drain()
+        try await assertPosition(harness, initial + 160, "次の静穏で横軸へ取り直す")
+        XCTAssertEqual(harness.reader.scrolledWheel.horizontal, true)
+    }
+
+    func testVerticalDocumentHorizontalGestureAndMomentumStayInWebKit() async throws {
+        for mode in ["vertical-rl", "vertical-lr"] {
+            let book = try scrollPublication(modes: [mode])
+            let harness = ScrolledFlowWheelHarness()
+            defer { harness.close() }
+            try await harness.load(book)
+            let forwardX: Int32 = mode == "vertical-rl" ? 12 : -12
+            try await harness.gesture(dx: forwardX)
+            let moved = try await harness.waitForMovement(from: 0)
+            XCTAssertGreaterThan(moved, 0)
+            var metrics = try await harness.metrics()
+            XCTAssertTrue((metrics["domWheels"] as? Int ?? 0) > 0 || moved > 0,
+                          "横操作が DOM に届くか WebKit が自前でスクロールする")
+            XCTAssertEqual(metrics["nativeCalls"] as? Int, 0)
+            XCTAssertTrue(harness.consumedEvents.allSatisfy { !$0 })
+            // 慣性の優勢軸が縦に変わっても、横ジェスチャの回し先を変えない。
+            try harness.send(dx: forwardX, dy: -35, phase: 0, momentum: 1)
+            try harness.send(phase: 0, momentum: 3)
+            XCTAssertTrue(harness.consumedEvents.suffix(2).allSatisfy { !$0 })
+            try await Task.sleep(for: .milliseconds(250))
+            let initial = try await harness.offset()
+            try await harness.gesture(dy: -12)
+            try await assertPosition(harness, initial + 132)
+            XCTAssertTrue(harness.consumedEvents.suffix(12).allSatisfy { $0 })
+            metrics = try await harness.metrics()
+            XCTAssertGreaterThan(try XCTUnwrap(metrics["nativeCalls"] as? Int), 0)
+        }
+    }
+
+    func testPreciseFractionalDeltasMoveSymmetricallyAcrossFlushes() async throws {
+        for flow in ["scrolled-doc", "scrolled-continuous"] {
+            for mode in ["vertical-rl", "vertical-lr"] {
+                let book = try scrollPublication(flow: flow, modes: [mode, mode])
+                let harness = ScrolledFlowWheelHarness()
+                defer { harness.close() }
+                try await harness.load(book, at: book.locator(forSpineIndex: 0, progression: 0.4))
+                let initial = try await harness.offset()
+                for index in 0..<25 {
+                    try harness.sendFractional(dy: -0.4, phase: index == 0 ? 1 : 2)
+                    await harness.drain()
+                }
+                let forward = try await harness.offset()
+                XCTAssertGreaterThan(forward - initial, 8, "0.4px の各 flush を捨てない")
+                try await assertPosition(harness, initial + 10)
+                try harness.send(phase: 4)
+                for index in 0..<25 {
+                    try harness.sendFractional(dy: 0.4, phase: index == 0 ? 1 : 2)
+                    await harness.drain()
+                }
+                try await assertPosition(harness, initial, "往復が対称になる")
                 if flow == "scrolled-continuous" { try await assertChildrenInSync(harness) }
             }
+        }
+    }
+
+    func testFractionalRemainderClearsOnDirectionChangeGestureStartAndReset() async throws {
+        let harness = ScrolledFlowWheelHarness()
+        defer { harness.close() }
+        try await harness.load(try scrollPublication(modes: ["vertical-rl"]))
+        try harness.sendFractional(dy: -0.75, phase: 1)
+        XCTAssertEqual(harness.reader.scrolledWheel.fractionalRemainder, 0.75)
+        try harness.sendFractional(dy: 0.5)
+        XCTAssertEqual(harness.reader.scrolledWheel.fractionalRemainder, -0.5)
+        try await assertPosition(harness, 0)
+        try harness.send(phase: 128)
+        XCTAssertEqual(harness.reader.scrolledWheel.fractionalRemainder, 0)
+        try harness.sendFractional(dy: -0.5)
+        XCTAssertEqual(harness.reader.scrolledWheel.fractionalRemainder, 0.5)
+        try harness.sendFractional(dy: -0.5, phase: 1)
+        XCTAssertEqual(harness.reader.scrolledWheel.fractionalRemainder, 0.5)
+        // phase のないホイールの静穏も新しい操作として端数を捨てる。
+        harness.reader.scrolledWheel.lastTime -= 0.3
+        try harness.sendFractional(dy: -0.5, phase: 0)
+        XCTAssertEqual(harness.reader.scrolledWheel.fractionalRemainder, 0.5)
+        try await assertPosition(harness, 0)
+        let book = try scrollPublication(modes: ["vertical-rl"])
+        try await harness.load(book)
+        XCTAssertEqual(harness.reader.scrolledWheel.fractionalRemainder, 0)
+        try await assertPosition(harness, 0)
+    }
+
+    func testDocumentWheelDebouncesPageChangedAndDelegateMoves() async throws {
+        for mode in ["horizontal-tb", "vertical-rl"] {
+            let harness = ScrolledFlowWheelHarness()
+            defer { harness.close() }
+            try await harness.load(try scrollPublication(modes: [mode]))
+            try await Task.sleep(for: .milliseconds(200))
+            _ = try await harness.reader.evaluateForTest("""
+                globalThis.__pageChangedCount = 0;
+                const token = \(ReaderScripts.jsStringLiteral(harness.reader.currentDocumentToken));
+                __washi.hostPost = message => {
+                    if (message.type === 'pageChanged') { globalThis.__pageChangedCount += 1; }
+                    message.token = token;
+                    window.webkit.messageHandlers.washi.postMessage(message);
+                };
+                return true;
+                """)
+            let before = harness.spy.moveCount
+            try await harness.gesture(dy: -12)
+            let reported = await waitUntil(timeout: .seconds(3)) { harness.spy.moveCount > before }
+            XCTAssertTrue(reported, "scroll guard が最後の位置を通知する")
+            try await Task.sleep(for: .milliseconds(200))
+            let value = try await harness.reader.evaluateForTest("return globalThis.__pageChangedCount;")
+            let messages = try XCTUnwrap(value as? Int)
+            XCTAssertGreaterThan(messages, 0)
+            XCTAssertLessThanOrEqual(messages, 3, "flush ごとに pageChanged を送らない")
+            XCTAssertLessThanOrEqual(harness.spy.moveCount - before, 3)
+            let offset = try await harness.offset()
+            XCTAssertGreaterThan(offset, 0)
         }
     }
 
@@ -265,9 +428,23 @@ final class ScrolledFlowWheelTests: XCTestCase {
         let vertical = try scrollPublication(modes: ["vertical-rl"])
         try await harness.load(vertical)
         try harness.send(dy: -100)
+        try harness.sendFractional(dy: -0.5)
         XCTAssertTrue(harness.reader.scrolledWheel.isScheduled)
+        XCTAssertEqual(harness.reader.scrolledWheel.pendingDeltas, [100])
+        XCTAssertEqual(harness.reader.scrolledWheel.fractionalRemainder, 0.5)
+        // 同じ縦書きへ reload しても、古い予約や端数で新しい先頭が動かない。
+        try await harness.load(vertical)
+        await harness.drain()
+        try await assertPosition(harness, 0)
+        XCTAssertTrue(harness.reader.scrolledWheel.pendingDeltas.isEmpty)
+        XCTAssertEqual(harness.reader.scrolledWheel.fractionalRemainder, 0)
+        let fresh = try await harness.metrics()
+        XCTAssertEqual(fresh["nativeCalls"] as? Int, 0)
+        try harness.send(dy: -100, phase: 1)
+        XCTAssertEqual(harness.reader.scrolledWheel.pendingDeltas, [100])
         let horizontal = try scrollPublication(modes: ["horizontal-tb"])
         try await harness.load(horizontal)
+        await harness.drain()
         try await assertPosition(harness, 0)
         XCTAssertEqual(harness.reader.scrolledWheel.mode, "htb")
         try await harness.gesture(dy: -12)
