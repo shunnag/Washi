@@ -88,8 +88,23 @@ final class FocusRevealSpreadTests: XCTestCase {
                 """)
             try await Task.sleep(for: .milliseconds(350))
             let revealed = try await snapshot(view, """
-                document.getElementById('link\(page)').focus();
-                const rawPage = Math.max(0, Math.round((window.scrollX - \(origin)) / \(pitch)));
+                // focus の reveal は非同期なので、guard が補正する前の scroll で採る。
+                const revealX = await new Promise(resolve => {
+                    const onScroll = () => {
+                        clearTimeout(timeout);
+                        resolve(window.scrollX);
+                    };
+                    window.addEventListener('scroll', onScroll, {once:true});
+                    const timeout = setTimeout(() => {
+                        window.removeEventListener('scroll', onScroll);
+                        resolve(null);
+                    }, 1000);
+                    document.getElementById('link\(page)').focus();
+                });
+                if (revealX === null) {
+                    throw new Error('focus reveal の scroll イベントが 1 秒以内に届かない');
+                }
+                const rawPage = Math.max(0, Math.round((revealX - \(origin)) / \(pitch)));
                 return {rawSpread:rawPage - rawPage % 2};
                 """)
             XCTAssertEqual(revealed["rawSpread"], Double(page - 2),
