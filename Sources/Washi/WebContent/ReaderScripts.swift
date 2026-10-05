@@ -2116,18 +2116,31 @@ enum ReaderScripts {
         // ような半ページ未満のずれは同じページへ丸まるので従来どおり戻る。
         let scrollGuard = 0;
         let pendingFocusTarget = null;
+        let revealTarget = null;
         let focusRevealTime = 0;
         document.addEventListener('focusin', function (event) {
             if (!ready || fixedLayout || scrolled || pagesPerScreen !== 2) { return; }
+            pendingFocusTarget = null;
+            // 可視要素への focus は reveal を起こさず、直後の無関係な scroll を奪わない。
+            const rect = event.target.getClientRects()[0] || event.target.getBoundingClientRect();
+            if (rect.left >= 0 && rect.top >= 0
+                && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight) { return; }
             pendingFocusTarget = event.target;
             focusRevealTime = performance.now();
         }, true);
         window.addEventListener('scroll', function () {
             if (fixedLayout) { return; }
+            // 次フレーム付近の最初の scroll で結び付ける。長い smooth reveal や
+            // guard 待機中の停止では失効させず、遅れて来た無関係な scroll は除外する。
+            if (pendingFocusTarget) {
+                revealTarget = performance.now() - focusRevealTime <= 250
+                    ? pendingFocusTarget : null;
+                pendingFocusTarget = null;
+            }
             clearTimeout(scrollGuard);
             scrollGuard = setTimeout(function () {
-                const focusTarget = pendingFocusTarget;
-                pendingFocusTarget = null;
+                const focusTarget = revealTarget;
+                revealTarget = null;
                 if (!ready) { return; }
                 if (scrolled) {
                     currentPage = Math.max(0, Math.min(pageCount - 1, pageFromScroll()));
@@ -2138,10 +2151,9 @@ enum ReaderScripts {
                 const expected = Math.round(clampScroll(scrollTargetFor(currentPage)));
                 if (Math.abs(off - expected) <= 2) { return; }
                 // Washi-huz: 中央寄せの focus reveal は見開き先頭の要素でも
-                // offset の丸めで前の見開きになる。直前の focus だけ矩形で着地する。
+                // offset の丸めで前の見開きになる。reveal の対象だけ矩形で着地する。
                 let landed = pageFromScroll();
-                if (pagesPerScreen === 2 && focusTarget && focusTarget.isConnected
-                    && performance.now() - focusRevealTime <= 500) {
+                if (pagesPerScreen === 2 && focusTarget && focusTarget.isConnected) {
                     const rect = focusTarget.getClientRects()[0]
                         || focusTarget.getBoundingClientRect();
                     landed = pageForRect(rect);
