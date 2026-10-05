@@ -297,6 +297,20 @@ extension ReaderScripts {
         api.showLastPage = () => api.showPage(active ? count(active) - 1 : 0);
         api.showProgression = p => active ? select(active, p) : 0;
         api.currentProgression = () => active ? progression(active) : 0;
+        // scrollTo は外側と可視 iframe を同時に同期する。慣性も同じ経路で送る。
+        api.scrollByWheelDelta = function (delta, token = options.documentToken) {
+            if (!ready || token !== options.documentToken) { return active ? page(active) : 0; }
+            // 端での逆向きも順に制限し、可視 iframe の同期は最後に一度だけ行う。
+            if (Array.isArray(delta)) {
+                let position = offset();
+                const limit = maximum();
+                for (const step of delta) {
+                    position = Math.max(0, Math.min(limit, position + (Number(step) || 0)));
+                }
+                return scrollTo(position);
+            }
+            return scrollTo(offset() + (Number(delta) || 0));
+        };
         api.turnInDoc = function (forward) {
             if (!ready) { return 'ignored'; }
             if (forward ? offset() >= maximum() - 1 : offset() <= 1) {

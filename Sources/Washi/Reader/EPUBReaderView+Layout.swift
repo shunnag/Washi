@@ -409,6 +409,10 @@ extension EPUBReaderView {
     /// cooViewer-oxr.48: JS の機能検出結果を公開状態へ写し、縦見開きの
     /// 単ページ縮退を診断可能にする。
     func applySetupResult(_ result: [String: Any]) {
+        // CSS の書字方向は JS の計測結果を使い、イベントごとの問い合わせを避ける。
+        if let mode = result[.mode] as? String, mode != scrolledWheel.mode {
+            scrolledWheel.reset(mode: mode)
+        }
         if let count = result[.pageCount] as? Int {
             pageCountInItem = max(1, count)
         }

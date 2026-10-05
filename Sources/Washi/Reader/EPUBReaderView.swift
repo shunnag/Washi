@@ -298,6 +298,22 @@ public final class EPUBReaderView: NSView {
         var lastTime: TimeInterval = 0
         var latched = false
         var horizontal = false
+        /// 読み込み開始で true。そのとき続いていたジェスチャ(と慣性)が読み込み後も
+        /// 続く間は、行き先がスクロール表示でも WebView に渡さずラッチだけに回す
+        /// (渡すと、現れたばかりの章が慣性の残りで先頭(戻るときは末尾)から動く)
+        var holdsLoadGesture = false
+
+        /// `event` が読み込みの前から続くジェスチャの続きか。新しいジェスチャの
+        /// 始まり(began・mayBegin)・0.25 秒の静穏・ラッチの解除で保持を解き、
+        /// 以後は次の読み込みまで false(スクロール表示で受け続けることはない)
+        mutating func continuesLoadGesture(_ event: NSEvent) -> Bool {
+            guard holdsLoadGesture else { return false }
+            if !latched || event.phase == .began || event.phase == .mayBegin
+                || event.timestamp - lastTime > 0.25 {
+                holdsLoadGesture = false
+            }
+            return holdsLoadGesture
+        }
 
         /// ホイールイベントを蓄積し、1 ページぶんに達したら軸と向きを返す
         /// (ラッチ中・蓄積が足りない間は nil)
@@ -312,7 +328,7 @@ public final class EPUBReaderView: NSView {
             }
             lastTime = event.timestamp
             guard !latched else { return nil }
-            let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 40
+            let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : WheelInput.pixelsPerLine
             accumulator += scale * (horizontal
                 ? event.scrollingDeltaX : event.scrollingDeltaY)
             guard abs(accumulator) >= 50 else { return nil }
@@ -323,6 +339,7 @@ public final class EPUBReaderView: NSView {
         }
     }
     var wheelTurnLatch = WheelTurnLatch()
+    var scrolledWheel = ScrolledWheelState()
 
     // MARK: - メディアオーバーレイ
 

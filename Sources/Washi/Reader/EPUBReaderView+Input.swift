@@ -310,33 +310,61 @@ extension EPUBReaderView {
 
     public override func scrollWheel(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(location),
-              !(webView.map { $0.frame.contains(location) } ?? false)
-        else {
+        guard bounds.contains(location) else {
+            super.scrollWheel(with: event)
+            return
+        }
+        // WebView の上でここへ来るのは、重なったビュー(めくり演出や spine 遷移のカバー・
+        // ノンブル)が当たり判定を取り、AppKit がそれを親へ転送したとき(macOS 27 では
+        // 下にある WebView へ転送するが、それに頼らない)。ページ表示ではそれも送りに回し、
+        // ラッチの時刻を進める(進めないと、カバーが畳まれた後の慣性が新しいジェスチャに
+        // なってもう 1 ページ送る)。WashiWebView は受けたホイールを WebKit に渡さないので、
+        // 二重に数えない(始まりと終わりの移動量 0 の複製が WebKit から上がってきても、
+        // turnPageByWheel は移動量 0 を無視する)。スクロール表示は従来どおり上へ渡す
+        if let webView, webView.frame.contains(location), !consumesWebViewWheel(event) {
             super.scrollWheel(with: event)
             return
         }
         turnPageByWheel(event)
     }
 
+    /// WebView の上のホイールを WebKit に渡さず送りに回すか。ページ表示なら受ける。
+    /// spine の読み込み中はフローを問わず受ける: ページ表示の項目からスクロール表示の
+    /// 項目へ読み込む間は effectiveFlow が先に新しい項目を指すが、表示されているのは
+    /// まだ古いページ表示の文書で、WebKit に渡すとスクロールしてから戻される。
+    /// 読み込みの前から続くジェスチャ(章をまたいだフリックの慣性)も、読み込み後に
+    /// 続く間は受ける。渡すと、現れたばかりのスクロール表示の章が先頭(戻るときは
+    /// 末尾)から流れる。新しいジェスチャか 0.25 秒の静穏で WebKit に戻す。
+    /// turnPageByWheel はどちらの間もラッチするだけで送らない(固定レイアウトの項目も
+    /// スクロール表示では isFixedLayoutItem が false になり、JS の scrolled と同じ条件)
+    func consumesWebViewWheel(_ event: NSEvent) -> Bool {
+        spineLoad.isLoadingSpineItem || !EPUBScreenMetrics.isScrolled(effectiveFlow)
+            || wheelTurnLatch.continuesLoadGesture(event)
+    }
+
     /// 余白と WebView の上(ページ表示)のホイールを「1 ジェスチャ = 1 ページ」に
     /// 量子化して送る(250ms 静穏で解除・軸は最初のイベントで確定)。慣性はラッチが飲み込む
     func turnPageByWheel(_ event: NSEvent) {
-        // ホストが「ホイールでページを送る」を切っている。ページ表示のイベントは
-        // 呼び出し元が WebKit に渡さずに捨てる(スクロールして戻る動きを出さない)
-        guard settings.wheelTurnsPages else { return }
+        // 読み込みの前から続くジェスチャかを、移動量 0 のイベント(began・mayBegin)も
+        // 含めて毎回判定する(余白から来たイベントでも保持を解く)
+        let continuesLoadGesture = wheelTurnLatch.continuesLoadGesture(event)
         // トラックパッドは指を置いた時点で移動量 0 のイベント(mayBegin)を送る。
         // これで軸を決めると縦になり、続く横スワイプを取りこぼす(WebKit は
         // 移動量 0 のイベントを DOM に渡さないので、JS 経路では起きなかった)
         guard event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0 else { return }
         // spine 読み込み中の残存慣性は送りに使わない(boundary と同じく、FXL 項目が
         // 表示される前に advanceSpine で飛ばされるカスケードを防ぐ)。手が動いている
-        // ことは記録し、ラッチしたままにする(読み込み後も同じジェスチャが続く間は送らない)
-        guard !spineLoad.isLoadingSpineItem else {
+        // ことは記録し、ラッチしたままにする。読み込み後も同じジェスチャが続く間は
+        // 送らない(行き先がスクロール表示でも、呼び出し元は WebView に渡さずここへ回す)。
+        // 送りを切っていても記録する(保持が 0.25 秒の静穏まで続くように)
+        guard !spineLoad.isLoadingSpineItem, !continuesLoadGesture else {
             wheelTurnLatch.lastTime = event.timestamp
             wheelTurnLatch.latched = true
             return
         }
+        // ホストが「ホイールでページを送る」を切っている。ページ表示のイベントは
+        // 呼び出し元が WebKit に渡さずに捨てる(スクロールして戻る動きを出さない)
+        guard settings.wheelTurnsPages else { return }
         guard let (horizontal, positive) = wheelTurnLatch.register(event) else { return }
         // AppKit の scrollingDelta は DOM の wheel と符号が逆
         // (正=文書の先頭方向へのスクロール)
