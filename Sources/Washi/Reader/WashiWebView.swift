@@ -5,6 +5,17 @@ import WebKit
 @MainActor
 final class WashiWebView: WKWebView {
     var contextMenuHandler: ((NSMenu, NSEvent) -> NSMenu?)?
+
+    /// ページ表示のホイールを WebKit より先に受ける回し先。true を返したら
+    /// WebKit には渡さない。縦書きの見開きで章の途中(scrollX が負)にいると、
+    /// WebKit は wheel を DOM に渡さず自前でスクロールするため、JS では送れない。
+    var wheelHandler: ((NSEvent) -> Bool)?
+
+    override func scrollWheel(with event: NSEvent) {
+        if wheelHandler?(event) == true { return }
+        super.scrollWheel(with: event)
+    }
+
     private(set) var isHandlingKeyDown = false
 
     override func keyDown(with event: NSEvent) {
