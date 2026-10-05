@@ -175,8 +175,8 @@ extension EPUBReaderView {
                 self.turnPageByWheel(event)
                 return true
             }
-            // スクロール表示: 横書き・roll は従来どおり WebKit に委ねる。縦書きは負の
-            // scrollX で DOM に wheel が届かないため、移動と子文書同期を送る。
+            // スクロール表示: 横書き・roll と章単位表示の横操作は WebKit に委ねる。縦書きは
+            // 負の scrollX で DOM に wheel が届かないため、縦操作と連続表示の同期を送る。
             return self.scrollScrolledFlowByWheel(event)
         }
         webView.navigationDelegate = self
