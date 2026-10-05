@@ -119,6 +119,7 @@ extension EPUBReaderView {
         tearDownOffscreenRenderers()
         census = CensusState()
         pageCensus = nil
+        scrolledWheel.reset()
         return request
     }
 
@@ -167,10 +168,15 @@ extension EPUBReaderView {
             self?.contextMenu(menu, for: event)
         }
         webView.wheelHandler = { [weak self] event in
-            // 判定は consumesWebViewWheel(読み込み中はどのフローでも受ける)
-            guard let self, self.consumesWebViewWheel else { return false }
-            self.turnPageByWheel(event)
-            return true
+            guard let self else { return false }
+            // ページ表示と読み込み中は送りの判定へ(consumesWebViewWheel)。
+            if self.consumesWebViewWheel {
+                self.turnPageByWheel(event)
+                return true
+            }
+            // スクロール表示: 横書き・roll は従来どおり WebKit に委ねる。縦書きは負の
+            // scrollX で DOM に wheel が届かないため、移動と子文書同期を送る。
+            return self.scrollScrolledFlowByWheel(event)
         }
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -286,6 +292,7 @@ extension EPUBReaderView {
         pageInItem = 0
         pageCountInItem = 1
         scrollProgression = nil
+        scrolledWheel.reset()
         isImagePage = false
         isImageOnlyItem = false
         // setup 応答までは OPF を暫定値にし、旧 item の CSS 方向を持ち越さない。

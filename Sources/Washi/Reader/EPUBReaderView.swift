@@ -323,6 +323,7 @@ public final class EPUBReaderView: NSView {
         }
     }
     var wheelTurnLatch = WheelTurnLatch()
+    var scrolledWheel = ScrolledWheelState()
 
     // MARK: - メディアオーバーレイ
 
