@@ -23,6 +23,24 @@ final class EPUBPageRasterizerTests: XCTestCase {
                                        viewport: CGSize(width: 600, height: 800))
     }
 
+    func testFixedLayoutPageMatchesRequestedPixelSize() async throws {
+        let publication = try EPUBFixtures.publication(Self.complexFixedLayoutEntries(),
+            name: "washi-rasterizer-pixel-size")
+        for maxPixelSize in [800, 1600] {
+            try await assertRasterizedPage(
+                publication: publication, viewport: CGSize(width: 600, height: 800),
+                maxPixelSize: maxPixelSize)
+        }
+    }
+
+    func testFixedLayoutPageDefaultsToTwiceViewportPixelSize() async throws {
+        let publication = try EPUBFixtures.publication(Self.complexFixedLayoutEntries(),
+            name: "washi-rasterizer-default-pixel-size")
+        try await assertRasterizedPage(
+            publication: publication, viewport: CGSize(width: 600, height: 800),
+            maxPixelSize: nil)
+    }
+
     /// cooViewer-oxr.50: device-* viewport は従来の 1200x1600 既定値でなく、
     /// 呼び出し元が要求した描画先の縦横比へ従う。
     func testDeviceSizedViewportUsesRequestedRenderSize() async throws {
@@ -297,7 +315,8 @@ final class EPUBPageRasterizerTests: XCTestCase {
 
     private func assertRasterizedPage(publication: EPUBPublication,
                                       viewport: CGSize,
-                                      deviceViewportSize: CGSize? = nil) async throws {
+                                      deviceViewportSize: CGSize? = nil,
+                                      maxPixelSize: Int? = 300) async throws {
         let rasterizer = EPUBPageRasterizer(publication: publication)
         defer { rasterizer.invalidate() }
         let race = RenderRace()
@@ -308,10 +327,10 @@ final class EPUBPageRasterizerTests: XCTestCase {
                     image = try await rasterizer.renderPage(
                         atSpineIndex: 0,
                         deviceViewportSize: deviceViewportSize,
-                        maxPixelSize: 300)
+                        maxPixelSize: maxPixelSize)
                 } else {
                     image = try await rasterizer.renderPage(
-                        atSpineIndex: 0, maxPixelSize: 300)
+                        atSpineIndex: 0, maxPixelSize: maxPixelSize)
                 }
                 race.finish(with: .image(image))
             } catch {
@@ -342,7 +361,8 @@ final class EPUBPageRasterizerTests: XCTestCase {
         }
 
         let longEdge = max(image.width, image.height)
-        XCTAssertEqual(longEdge, 300, accuracy: 2)
+        let expectedLongEdge = maxPixelSize ?? Int(max(viewport.width, viewport.height) * 2)
+        XCTAssertEqual(longEdge, expectedLongEdge, accuracy: 2)
         let expectedAspectRatio = viewport.width / viewport.height
         let actualAspectRatio = CGFloat(image.width) / CGFloat(image.height)
         XCTAssertEqual(actualAspectRatio, expectedAspectRatio, accuracy: 0.02)
