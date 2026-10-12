@@ -151,7 +151,11 @@ final class EPUBScrollLayoutTests: XCTestCase {
         let locator = await harness.reader.currentLocatorWithTextAnchor()
         let offset = try XCTUnwrap(locator.textOffset)
         harness.reader.frame.size = CGSize(width: 420, height: 300)
+        harness.reader.layoutSubtreeIfNeeded()
         try await harness.load(book, at: locator)
+        // 新しい寸法で割り付いた JS のレイアウト(横書きの viewport は高さ)を
+        // 確かめてから測る。錨への着地は load が待っている。
+        _ = try await harness.metrics(untilViewport: 300)
         let rects = await harness.reader.rects(forTextRange: offset..<(offset + 1), inSpineIndex: 1)
         XCTAssertTrue(rects.contains { $0.intersects(harness.reader.contentFrame) })
         XCTAssertTrue(harness.failures.isEmpty)
@@ -164,13 +168,7 @@ final class EPUBScrollLayoutTests: XCTestCase {
         try await harness.load(book, at: book.locator(forSpineIndex: 1, progression: 0.55))
         harness.reader.frame.size = CGSize(width: 380, height: 300)
         harness.reader.layoutSubtreeIfNeeded()
-        let deadline = ContinuousClock.now + .seconds(15)
-        var metrics = try await harness.metrics()
-        while metrics["viewport"] as? Double != 380, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-            metrics = try await harness.metrics()
-        }
-        XCTAssertEqual(metrics["viewport"] as? Double, 380)
+        _ = try await harness.metrics(untilViewport: 380)
         XCTAssertEqual(harness.reader.currentSpineIndex, 1)
         XCTAssertEqual(harness.reader.currentLocator.progression, 0.55, accuracy: 0.01)
         XCTAssertTrue(harness.failures.isEmpty)
