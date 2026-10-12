@@ -12,6 +12,8 @@ extension EPUBReaderView {
     /// 「視差効果を減らす」時・高速連打時・端到達時は演出なし
     func turnInDocAnimated(forward: Bool) {
         guard let webView else { return }
+        // ホストのキー割り当て・端タップ・ホイール送りはみな利用者の操作
+        endTextAnchorLandingWaitForUserInput()
         let context = PageTurnContext(
             webView: webView, spineGeneration: spineLoadGeneration,
             navigationRequest: navigationRequestGeneration)

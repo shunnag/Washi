@@ -957,6 +957,18 @@ enum ReaderScripts {
             post(message);
         }
 
+        // cooViewer-mzvd: 位置を動かさず、今の位置の pageChanged を改めて出す。native が
+        // 錨への着地待ちで抑えた通知の代わり(着地の報告は locateAndShow の応答より先に
+        // 届く)。スクロール表示は scroll guard と同じく現在ページをスクロール位置から読み直す
+        washi.reportPosition = function () {
+            if (!ready) { return false; }
+            if (scrolled) {
+                currentPage = Math.max(0, Math.min(pageCount - 1, pageFromScroll()));
+            }
+            report();
+            return true;
+        };
+
         washi.showPage = function (n) {
             const requestedPage = spreadStart(n);
             scrollToPage(requestedPage);
