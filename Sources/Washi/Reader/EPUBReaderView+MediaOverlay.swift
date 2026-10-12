@@ -99,7 +99,8 @@ extension EPUBReaderView {
                   let identifier = ContainerPath.fragment(of: href) else { return nil }
             return (index, identifier)
         }
-        var parIndex = overlay.parallels.firstIndex(where: belongsToSourceSpine) ?? 0
+        // Swift 6.0.3 / Xcode 16.2 で通すため、ローカル関数をクロージャで呼ぶ。
+        var parIndex = overlay.parallels.firstIndex(where: { belongsToSourceSpine($0) }) ?? 0
         if !candidates.isEmpty,
            let result = await callWashiReturning(
                "return __washi.firstVisibleIdentifier(ids);",
