@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+### 変更
+- CI に macos-14 ランナー(Xcode 16.2 / Swift 6.0)を追加し、README と Package.swift が
+  宣言する下限(macOS 14、swift-tools-version 6.0)を検査するようにした。
+
+### 修正
+- 固定レイアウトのラスタライザ(`EPUBPageRasterizer`)が、描画する画面外ウインドウではなく
+  main 画面の backing scale で拡大率を決めていた問題を修正した。Retina と非 Retina の
+  混在や 1x のダミー表示では出力が `maxPixelSize` の 2 倍または 1/2 になっていた。
+  単一の 2x 画面では出力は変わらない。
+
 ## [1.23.0] - 2026-10-05
 
 ### 追加
