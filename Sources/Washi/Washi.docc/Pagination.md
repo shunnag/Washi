@@ -121,15 +121,30 @@ after 20 seconds without a request and recreated lazily. You must still call
 evicting it from a cache; invalidation cancels work, tears down invisible
 windows and WebContent processes, and makes that atlas permanently unusable.
 
-``EPUBPageRasterizer`` は、``EPUBPageRasterizer/invalidate()`` が
-呼び出されるまでオフスクリーンリソースを保持します。リーダービューは、
-ウインドウから外れると、自身のオフスクリーンの census とサムネイルの処理を
-キャンセルし、そのリソースを解放します。
+``EPUBPageRasterizer`` は既定では、``EPUBPageRasterizer/invalidate()`` が
+呼び出されるまでオフスクリーンリソースを保持します。
+``EPUBPageRasterizer/idleReleaseInterval`` を設定すると、最後の描画要求が
+終わってからその時間だけアイドル状態が続いた時点で不可視ウインドウと
+WebContent プロセスを解放し、次の描画で初回と同じ経路で作り直します。
+描画中と FIFO で要求が待っている間には解放せず、設定を変えるとアイドル期限を
+予約し直します。0 以下は待機なしの解放を予約します。アイドル解放の後は
+再利用でき、``EPUBPageRasterizer/invalidate()`` では恒久的に無効になるので、
+どちらの場合も使い終えたら ``EPUBPageRasterizer/invalidate()`` を呼んでください。
+リーダービューは、ウインドウから外れると、自身のオフスクリーンの census と
+サムネイルの処理をキャンセルし、そのリソースを解放します。
 
-``EPUBPageRasterizer`` keeps its offscreen resources until
-``EPUBPageRasterizer/invalidate()`` is called. A reader view cancels and tears
-down its own offscreen census and thumbnail resources when it leaves its
-window.
+By default ``EPUBPageRasterizer`` keeps its offscreen resources until
+``EPUBPageRasterizer/invalidate()`` is called. Setting
+``EPUBPageRasterizer/idleReleaseInterval`` releases the invisible window and
+the WebContent process once that idle time has elapsed since the last render
+request finished, and the next render rebuilds them exactly like a first
+render. Nothing is released during a render or while requests wait in the
+FIFO, and changing the setting restarts the idle deadline. Nonpositive
+intervals schedule an immediate release. Idle release permits reuse, whereas
+``EPUBPageRasterizer/invalidate()`` permanently disables the rasterizer, so in
+both cases call ``EPUBPageRasterizer/invalidate()`` when you are done. A reader
+view cancels and tears down its own offscreen census and thumbnail resources
+when it leaves its window.
 
 止めた census は無駄になりません。リーダービューは、測り終えた spine 項目の
 ページ数を本とメトリクスキーごとに控え、同じメトリクスで次に実測するときは
@@ -143,3 +158,47 @@ census for the same metrics continues from the first unmeasured item (the
 result is identical to an uninterrupted census). During a live window resize
 no census is started; one is scheduled for the final size when the resize
 ends.
+
+## 省エネ方針を選ぶ / Opt into energy pacing
+
+``EPUBReaderView/offscreenEnergyPolicy`` と ``EPUBScreenAtlas/offscreenEnergyPolicy`` は、
+census と画面サムネイル(FXL ラスタライズへの委譲も含む)の開始時刻を制御します。
+既定値は ``EPUBOffscreenEnergyPolicy/unrestricted`` であり、システム状態の参照や
+追加の待機・開始延期を行いません。既存ホストの処理の順序・通知・リソース寿命は変わりません。
+
+``EPUBReaderView/offscreenEnergyPolicy`` and ``EPUBScreenAtlas/offscreenEnergyPolicy``
+control pacing for the census and screen thumbnails, including delegated FXL
+rasterization. Both default to ``EPUBOffscreenEnergyPolicy/unrestricted``: no
+system-state reads, additional waits, or start deferrals. Existing hosts retain
+their work ordering, notifications, and resource lifetime.
+
+``EPUBOffscreenEnergyPolicy/followSystem`` を選ぶと、低電力モードが有効か、熱状態が
+`serious` / `critical` の間、census が WebKit で読み込む spine 項目とサムネイルのジョブの
+開始前にそれぞれ 50 ms 待機します(固定レイアウトや欠損の項目は読み込まないので待機しません)。
+100 項目でも追加は 5 秒に収まる小さな間隔で CPU を休ませます(消費電力の低減量を
+保証するものではありません)。未開始の census は熱状態が `critical` の間 1 秒ごとに
+状態を再確認し、critical を脱するか方針が戻るまで開始を延期します。進行中の census は
+項目ごとの待機だけを追加し、途中結果の再開も未計測項目から同じように行います。
+方針の変更は以後の項目・ジョブと開始再確認に反映され、現在の項目の計算を中断しません。
+キャンセルと無効化は延期中にも適用されます。
+
+With ``EPUBOffscreenEnergyPolicy/followSystem``, Low Power Mode or a `serious` /
+`critical` thermal state adds a 50 ms wait before each spine item loaded in
+WebKit by the census and before each thumbnail job (fixed-layout and missing
+items load nothing and are not paused). This small interval adds only five
+seconds for 100 items while giving the CPU a break; it does not guarantee a
+measured energy saving. A census that has not started rechecks a `critical`
+thermal state every second and defers its start until the state improves or
+the policy changes. A running census only adds per-item waits; resumed
+measurements pace only their unmeasured items. Policy changes apply to
+subsequent items, jobs, and start rechecks, without interrupting computation of
+the current item. Cancellation and invalidation also apply during deferral.
+
+待機は常に `.userInitiated` の処理内で行い、WebKit を駆動する QoS は下げません。
+方針が変えるのは開始時刻だけです。ページ数、描画寸法、メトリクスの `cacheKey` と
+`paginationVersion`(5)、census レコードの互換性は変わりません。
+
+Waits stay inside `.userInitiated` work; the QoS driving WebKit is never lowered.
+The policy changes only when work starts. Page counts, render dimensions,
+metrics `cacheKey` and `paginationVersion` (5), and census-record compatibility
+remain unchanged.

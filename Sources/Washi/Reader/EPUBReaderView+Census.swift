@@ -197,7 +197,8 @@ extension EPUBReaderView {
         // 破棄後に届くホストの先読みで、不可視 WebKit を作り直さない。
         guard allowsVisibleRenderingWork, let publication else { return nil }
         let renderer = thumbnailRenderer
-            ?? EPUBScreenThumbnailRenderer(publication: publication)
+            ?? EPUBScreenThumbnailRenderer(publication: publication,
+                                           energyPacer: offscreenEnergyPacer)
         thumbnailRenderer = renderer
         let itemMetrics = screenMetrics(for: settings, spineIndex: spineIndex)
         return await renderer.thumbnail(
@@ -358,7 +359,9 @@ extension EPUBReaderView {
             reader()?.census.task = nil
             return
         }
-        let engine = reader()?.census.engine ?? EPUBPaginationCensus()
+        // 直前の reader() から await を挟んでいないので、ここで nil にはならない
+        guard let pacer = reader()?.offscreenEnergyPacer else { return }
+        let engine = reader()?.census.engine ?? EPUBPaginationCensus(energyPacer: pacer)
         reader()?.census.engine = engine
         // 同じキーで以前に中断した実測があれば、その続きから測る(旧タスクの
         // 離脱を待った後に読むので、旧タスクが控えた先頭部分が見える)

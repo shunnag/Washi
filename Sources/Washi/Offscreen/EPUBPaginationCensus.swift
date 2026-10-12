@@ -20,6 +20,7 @@ final class EPUBPaginationCensus {
     private let host = EPUBOffscreenWebViewHost()
     private let idleReleaseTimer: EPUBOffscreenIdleReleaseTimer
     private let javaScriptTimeoutScheduler: EPUBOffscreenIdleReleaseTimer.Scheduler
+    private let energyPacer: EPUBOffscreenEnergyPacer
     private var pendingMeasurementCount = 0
     /// Washi-z74.13: invalidate のたびに進む世代。実測は開始時の世代を控え、
     /// await から戻るたびに照合する。NavigationWaiter の再開と MainActor での
@@ -33,15 +34,18 @@ final class EPUBPaginationCensus {
     /// になり、次の measure が prepareIfNeeded を通ると再び true になる。
     var hasLiveWebView: Bool { host.hasLiveWebView }
 
+    /// `energyPacer` は所有者が census とサムネイルレンダラで共有する(方針の実体)。
     init(
         idleTimerScheduler: @escaping EPUBOffscreenIdleReleaseTimer.Scheduler =
             EPUBOffscreenIdleReleaseTimer.continuousScheduler,
         javaScriptTimeoutScheduler: @escaping EPUBOffscreenIdleReleaseTimer.Scheduler =
-            EPUBOffscreenIdleReleaseTimer.continuousScheduler
+            EPUBOffscreenIdleReleaseTimer.continuousScheduler,
+        energyPacer: EPUBOffscreenEnergyPacer = EPUBOffscreenEnergyPacer()
     ) {
         idleReleaseTimer = EPUBOffscreenIdleReleaseTimer(
             scheduler: idleTimerScheduler)
         self.javaScriptTimeoutScheduler = javaScriptTimeoutScheduler
+        self.energyPacer = energyPacer
     }
 
     /// オフスクリーンリソース(不可視 NSWindow + WebContent プロセス)を
@@ -110,6 +114,16 @@ final class EPUBPaginationCensus {
         var counts = Array(prefix.prefix(readingOrder.count))
         counts.reserveCapacity(readingOrder.count)
         func interrupted() -> Outcome { Outcome(counts: counts, isComplete: false) }
+        // followSystem で熱状態が critical の間は、測り残しがあるときだけ実測を
+        // 始めずに回復を待つ。待っている間の invalidate は pacer が再確認のたびに
+        // 見て抜け、キャンセルは他の await と同じく一過性の中断として扱う。
+        if counts.count < readingOrder.count {
+            do {
+                try await energyPacer.waitUntilStartAllowed(isAborted: { isAborted() })
+            } catch {
+                return interrupted()
+            }
+        }
         for index in counts.count..<readingOrder.count {
             let entry = readingOrder[index]
             if isAborted() { return interrupted() }
@@ -141,6 +155,15 @@ final class EPUBPaginationCensus {
                 counts.append(1)
                 continue
             }
+            // WebKit を使う項目の前だけ、省エネが求められていれば短く休む。この
+            // タスクの優先度(.userInitiated)のまま待つだけなので、ページ数は
+            // 変わらず時間だけが伸びる。
+            do {
+                try await energyPacer.pauseBeforeJobIfNeeded()
+            } catch {
+                return interrupted()
+            }
+            if isAborted() { return interrupted() }
             prepareIfNeeded(publication: publication, contentSize: itemSize,
                             allowsScriptedContent: allowsScriptedContent)
             guard let webView = host.webView, let schemeHandler = host.schemeHandler,

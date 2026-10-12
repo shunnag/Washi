@@ -44,6 +44,37 @@ public final class EPUBPageRasterizer {
     var hasLiveWebView: Bool { host.hasLiveWebView }
     /// 直列化: 直前の要求が終わるまで次を待たせる
     private let queue = EPUBOffscreenJobQueue()
+    private let idleTimerScheduler: EPUBOffscreenIdleReleaseTimer.Scheduler
+    /// `idleReleaseInterval` が nil の間は nil(予約しない = 従来の寿命)。
+    private var idleReleaseTimer: EPUBOffscreenIdleReleaseTimer?
+    /// FIFO 待ちも含む進行中の要求数。0 になるまでアイドル解放しない。
+    private var pendingRenderCount = 0
+
+    /// 最後の描画要求が終わってから、オフスクリーンリソース(不可視 NSWindow と
+    /// WebContent プロセス)を解放するまでのアイドル時間。既定の nil は従来どおり
+    /// ``invalidate()`` まで保持する。描画中と FIFO で要求が待っている間は解放せず、
+    /// 解放後の次の `renderPage` は初回と同じ経路で作り直す。実行中に変えると
+    /// アイドル期限を予約し直し、0 以下は待機なしの解放を予約する。
+    ///
+    /// Idle time, measured from when the last render request finishes, after
+    /// which the offscreen resources (the invisible NSWindow and the WebContent
+    /// process) are released. The default nil keeps them until ``invalidate()``,
+    /// as before. Nothing is released during a render or while requests wait in
+    /// the FIFO; the next `renderPage` after a release rebuilds them exactly like
+    /// a first render. Changing the value at run time restarts the idle
+    /// deadline, and nonpositive values schedule an immediate release.
+    public var idleReleaseInterval: Duration? {
+        didSet {
+            // 旧タイマの世代ガードは旧インスタンスのものなので、差し替える前に
+            // その予約を止める(描画中に古い期限が発火して解放しないように)。
+            idleReleaseTimer?.cancel()
+            idleReleaseTimer = idleReleaseInterval.map {
+                EPUBOffscreenIdleReleaseTimer(interval: max(.zero, $0),
+                                              scheduler: idleTimerScheduler)
+            }
+            scheduleIdleReleaseIfNeeded()
+        }
+    }
 
     /// 固定レイアウトページのラスタライズ中に発生するエラー。
     ///
@@ -71,11 +102,8 @@ public final class EPUBPageRasterizer {
     /// 著者スクリプトを無効にしたラスタライザを作る。
     ///
     /// Creates a rasterizer with author scripts disabled.
-    public init(publication: EPUBPublication) {
-        self.publication = publication
-        self.allowsScriptedContent = false
-        self.schemeHandler = EPUBSchemeHandler(
-            publication: publication, allowsScripts: false)
+    public convenience init(publication: EPUBPublication) {
+        self.init(publication: publication, allowsScriptedContent: false)
     }
 
     /// 画面外のページで著者スクリプトを実行できるかを指定して、
@@ -83,11 +111,21 @@ public final class EPUBPageRasterizer {
     ///
     /// Creates a rasterizer and chooses whether author scripts may run in the
     /// offscreen page.
-    public init(publication: EPUBPublication, allowsScriptedContent: Bool) {
+    public convenience init(publication: EPUBPublication, allowsScriptedContent: Bool) {
+        self.init(publication: publication, allowsScriptedContent: allowsScriptedContent,
+                  idleTimerScheduler: EPUBOffscreenIdleReleaseTimer.continuousScheduler)
+    }
+
+    /// テスト用: アイドル解放の期限を実時間なしで進める scheduler を差し込む。
+    init(
+        publication: EPUBPublication, allowsScriptedContent: Bool,
+        idleTimerScheduler: @escaping EPUBOffscreenIdleReleaseTimer.Scheduler
+    ) {
         self.publication = publication
         self.allowsScriptedContent = allowsScriptedContent
         self.schemeHandler = EPUBSchemeHandler(
             publication: publication, allowsScripts: allowsScriptedContent)
+        self.idleTimerScheduler = idleTimerScheduler
     }
 
     /// invalidate 後は新規レンダーを受け付けない
@@ -102,6 +140,7 @@ public final class EPUBPageRasterizer {
     /// then fails with loadFailed).
     public func invalidate() {
         isInvalidated = true
+        idleReleaseTimer?.cancel()
         queue.cancelAll()
         // cooViewer-oxr.53: delegate を外す前に現在の待機を解決し、
         // 30 秒タイムアウトを待たず FIFO を終了させる。
@@ -149,6 +188,14 @@ public final class EPUBPageRasterizer {
         deviceViewportSize: CGSize?
     ) async throws -> CGImage {
         guard !isInvalidated else { throw RasterizeError.loadFailed }
+        // FIFO 待ちも要求中として数え、最後の描画が終わるまでアイドル解放しない
+        // (EPUBScreenThumbnailRenderer と同じ数え方)。
+        pendingRenderCount += 1
+        idleReleaseTimer?.cancel()
+        defer {
+            pendingRenderCount -= 1
+            scheduleIdleReleaseIfNeeded()
+        }
         // 優先度は明示的に userInitiated へ(低優先度の呼び出し元 — 例:
         // .utility のサムネイル先読み — の QoS を継ぐと、WebKit への JS 実行が
         // 応答しないことがある。EPUBScreenThumbnailRenderer で実測した逆転)
@@ -156,6 +203,21 @@ public final class EPUBPageRasterizer {
             try await self.performRender(atSpineIndex: index,
                                          maxPixelSize: maxPixelSize,
                                          deviceViewportSize: deviceViewportSize)
+        }
+    }
+
+    private func scheduleIdleReleaseIfNeeded() {
+        guard let idleReleaseTimer, !isInvalidated, pendingRenderCount == 0,
+              queue.isIdle, hasLiveWebView else { return }
+        idleReleaseTimer.restart { [weak self] in
+            guard let self, !isInvalidated, pendingRenderCount == 0,
+                  queue.isIdle else { return }
+            // 恒久的な invalidate にはせず、解放経路だけを通す。次の renderPage は
+            // prepareWebView から初回と同じ経路で作り直す。scheme handler は
+            // 使い続けるので、Range 応答のキャッシュ(最大 32 MB)もここで手放す。
+            queue.clearChain()
+            host.release()
+            schemeHandler.clearRangeResourceCache()
         }
     }
 
@@ -229,7 +291,8 @@ public final class EPUBPageRasterizer {
     /// 稼働中の WebContent へ余分なジオメトリ更新を送ることになる)。
     private func prepareWebView(initialSize: NSSize) throws -> WKWebView {
         // scheme handler は init で作った 1 つを使い続ける(allowsScriptedContent
-        // は不変なので、host が WKWebView を作り直すことはない)。
+        // は不変なので、host が設定の違いで WKWebView を作り直すことはない。
+        // アイドル解放の後は新しい WKWebView に同じ handler を登録する)。
         host.prepare(size: initialSize, allowsScriptedContent: allowsScriptedContent,
                      makeSchemeHandler: { schemeHandler })
         guard let webView = host.webView else { throw RasterizeError.loadFailed }
