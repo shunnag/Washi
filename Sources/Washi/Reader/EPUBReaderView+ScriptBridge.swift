@@ -116,7 +116,7 @@ extension EPUBReaderView {
                   generation == spineLoadGeneration else { return }
             applyHighlights()
         }
-        if dict[.printPageMarkers] != nil { applySetupResult(dict) }
+        if dict[.printPageMarkers] != nil, !canSkipSetupResult(dict) { applySetupResult(dict) }
         pageInItem = dict["page"] as? Int ?? 0
         pageCountInItem = max(1, dict[.pageCount] as? Int ?? 1)
         // Swift 6.0.3 / Xcode 16.2 で通すため、MainActor メソッドをクロージャで呼ぶ。
@@ -135,6 +135,25 @@ extension EPUBReaderView {
         scheduleAccessibilityPageAnnouncement()
         // ページが変わったので控えを撮り直す
         schedulePageCoverPrefetch()
+    }
+
+    /// 連続スクロール文書は DOM の scroll イベントごとに、同じ章の同じ
+    /// printPageMarkers を載せた pageChanged を送る(ProMotion で毎秒 ~120 回)。
+    /// この dict に対する applySetupResult の効果は (1) mode が変わったときの
+    /// scrolledWheel.reset、(2) isImagePage = imagePage ?? false、(3) markers の
+    /// 置き換え、(4) pageCount / pagesPerScreen の代入で、(4) は直後に
+    /// handlePageChanged が同じ dict から同じ値を代入し直す(pageChanged は
+    /// pagesPerScreen を常に持つ)。firstPageOnRight / supportsColumnAxis は
+    /// pageChanged に無いので触らない。よって (1)〜(3) が無変化なら省いても
+    /// 状態・delegate 通知は同一。pageChanged の契約外の鍵や形があれば省かない
+    private func canSkipSetupResult(_ dict: [String: Any]) -> Bool {
+        guard let markers = dict[.printPageMarkers] as? [[String: Any]],
+              dict[.pagesPerScreen] as? Int != nil,
+              dict[.firstPageOnRight] == nil, dict[.supportsColumnAxis] == nil,
+              dict[.imagePage] == nil, !isImagePage,
+              (dict[.mode] as? String).map({ $0 == scrolledWheel.mode }) ?? true
+        else { return false }
+        return Self.printPageMarkers(from: markers) == printPageMarkers
     }
 
     private func handleBoundary(_ dict: [String: Any]) {
