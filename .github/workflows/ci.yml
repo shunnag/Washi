@@ -15,8 +15,10 @@
 # macos-15 系の役割は古い Swift (6.1.2) での検査。DEVELOPER_DIR を固定し、
 # ランナーの既定 Xcode のドリフトで、この役割が静かに失われるのを防ぐ。
 # /Applications/Xcode_16.4.app の実在は未確認のため、各ジョブの冒頭で存在を確認する。
-# macos-15 系は将来廃止予定。その際は README.md と Package.swift が宣言する下限
-# (macOS 14) を検査できる環境がなくなるため、代替環境または下限の見直しが必要。
+# README.md と Package.swift が宣言する下限 (macOS 14、swift-tools-version 6.0) は
+# macos-14 ランナーが検査する。既定の Xcode は 15.4 なので DEVELOPER_DIR で
+# Xcode 16.2 (Swift 6.0.x) を選ぶ。macos-14 が廃止されたら、代替環境または
+# 下限の見直しが必要。
 name: CI
 on:
   push:
@@ -41,6 +43,8 @@ jobs:
             developer_dir: /Applications/Xcode_16.4.app
           - os: macos-15-intel
             developer_dir: /Applications/Xcode_16.4.app
+          - os: macos-14
+            developer_dir: /Applications/Xcode_16.2.app
           - os: xcode-27
             developer_dir: ''
     steps:

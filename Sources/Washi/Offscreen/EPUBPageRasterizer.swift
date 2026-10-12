@@ -187,16 +187,21 @@ public final class EPUBPageRasterizer {
         let viewport = CGSize(width: sane(rawViewport.width, fallback: 1200),
                               height: sane(rawViewport.height, fallback: 1600))
 
-        // 目標ピクセルに合わせて pageZoom で拡縮(backing scale 込み)
-        let backingScale = NSScreen.main?.backingScaleFactor ?? 2
+        // 目標ピクセルに合わせて pageZoom で拡縮(backing scale 込み)。
+        // takeSnapshot のピクセル寸法は WebKit が載せ先ウインドウの backing scale で
+        // 決めるため、NSScreen.main ではなく実際に描画する画面外ウインドウの値を使う
+        // (Retina と非 Retina の混在や 1x ダミー表示では main と食い違い、出力が
+        // 2 倍または 1/2 になる)。ウインドウは prepare で初めて作られるので、寸法
+        // 決定の前に用意し、確定後に setContentSize で 1 回だけそろえる。
+        let webView = try prepareWebView(initialSize: viewport)
+        let backingScale = host.window?.backingScaleFactor ?? 2
         let longSide = max(viewport.width, viewport.height)
         let targetLongSidePixels = maxPixelSize.map { max(1, CGFloat($0)) }
             ?? longSide * 2  // 既定は 2x(Retina 実寸)
         let zoom = max(0.05, min(4, targetLongSidePixels / (longSide * backingScale)))
         let frameSize = NSSize(width: viewport.width * zoom,
                                height: viewport.height * zoom)
-
-        let webView = try prepareWebView(size: frameSize)
+        host.setContentSize(frameSize)
         webView.pageZoom = zoom
         lastRenderTrace.prepared = .now
 
@@ -219,12 +224,14 @@ public final class EPUBPageRasterizer {
         return image
     }
 
-    private func prepareWebView(size: NSSize) throws -> WKWebView {
+    /// 初回だけ `initialSize` で構築する。描画寸法は backing scale の確定後に
+    /// 呼び出し元が setContentSize で 1 回だけ設定する(ここで寸法を変えると
+    /// 稼働中の WebContent へ余分なジオメトリ更新を送ることになる)。
+    private func prepareWebView(initialSize: NSSize) throws -> WKWebView {
         // scheme handler は init で作った 1 つを使い続ける(allowsScriptedContent
         // は不変なので、host が WKWebView を作り直すことはない)。
-        host.prepare(size: size, allowsScriptedContent: allowsScriptedContent,
+        host.prepare(size: initialSize, allowsScriptedContent: allowsScriptedContent,
                      makeSchemeHandler: { schemeHandler })
-        host.setContentSize(size)
         guard let webView = host.webView else { throw RasterizeError.loadFailed }
         return webView
     }
