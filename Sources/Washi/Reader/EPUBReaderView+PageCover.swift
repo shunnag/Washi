@@ -49,9 +49,11 @@ extension EPUBReaderView {
     }
 
     /// 控えを使う条件: 演出なしの送り(または視差効果を減らす設定)で、
-    /// ページ単位の表示であること。演出ありの送りは既存の演出カバーが隠す
+    /// ページ単位の表示であること。演出ありの送りは既存の演出カバーが隠す。
+    /// スクロール表示の判定を先にし、連続スクロールの pageChanged ごとに
+    /// NSWorkspace の視差効果設定を読まない
     private var usesPrefetchedPageCover: Bool {
-        turnsPagesWithoutAnimation && !EPUBScreenMetrics.isScrolled(effectiveFlow)
+        !EPUBScreenMetrics.isScrolled(effectiveFlow) && turnsPagesWithoutAnimation
     }
 
     /// 項目の最初か最後の画面にいるか(送りで spine 境界を越えうる)
@@ -71,6 +73,14 @@ extension EPUBReaderView {
     func schedulePageCoverPrefetch(after delay: Duration? = nil) {
         pageCover.pageCoverPrefetchTask?.cancel()
         if delay == nil { pageCover.pageCoverPrefetchRetries = 0 }
+        // 控えを使わない場面(スクロール表示・演出ありの送り)では Task を起こさない。
+        // 起こした場合の capturePageCover は古い控えを捨てるだけなので、それを
+        // ここで済ませる(連続スクロールでは pageChanged ごとにここへ来る)
+        guard usesPrefetchedPageCover else {
+            pageCover.pageCoverPrefetchTask = nil
+            pageCover.prefetchedPageCover = nil
+            return
+        }
         let wait = delay ?? (pageCover.prefetchedPageCover == nil
             ? Self.pageCoverFirstPrefetchDelay : Self.pageCoverPrefetchDelay)
         pageCover.pageCoverPrefetchTask = Task { @MainActor [weak self] in

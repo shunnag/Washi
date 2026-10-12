@@ -29,6 +29,12 @@ extension EPUBReaderView {
     /// テスト用: census の実測タスクを起動した累計回数
     var pageCensusStartCount: Int { census.startCount }
 
+    /// テスト用: applySetupResult を適用した累計回数
+    var setupResultApplyCount: Int { appliedSetupResultCount }
+
+    /// テスト用: 控えの撮影 Task が予約されているか
+    var isPageCoverPrefetchScheduled: Bool { pageCover.pageCoverPrefetchTask != nil }
+
     /// テスト用: 再ページ割りが予約されているか
     var isRepaginationScheduled: Bool { repagination.repaginateWork != nil }
 

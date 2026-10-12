@@ -206,23 +206,30 @@ extension EPUBReaderView {
     /// Also returns false when navigation to an unloadable item is rejected.
     @discardableResult
     public func go(toPrintPage label: String) -> Bool {
-        guard let publication,
-              let item = flattenedPrintPageList.first(where: {
-                  $0.title == label && publication.spineIndex(forNavItem: $0) != nil
+        guard let entry = resolvedPrintPageList.first(where: {
+                  $0.item.title == label && $0.spineIndex != nil
               }),
-              let index = publication.spineIndex(forNavItem: item) else { return false }
+              let index = entry.spineIndex else { return false }
         guard !rejectsUnloadableNavigation(to: index) else { return false }
         // cooViewer-oxr.38: TOC と同じ go(navItem:) を通し、oxr.31 の
         // 履歴記録・fragment 解決・spine 切替を二重実装しない。
-        go(to: item)
+        go(to: entry.item)
         return true
     }
 
-    var flattenedPrintPageList: [EPUBNavItem] {
+    /// page-list を文書順に平坦化し、各項目の spine 番号を publication で解決したもの。
+    /// 本ごとに一度だけ作る(本が無ければ空。資料は EPUBPublication と共に不変)
+    var resolvedPrintPageList: [ResolvedPrintPage] {
+        if let cached = resolvedPrintPageListCache { return cached }
+        guard let publication else { return [] }
         func flatten(_ items: [EPUBNavItem]) -> [EPUBNavItem] {
             items.flatMap { [$0] + flatten($0.children) }
         }
-        return flatten(publication?.navigation.pageList ?? [])
+        let resolved = flatten(publication.navigation.pageList).map {
+            ResolvedPrintPage(item: $0, spineIndex: publication.spineIndex(forNavItem: $0))
+        }
+        resolvedPrintPageListCache = resolved
+        return resolved
     }
 
     public func goToBookStart() {

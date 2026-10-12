@@ -65,6 +65,11 @@ enum ReaderScripts {
         let scrolled = false;
         let imagePage = false;   // 表紙等「画像 1 枚だけのページ」
         let keysEnabled = true;
+        // census だけが true にする(setup オプション skipPrintPageMarkers)。
+        // 印刷ページ境界の走査は全要素の querySelectorAll と候補ごとの
+        // getClientRects で、pageCount しか読まない計測には不要な上に高価。
+        // ページ割りは境界の収集より前に済むので、省いても pageCount は変わらない
+        let skipsPrintPageMarkers = false;
         let horizontalRTL = false;
         let defersTapsForDoubleClick = false;
         let doubleClickDelayMS = 500;
@@ -1680,7 +1685,7 @@ enum ReaderScripts {
             return Object.assign({
                 pageCount: pageCount, mode: mode, imagePage: imagePage,
                 pagesPerScreen: pagesPerScreen, paddedPageCount: paddedPageCount,
-                printPageMarkers: collectPrintPageMarkers(singlePage),
+                printPageMarkers: skipsPrintPageMarkers ? [] : collectPrintPageMarkers(singlePage),
                 firstPageOnRight: firstPageOnRight(),
                 supportsColumnAxis: supportsColumnAxis()
             }, overrides);
@@ -1690,6 +1695,7 @@ enum ReaderScripts {
             if (typeof options.documentToken === 'string') {
                 documentToken = options.documentToken;
             }
+            skipsPrintPageMarkers = !!options.skipPrintPageMarkers;
             resetPaginationMarkers();
             fixedLayout = !!options.fixedLayout;
             scrolled = !fixedLayout && ['scrolled-doc', 'scrolled-continuous'].includes(options.flow);

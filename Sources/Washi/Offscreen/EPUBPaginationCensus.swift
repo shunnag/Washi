@@ -150,9 +150,9 @@ final class EPUBPaginationCensus {
                 counts.append(1)
                 continue
             }
-            let setupJSON = EPUBScrollDocument.options(
+            let setupJSON = Self.setupJSON(omittingPrintPageMarkers: EPUBScrollDocument.options(
                 plan.optionsJSON, publication: publication, index: index,
-                handler: schemeHandler, onlyItem: true)
+                handler: schemeHandler, onlyItem: true))
             // 本番の runSetup と同タイミング(didFinish 直後)で測ることで、
             // フォント・画像の遅延読み込みによる誤差の出方まで揃える
             let result: Result<EPUBOffscreenWebViewHost.SetupResult, any Error>?
@@ -187,6 +187,17 @@ final class EPUBPaginationCensus {
             counts.append(max(1, count))
         }
         return Outcome(counts: counts, isComplete: true)
+    }
+
+    /// 項目ごとの setup JSON にだけ skipPrintPageMarkers を足す(鍵 = cacheKey には触れない)
+    static func setupJSON(omittingPrintPageMarkers json: String) -> String {
+        guard let data = json.data(using: .utf8),
+              var options = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return json }
+        options[.skipPrintPageMarkers] = true
+        guard let encoded = try? JSONSerialization.data(withJSONObject: options, options: [.sortedKeys])
+        else { return json }
+        return String(data: encoded, encoding: .utf8) ?? json
     }
 
     private func scheduleIdleReleaseIfNeeded() {

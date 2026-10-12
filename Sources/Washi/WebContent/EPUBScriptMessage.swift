@@ -103,6 +103,9 @@ enum EPUBScriptSetupOptionKey: String, CaseIterable {
     /// native だけ(census / サムネイル): 項目ごとの spread と余白を再計算する
     /// ための不透明な文脈(EPUBScreenMetrics.setupPlan が読む)。
     case washiMetrics = "_washiMetrics"
+    /// census だけ: 印刷ページ境界(printPageMarkers)の走査を省く。cacheKey を成す
+    /// 基底 JSON には含めない。
+    case skipPrintPageMarkers
 }
 
 /// setup の引数・戻り値の辞書を、生の文字列ではなく上の列挙で引く。
