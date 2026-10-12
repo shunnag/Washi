@@ -87,6 +87,7 @@ re-exported `EPUBAccessibility` type from WashiCore.
 - ``EPUBScreenMetrics``
 - ``EPUBCensusRecord``
 - ``EPUBPageRasterizer``
+- ``EPUBOffscreenEnergyPolicy``
 - ``EPUBSchemeHandler``
 
 ### 基盤となる解析 API / Core Parsing
