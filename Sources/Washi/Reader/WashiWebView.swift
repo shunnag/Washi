@@ -12,6 +12,10 @@ final class WashiWebView: WKWebView {
     /// スクロールするため、JS だけでは扱えない。
     var wheelHandler: ((NSEvent) -> Bool)?
 
+    /// WebView が first responder のときのキーを WebKit より先に知らせる(JS が自分で
+    /// 処理するページ送りも利用者の操作として扱うため)。配送は変えない
+    var keyDownHandler: ((NSEvent) -> Void)?
+
     /// テスト用: 受けたホイールの代わりに WebKit へ渡した移動量 0 の複製を見る
     /// (DOM には届かないため、テストはここで観測する)
     var didForwardGestureBoundaryForTest: ((NSEvent) -> Void)?
@@ -60,6 +64,7 @@ final class WashiWebView: WKWebView {
         let wasHandlingKeyDown = isHandlingKeyDown
         isHandlingKeyDown = true
         defer { isHandlingKeyDown = wasHandlingKeyDown }
+        keyDownHandler?(event)
         // WebKit の super.keyDown が親へ返すキーは既に DOM で処理済み。
         // 親が非ナビ設定でも didReceiveKey をもう一度呼ばないように区別する。
         super.keyDown(with: event)

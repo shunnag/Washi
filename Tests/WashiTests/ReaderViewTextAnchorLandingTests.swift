@@ -68,6 +68,7 @@ final class ReaderViewTextAnchorLandingTests: XCTestCase {
         }
         view.scriptEvaluationHandler = { script in
             XCTAssertTrue(attempted)
+            XCTAssertFalse(view.spineLoad.isAwaitingTextAnchorLanding, "fallback より先に通知を再開する")
             scripts.append(script)
         }
 
@@ -131,5 +132,6 @@ final class ReaderViewTextAnchorLandingTests: XCTestCase {
         XCTAssertTrue(scripts.isEmpty)
         XCTAssertNil(view.textRangeTask)
         XCTAssertNil(view.publication)
+        XCTAssertFalse(view.spineLoad.isAwaitingTextAnchorLanding)
     }
 }
