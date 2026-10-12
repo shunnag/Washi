@@ -163,6 +163,7 @@ extension EPUBReaderView {
                 })
         // cooViewer-oxr.32: delegate の拒否を履歴記録より先に確定し、既定経路は
         // goToContainerPath の一回だけにして二重記録を避ける。
+        endTextAnchorLandingWaitForUserInput()
         let request = navigationRequestGeneration
         guard delegate?.readerView(self, shouldFollowInternalLink: link) ?? true,
               request == navigationRequestGeneration

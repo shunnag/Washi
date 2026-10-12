@@ -293,12 +293,23 @@ extension EPUBReaderView {
             // go(locator:) / goBack() は継続を持たないが、保存したアンカーは
             // 同じように解決する。実際に見つからなかったときだけ進行率へ戻す。
             let requestID = pendingTextRangeRequest?.id
+            let generation = spineLoadGeneration
+            // 読み込み中の利用者の操作(キーリピート・慣性)は何も動かせないのに待ちを解く。
+            // 着地を始める今、改めて待ちに入る(settleDocument の中で isLoadingSpineItem を
+            // 解いた直後なので、章頭の echo がここより先に届くことはない)
+            spineLoad.isAwaitingTextAnchorLanding = true
             textRangeTask?.cancel()
             textRangeTask = Task { @MainActor [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 let landing = await self.locateTextRange(
                     utf16Offset: utf16Offset, utf16Length: utf16Length)
                 guard !Task.isCancelled else { return }
+                // 今の文書の着地だけが待ちを終える(次の spine 読み込みの錨待ちは続ける)。
+                // 再報告の応答を待つ間に取り消されたら、新しい移動に任せる
+                if generation == self.spineLoadGeneration {
+                    await self.finishTextAnchorLanding(found: landing != nil)
+                    guard !Task.isCancelled else { return }
+                }
                 if landing == nil {
                     let safeProgression = Self.clampedProgression(fallbackProgression)
                     self.evaluate("__washi.showProgression(\(safeProgression));")
@@ -320,12 +331,15 @@ extension EPUBReaderView {
             if isTextRange {
                 // 着地前の保存・戻る履歴にもアンカーを残し、進行率だけへ劣化させない。
                 spineLoad.pendingRestoreLocator = locator(for: target, at: currentSpineIndex)
+                spineLoad.isAwaitingTextAnchorLanding = true
             }
             applyTarget(target)
             return
         }
         // textRange の継続は setup 後の exact landing が完了させるので取り消さない。
-        if !isTextRange {
+        if isTextRange {
+            spineLoad.isAwaitingTextAnchorLanding = true
+        } else {
             cancelPendingTextRangeRequest()
         }
         spineLoad.pendingTarget = target

@@ -243,6 +243,11 @@ public final class EPUBReaderView: NSView {
         /// 復元先(復元完了まで currentLocator の答えとして使う。復元前の保存で
         /// 位置が (0,0) に潰れるのを防ぐ)
         var pendingRestoreLocator: EPUBLocator?
+        /// テキストの錨への着地待ち(cooViewer-mzvd)。textRange の target を予約してから
+        /// locateAndShow が終わるまで true。この間の pageChanged は状態には写すが、
+        /// didMoveTo と pendingRestoreLocator の解除だけ見送る(章頭などの一時的な位置を
+        /// ホストに保存させない)。着地後は JS に位置を再報告させる(reportPosition)
+        var isAwaitingTextAnchorLanding = false
         /// 読み込み前に決め、didCommit で当てる WebView の矩形と倍率
         var pendingWebViewLayout: (frame: NSRect, zoom: CGFloat, generation: Int)?
         /// spine の読み込みを始めてからコミットまでの間か(置き換えた前の読み込みの

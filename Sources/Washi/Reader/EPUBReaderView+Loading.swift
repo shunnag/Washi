@@ -167,8 +167,14 @@ extension EPUBReaderView {
         webView.contextMenuHandler = { [weak self] menu, event in
             self?.contextMenu(menu, for: event)
         }
+        // キーとホイールは WebKit より先にここを通る。JS が自分で処理するキー送りや
+        // 横書きスクロール表示の素のスクロールも、利用者の操作として着地待ちの抑制を解く
+        webView.keyDownHandler = { [weak self] _ in
+            self?.endTextAnchorLandingWaitForUserInput()
+        }
         webView.wheelHandler = { [weak self] event in
             guard let self else { return false }
+            self.endTextAnchorLandingWaitForUserInput()
             // ページ表示・読み込み中・読み込みの前から続くジェスチャは送りの判定へ
             // (consumesWebViewWheel)。
             if self.consumesWebViewWheel(event) {
@@ -287,6 +293,9 @@ extension EPUBReaderView {
         cancelAccessibilityAnnouncement()
         currentSpineIndex = index
         spineLoad.pendingTarget = target
+        // 錨への着地待ちは target を予約した今から始める(setup 後に textRangeTask ができる
+        // までの隙間に届く章頭の通知も抑える)。錨のない読み込みは待ちを解く
+        spineLoad.isAwaitingTextAnchorLanding = target.isTextRange
         // cooViewer-oxr.23: pageChanged 前の保存にも、読み込み先の意図した
         // progression を返せるよう locator として保持する。
         spineLoad.pendingRestoreLocator = locator(for: target, at: index)
