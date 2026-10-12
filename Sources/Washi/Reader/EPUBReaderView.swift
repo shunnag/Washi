@@ -496,6 +496,25 @@ public final class EPUBReaderView: NSView {
 
     var thumbnailRenderer: EPUBScreenThumbnailRenderer?
 
+    /// オフスクリーン WebKit 処理(census と画面サムネイル)の省エネ方針。既定の
+    /// ``EPUBOffscreenEnergyPolicy/unrestricted`` は従来どおり。実行中に変えると
+    /// 次の spine 項目/ジョブから反映され、ページ数と画像は変わらない。
+    /// 本を差し替えても保たれる。
+    ///
+    /// Energy policy for the offscreen WebKit work (census and screen
+    /// thumbnails). The default ``EPUBOffscreenEnergyPolicy/unrestricted``
+    /// behaves exactly as before. Changing it at run time applies from the next
+    /// spine item or job; page counts and images are unaffected. The value
+    /// survives loading another book.
+    public var offscreenEnergyPolicy: EPUBOffscreenEnergyPolicy {
+        get { offscreenEnergyPacer.policy }
+        set { offscreenEnergyPacer.policy = newValue }
+    }
+
+    /// 省エネ方針の実体。census エンジンとサムネイルレンダラへ渡して共有するので、
+    /// 本の差し替えで CensusState が戻っても方針は保たれる
+    let offscreenEnergyPacer = EPUBOffscreenEnergyPacer()
+
     // MARK: - WebContent 再読込
 
     /// WebContent 終了後の再読み込みの状態。同一 spine の短時間ループを有限にする
