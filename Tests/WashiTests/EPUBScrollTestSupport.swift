@@ -66,6 +66,31 @@ final class ScrollReaderHarness: EPUBReaderViewDelegate {
         try await wait { self.moves > 0 || !self.failures.isEmpty }
         XCTAssertTrue(failures.isEmpty, failures.description)
         XCTAssertGreaterThan(moves, 0)
+        // テキストアンカー付きの復元は、setup 後に別 Task(textRangeTask)で
+        // locateAndShow を JS へ依頼する。一方、setup 内の select(active, 0) が
+        // 起こす scroll イベントは章先頭の pageChanged を着地より先に届け得るので、
+        // 最初の didMoveTo だけを待つと、その後の JS 呼び出し(矩形の計測など)が
+        // locateAndShow より先に実行され、着地前の位置を読む(CI で一度再現)。
+        // 着地の Task が片付くまで待ってから戻す。
+        if locator?.textOffset != nil {
+            try await wait { self.reader.textRangeTask == nil }
+        }
+    }
+
+    /// JS のレイアウトが与えた viewport 寸法(横書きは高さ、縦書きは幅)になるまで
+    /// 待ち、確定した metrics を返す。リサイズ後の再ページ割りは 120 ms デバウンスの
+    /// 別 Task なので、直後の metrics は旧寸法を返し得る。
+    func metrics(untilViewport viewport: Double, file: StaticString = #filePath,
+                 line: UInt = #line) async throws -> [String: Any] {
+        let deadline = ContinuousClock.now + .seconds(15)
+        var current = try await metrics()
+        while current["viewport"] as? Double != viewport, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+            current = try await metrics()
+        }
+        XCTAssertEqual(current["viewport"] as? Double, viewport,
+                       "viewport が新しい寸法にならない: \(current)", file: file, line: line)
+        return current
     }
 
     func wait(_ predicate: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
