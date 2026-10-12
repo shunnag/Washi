@@ -54,7 +54,7 @@ extension EPUBReaderView {
               record.counts.count == publication.readingOrder.count,
               record.releaseIdentifier == publication.metadata.releaseIdentifier
         else { return false }
-        census.cache[record.metricsKey] = record.counts
+        storeCompletedCensus(record.counts, forKey: record.metricsKey)
         if record.metricsKey == censusScreenMetrics.censusOptionsJSON {
             census.key = record.metricsKey
             pageCensus = record.counts
@@ -220,6 +220,9 @@ extension EPUBReaderView {
     /// 畳む(ウインドウ離脱・非表示・本の差し替え)。次の measure / thumbnail で作り直す
     func tearDownOffscreenRenderers() {
         cancelPageCensus()
+        // 非表示・離脱中に終わるリサイズで census を起動しない(再表示時の
+        // layout/runSetup が改めて予約する)
+        census.deferredForLiveResize = false
         census.engine?.invalidate()
         census.engine = nil
         thumbnailRenderer?.invalidate()
@@ -289,13 +292,42 @@ extension EPUBReaderView {
         // 規律: censusTask の再代入は必ず先行 cancel を伴う(上のガードの
         // 不変条件がこれに依存する。この規律を崩すと居座り/取り違えが再発する)
         census.task?.cancel()
+        // ライブリサイズ中はフレームごとにキーが変わる。キーの更新・旧計測の
+        // 停止・N/M の無効化通知・キャッシュ命中の反映は上でいつもどおり行い、
+        // 実測タスクの起動だけを viewDidEndLiveResize まで延期して最終キーで
+        // 一度だけ始める(停止した旧タスクは FIFO と控えの保存のため参照を残す)
+        if isInLiveResize {
+            census.deferredForLiveResize = true
+            return
+        }
         let previous = census.task
+        census.startCount += 1
         // オフスクリーン WebKit のジョブは明示 .userInitiated で起動する
         // (低 QoS 継承だと最初の JS 実行の返信が返らない。兄弟の census/
         // rasterizer/thumbnail レンダラと規約を揃える)
         census.task = Task(priority: .userInitiated) { [weak self] in
             await Self.runCensus(key: key, size: size, previous: previous) { self }
         }
+    }
+
+    /// 追い出しから守るキー: 現在の表示メトリクスのキー(`census.key` は
+    /// importCensus の時点では未設定や古いことがあるので使わない)
+    private var protectedCensusKey: String { censusScreenMetrics.censusOptionsJSON }
+
+    /// 完走した census をキャッシュへ入れる(表示中のキーは追い出さない)。
+    /// 同じキーの中断控えは用済みなので捨て、控えの枠を空ける
+    private func storeCompletedCensus(_ counts: [Int], forKey key: String) {
+        census.cache.insert(counts, forKey: key, protecting: protectedCensusKey)
+        census.partialCounts.removeValue(forKey: key)
+    }
+
+    /// 中断した census が測り終えた先頭部分を控える。同じキーの控えは、同じ
+    /// 配列の先頭部分どうしなので長いほうを残す(古い中断の遅い到着が、新しい
+    /// 中断の長い控えを縮めない)
+    private func storePartialCensus(_ counts: [Int], forKey key: String) {
+        guard !counts.isEmpty, census.cache[key] == nil,
+              counts.count > (census.partialCounts[key]?.count ?? 0) else { return }
+        census.partialCounts.insert(counts, forKey: key, protecting: protectedCensusKey)
     }
 
     /// census の Task 本体。デバウンスと旧計測の離脱を待ってから実測し、結果を写す。
@@ -319,20 +351,38 @@ extension EPUBReaderView {
         guard !Task.isCancelled else { return }
         guard let publication = reader()?.publication, reader()?.census.key == key
         else { reader()?.census.task = nil; return }
+        if reader()?.isInLiveResize == true {
+            // デバウンス中にライブリサイズが始まった。古いキーの実測を始めず、
+            // 終了時の予約に合流する(失敗経路と同じ自己退去)
+            reader()?.census.deferredForLiveResize = true
+            reader()?.census.task = nil
+            return
+        }
         let engine = reader()?.census.engine ?? EPUBPaginationCensus()
         reader()?.census.engine = engine
-        let counts = await engine.measure(
-            publication: publication, optionsJSON: key, contentSize: size)
-        guard let view = reader(), !Task.isCancelled, view.census.key == key else { return }
-        guard let counts else {
+        // 同じキーで以前に中断した実測があれば、その続きから測る(旧タスクの
+        // 離脱を待った後に読むので、旧タスクが控えた先頭部分が見える)
+        let prefix = reader()?.census.partialCounts[key] ?? []
+        let outcome = await engine.measure(
+            publication: publication, optionsJSON: key, contentSize: size,
+            resuming: prefix)
+        guard let view = reader() else { return }
+        // 中断の控えは、キャンセル(非表示・別キーへの切替)でも残す。これが
+        // 再開の肝で、本が同じであれば有効(本の差し替えでは CensusState ごと
+        // 新しくなっているので、旧本の控えを書き込まない)
+        if !outcome.isComplete, view.publication === publication {
+            view.storePartialCensus(outcome.counts, forKey: key)
+        }
+        guard !Task.isCancelled, view.census.key == key else { return }
+        guard outcome.isComplete else {
             // 失敗完了は「実測中」ではない — タスクを解放して次の
             // runSetup での再実測を許す(回数はキーごとに上限あり + TTL)
             view.recordCensusFailure(forKey: key)
             view.census.task = nil
             return
         }
-        view.census.cache[key] = counts
-        view.pageCensus = counts
+        view.storeCompletedCensus(outcome.counts, forKey: key)
+        view.pageCensus = outcome.counts
         view.census.task = nil  // 成功完了も自己退去(不変条件を対称に保つ)
         view.delegate?.readerViewDidUpdatePageCensus(view)
     }

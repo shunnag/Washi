@@ -130,3 +130,16 @@ windows and WebContent processes, and makes that atlas permanently unusable.
 ``EPUBPageRasterizer/invalidate()`` is called. A reader view cancels and tears
 down its own offscreen census and thumbnail resources when it leaves its
 window.
+
+止めた census は無駄になりません。リーダービューは、測り終えた spine 項目の
+ページ数を本とメトリクスキーごとに控え、同じメトリクスで次に実測するときは
+最初の未計測項目から続けます(結果は中断なしの実測と同一です)。ウインドウの
+ライブリサイズ中は census を始めず、リサイズの終了時に最終的な寸法で一度だけ
+予約します。
+
+A stopped census is not wasted. The reader view keeps the page counts of the
+spine items it has already measured, per book and metrics key, and the next
+census for the same metrics continues from the first unmeasured item (the
+result is identical to an uninterrupted census). During a live window resize
+no census is started; one is scheduled for the final size when the resize
+ends.

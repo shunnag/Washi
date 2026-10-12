@@ -154,9 +154,22 @@ extension EPUBReaderView {
         layoutVisibleContent(webView, forcePagination: false)
     }
 
+    /// ライブリサイズ中に延期した census を、最終寸法のキーで一度だけ予約する
+    /// (ドラッグ中はフレームごとにキーが変わり、起動しては中断する census が
+    /// WebKit の仕事を無駄にするうえ、本番の再ページ割りと CPU を争う)
+    public override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        guard census.deferredForLiveResize else { return }
+        census.deferredForLiveResize = false
+        scheduleCensusIfNeeded()
+    }
+
     var allowsVisibleRenderingWork: Bool {
         window != nil && !isHiddenOrHasHiddenAncestor
     }
+
+    /// ライブリサイズ中か(テストでは差し替えられる)
+    var isInLiveResize: Bool { isInLiveResizeOverride ?? inLiveResize }
 
     func layoutVisibleContent(_ webView: WKWebView,
                                       forcePagination: Bool) {
