@@ -156,7 +156,7 @@ jobs:
       - name: Test public EPUB corpus
         env:
           WASHI_CORPUS_DIR: ${{ github.workspace }}/.build/epub-corpus
-        run: swift test --filter CorpusSmokeTests
+        run: swift test --filter 'CorpusSmokeTests|CensusResumeCorpusTests'
   release:
     name: Publish GitHub Release
     needs: [test, release-artifact, corpus, documentation]

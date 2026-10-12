@@ -23,6 +23,12 @@ extension EPUBReaderView {
     /// テスト用: census の実測タスクが予約されているか
     var isPageCensusScheduled: Bool { census.task != nil }
 
+    /// テスト用: ライブリサイズ終了まで census の予約を延期しているか
+    var hasDeferredCensusForLiveResize: Bool { census.deferredForLiveResize }
+
+    /// テスト用: census の実測タスクを起動した累計回数
+    var pageCensusStartCount: Int { census.startCount }
+
     /// テスト用: 再ページ割りが予約されているか
     var isRepaginationScheduled: Bool { repagination.repaginateWork != nil }
 
