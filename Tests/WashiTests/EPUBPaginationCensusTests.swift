@@ -144,11 +144,11 @@ final class EPUBPaginationCensusTests: XCTestCase {
     /// 同じ census は invalidate 後の次の measure で作り直せる。
     func testInvalidateDuringMeasurementStopsCensusWithoutRebuilding() async throws {
         let publication = try makeTwoItemReflowPublication()
-        let invalidator = InvalidatingSetupScheduler()
+        let invalidator = TriggeringSetupScheduler()
         let census = EPUBPaginationCensus(
             javaScriptTimeoutScheduler: invalidator.scheduler)
         defer { census.invalidate() }
-        invalidator.census = census
+        invalidator.onTrigger = { [weak census] in census?.invalidate() }
         let metrics = makeMetrics()
 
         let interrupted = await census.measure(
@@ -168,6 +168,60 @@ final class EPUBPaginationCensusTests: XCTestCase {
             contentSize: metrics.contentSize)
         XCTAssertEqual(rebuilt, [1, 1])
         XCTAssertTrue(census.hasLiveWebView)
+    }
+
+    /// 中断した実測は spine 先頭から測り終えた項目だけを返し、同じキーの次回に
+    /// `resuming:` で渡すと残りの項目だけを読み込んで、一気に測ったときと同じ
+    /// 配列になる(大きい本を非表示のたびに先頭から測り直さないための前提)。
+    func testInterruptedMeasureResumesFromFirstUnmeasuredItem() async throws {
+        let publication = try EPUBFixtures.verticalNovel(name: "washi-census-resume")
+        let metrics = makeMetrics()
+        let reference = EPUBPaginationCensus()
+        defer { reference.invalidate() }
+        guard let full = await reference.measure(
+            publication: publication, optionsJSON: metrics.censusOptionsJSON,
+            contentSize: metrics.contentSize) else {
+            return try failOrSkipIfWebKitUnavailable()
+        }
+        XCTAssertEqual(full.count, 3)
+        XCTAssertEqual(reference.loadedItemCount, 3)
+
+        // 2 項目目の setup 直前に invalidate し、1 項目目だけ測り終えた状態で止める。
+        let trigger = TriggeringSetupScheduler()
+        trigger.triggerAtScheduleCount = 2
+        let census = EPUBPaginationCensus(javaScriptTimeoutScheduler: trigger.scheduler)
+        defer { census.invalidate() }
+        trigger.onTrigger = { [weak census] in census?.invalidate() }
+        let interrupted = await census.measure(
+            publication: publication, optionsJSON: metrics.censusOptionsJSON,
+            contentSize: metrics.contentSize, resuming: [])
+        XCTAssertFalse(interrupted.isComplete)
+        XCTAssertEqual(interrupted.counts, Array(full.prefix(1)))
+        XCTAssertEqual(census.loadedItemCount, 2)
+
+        let resumed = await census.measure(
+            publication: publication, optionsJSON: metrics.censusOptionsJSON,
+            contentSize: metrics.contentSize, resuming: interrupted.counts)
+        XCTAssertEqual(resumed, EPUBPaginationCensus.Outcome(counts: full, isComplete: true))
+        // 残りの 2 項目だけを読み込む
+        XCTAssertEqual(census.loadedItemCount, 4)
+    }
+
+    /// 全項目ぶんの先頭部分を渡せば何も読み込まずに完走扱いになり、本の項目数を
+    /// 超える長さは切り詰める(配列長が本と食い違うことはない)。
+    func testResumingWithCompletePrefixLoadsNothing() async throws {
+        let publication = try makeTwoItemReflowPublication()
+        let census = EPUBPaginationCensus()
+        defer { census.invalidate() }
+        let metrics = makeMetrics()
+
+        let outcome = await census.measure(
+            publication: publication, optionsJSON: metrics.censusOptionsJSON,
+            contentSize: metrics.contentSize, resuming: [3, 4, 5])
+
+        XCTAssertEqual(outcome, EPUBPaginationCensus.Outcome(counts: [3, 4], isComplete: true))
+        XCTAssertEqual(census.loadedItemCount, 0)
+        XCTAssertFalse(census.hasLiveWebView)
     }
 
     /// cooViewer-oxr.22/53: WebKit の load 中断・プロセス終了は壊れた項目の
@@ -275,25 +329,5 @@ final class EPUBPaginationCensusTests: XCTestCase {
         settings.insets = .zero
         return EPUBScreenMetrics(
             viewportSize: CGSize(width: 420, height: 600), settings: settings)
-    }
-}
-
-/// Washi-z74.13: setup の期限を予約する瞬間(読み込み完了後・JS 実行前)に
-/// census を invalidate し、以後の期限は実時間の scheduler へ委ねる
-/// (WebView が応答しなくても 5 秒で抜けるので、テストが止まらない)。
-@MainActor
-private final class InvalidatingSetupScheduler {
-    weak var census: EPUBPaginationCensus?
-    private(set) var scheduleCount = 0
-
-    var scheduler: EPUBOffscreenIdleReleaseTimer.Scheduler {
-        { [weak self] delay, action in
-            guard let self else { return {} }
-            scheduleCount += 1
-            if scheduleCount == 1 {
-                census?.invalidate()
-            }
-            return EPUBOffscreenIdleReleaseTimer.continuousScheduler(delay, action)
-        }
     }
 }

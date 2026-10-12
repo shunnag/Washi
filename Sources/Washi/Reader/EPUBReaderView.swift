@@ -455,8 +455,20 @@ public final class EPUBReaderView: NSView {
         var task: Task<Void, Never>?
         /// 計測時のメトリクスキー(census 用オプション JSON。sortedKeys で決定的)
         var key: String?
-        /// メトリクスキー → 実測結果(フォントを行き来したときの再計測を省く)
-        var cache: [String: [Int]] = [:]
+        /// メトリクスキー → 実測結果(フォントを行き来したときの再計測を省く)。
+        /// 上限付きで、表示中のキーは追い出さない
+        var cache = CensusKeyedStore<[Int]>()
+        /// メトリクスキー → 中断した実測が測り終えていた先頭部分。非表示・
+        /// ウインドウ離脱・タイムアウトで止まった census を、同じキーの次回に
+        /// 続きから測るための控え(大きい本で毎回 spine 先頭から測り直さない)。
+        /// 項目ごとのページ数は(本, キー, spine 位置)だけで決まるので、
+        /// 本が替われば CensusState ごと捨て、キーが違えば使わない
+        var partialCounts = CensusKeyedStore<[Int]>()
+        /// ライブリサイズ中に届いた予約の控え。終了時に最終キーで一度だけ予約する
+        var deferredForLiveResize = false
+        /// テスト用: 実測タスクを起動した回数(ライブリサイズ後に 1 回だけ
+        /// 始まることの観測点)
+        var startCount = 0
         /// メトリクスごとの実測失敗台帳(2-strike + TTL)。上限を超えたキーは
         /// 再スケジュールしない(壊れた spine を持つ本で runSetup のたびに 15 秒
         /// タイムアウトを繰り返さないため)が、TTL 経過で赦して再挑戦させる
@@ -497,6 +509,10 @@ public final class EPUBReaderView: NSView {
     /// テスト用: ウインドウが画面に出ているかを OS の遮蔽判定に依らず決める。
     /// 画面外に置いたテストウインドウは遮蔽扱いで、控えを撮らないため
     var isWindowOnScreenOverride: Bool?
+
+    /// テスト用: ライブリサイズ中かを、実際のウインドウ操作に依らず決める
+    /// (XCTest から本物のライブリサイズは起こせない)
+    var isInLiveResizeOverride: Bool?
 
     // cooViewer-oxr.37
     /// テスト用: VoiceOver プロセスへ依存せず、確定したアナウンス文字列を捕捉する。

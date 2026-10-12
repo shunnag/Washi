@@ -59,11 +59,35 @@ final class EPUBPaginationCensus {
         host.release()
     }
 
+    /// 実測の結果。完走すれば `counts` は全 spine 項目ぶん、一過性の中断なら
+    /// spine 先頭から連続して測り終えた項目ぶんだけ(同じ本・同じ optionsJSON
+    /// での次回の `resuming:` に渡せば続きから測れる)。
+    struct Outcome: Equatable {
+        var counts: [Int]
+        var isComplete: Bool
+    }
+
+    /// テスト用: オフスクリーン WebView で読み込んだ項目の累計(FXL・欠損
+    /// 項目は読み込まないので数えない)。再開が残りの項目だけを読むことの観測点
+    private(set) var loadedItemCount = 0
+
     /// 各 spine 項目のページ数を実測する。cooViewer-oxr.22: 欠損などの
     /// 決定的な項目失敗は 1 ページとして続行し、タイムアウト・WebContent
     /// 終了・キャンセルのような一過性失敗では全体を nil にする。
     func measure(publication: EPUBPublication, optionsJSON: String,
                  contentSize: NSSize) async -> [Int]? {
+        let outcome = await measure(publication: publication, optionsJSON: optionsJSON,
+                                    contentSize: contentSize, resuming: [])
+        return outcome.isComplete ? outcome.counts : nil
+    }
+
+    /// 途中から再開できる実測。`prefix` は同じ本・同じ optionsJSON での以前の
+    /// 中断時に測り終えていた先頭部分(``Outcome/counts``)。項目ごとのページ数は
+    /// (本, optionsJSON, spine 位置)だけで決まるので、続きから測っても
+    /// 一気に測ったときと同じ配列になる。別のキーや別の本の先頭部分を渡さないこと
+    /// (呼び出し側が責任を持つ)。
+    func measure(publication: EPUBPublication, optionsJSON: String,
+                 contentSize: NSSize, resuming prefix: [Int]) async -> Outcome {
         // cooViewer-oxr.68: actor の再入可能区間へ入る前に busy とし、古い
         // タイマを止める。並行 measure も最後の 1 件が抜けるまで
         // 解放しない。
@@ -74,17 +98,21 @@ final class EPUBPaginationCensus {
             scheduleIdleReleaseIfNeeded()
         }
         // Washi-z74.13: 呼び出し元のキャンセルと同じく、この実測の開始後の
-        // invalidate も一過性の中断として nil で抜ける(部分結果は返さない)。
+        // invalidate も一過性の中断として扱い、未完で抜ける(測り終えた先頭部分
+        // だけを返す)。
         let generation = invalidationGeneration
         func isAborted() -> Bool {
             Task.isCancelled || generation != invalidationGeneration
         }
         let allowsScriptedContent = EPUBScreenMetrics.allowsScriptedContent(
             in: optionsJSON)
-        var counts: [Int] = []
-        counts.reserveCapacity(publication.readingOrder.count)
-        for (index, entry) in publication.readingOrder.enumerated() {
-            if isAborted() { return nil }
+        let readingOrder = publication.readingOrder
+        var counts = Array(prefix.prefix(readingOrder.count))
+        counts.reserveCapacity(readingOrder.count)
+        func interrupted() -> Outcome { Outcome(counts: counts, isComplete: false) }
+        for index in counts.count..<readingOrder.count {
+            let entry = readingOrder[index]
+            if isAborted() { return interrupted() }
             if publication.package.effectiveLayout(for: entry.itemRef) == .prePaginated,
                !EPUBScreenMetrics.isScrolled(publication.renderingFlow(at: index)) {
                 counts.append(1)  // FXL は本番(setup の fxl 分岐)と同じ 1 ページ
@@ -97,7 +125,7 @@ final class EPUBPaginationCensus {
             let fillsViewport = await Task.detached(priority: Task.currentPriority) {
                 EPUBScreenMetrics.fillsViewport(publication, spineIndex: index)
             }.value
-            if isAborted() { return nil }
+            if isAborted() { return interrupted() }
             // cooViewer-oxr.51: 同じ基底メトリクスから itemref ごとの
             // rendition:spread と実効余白を導出し、この項目だけへ渡す。
             let plan = EPUBScreenMetrics.setupPlan(
@@ -128,6 +156,7 @@ final class EPUBPaginationCensus {
             // 本番の runSetup と同タイミング(didFinish 直後)で測ることで、
             // フォント・画像の遅延読み込みによる誤差の出方まで揃える
             let result: Result<EPUBOffscreenWebViewHost.SetupResult, any Error>?
+            loadedItemCount += 1
             do {
                 result = try await host.loadAndSetup(
                     url: url, optionsJSON: setupJSON, timeout: .seconds(15),
@@ -135,28 +164,29 @@ final class EPUBPaginationCensus {
             } catch {
                 // キャンセル時の stopLoading は host.load が済ませている。
                 if error is CancellationError || isAborted() {
-                    return nil
+                    return interrupted()
                 }
                 if Self.mustAbortMeasurement(for: error) {
                     webView.stopLoading()
-                    return nil
+                    return interrupted()
                 }
                 // cooViewer-oxr.22: 非キャンセル・非タイムアウトの決定的な
                 // ナビゲーション失敗だけを 1 ページへ縮退する。
                 counts.append(1)
                 continue
             }
-            if isAborted() { return nil }
+            if isAborted() { return interrupted() }
             guard let result else {
                 // 一時的な無応答を 1 ページとして確定・保存しない。
-                // 応答しない WebKit も手放し、次回は新しいビューで再計測する。
+                // 応答しない WebKit も手放し、次回は新しいビューで再計測する
+                // (測り終えた先頭部分は有効なので、再計測は続きから)。
                 releaseOffscreenResources()
-                return nil
+                return interrupted()
             }
-            guard let count = (try? result.get())?.pageCount else { return nil }
+            guard let count = (try? result.get())?.pageCount else { return interrupted() }
             counts.append(max(1, count))
         }
-        return counts
+        return Outcome(counts: counts, isComplete: true)
     }
 
     private func scheduleIdleReleaseIfNeeded() {
