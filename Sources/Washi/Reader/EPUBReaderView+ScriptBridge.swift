@@ -109,6 +109,11 @@ extension EPUBReaderView {
         guard !spineLoad.isLoadingSpineItem else { return }
         let request = navigationRequestGeneration
         let generation = spineLoadGeneration
+        // cooViewer-mzvd: 錨への着地待ちの間は、ページ数・進行率・印刷ページ・柱・控えは
+        // 通常どおり更新し、ホストへの didMoveTo と復元先の解除だけを見送る(章頭などの
+        // 一時的な位置を保存させない。currentLocator は復元先を答え続ける)。
+        // 待ちが解けたら JS が位置を再報告し、ここで実位置として届く
+        let withholdsReport = spineLoad.isAwaitingTextAnchorLanding
         if let index = dict["spineIndex"] as? Int, index != currentSpineIndex {
             currentSpineIndex = index
             setCurrentSelection(nil)
@@ -122,14 +127,18 @@ extension EPUBReaderView {
         // Swift 6.0.3 / Xcode 16.2 で通すため、MainActor メソッドをクロージャで呼ぶ。
         scrollProgression = (dict["progression"] as? Double).map { Self.clampedProgression($0) }
         pagesPerScreen = max(1, dict[.pagesPerScreen] as? Int ?? pagesPerScreen)
-        spineLoad.pendingRestoreLocator = nil  // 実位置が確定した
+        if !withholdsReport {
+            spineLoad.pendingRestoreLocator = nil  // 実位置が確定した
+        }
         updateCurrentPrintPage()
         guard request == navigationRequestGeneration,
               generation == spineLoadGeneration else { return }
         updateFurniture()
-        delegate?.readerView(self, didMoveTo: currentLocator,
-                             pageInItem: pageInItem,
-                             pageCountInItem: pageCountInItem)
+        if !withholdsReport {
+            delegate?.readerView(self, didMoveTo: currentLocator,
+                                 pageInItem: pageInItem,
+                                 pageCountInItem: pageCountInItem)
+        }
         guard request == navigationRequestGeneration,
               generation == spineLoadGeneration else { return }
         scheduleAccessibilityPageAnnouncement()

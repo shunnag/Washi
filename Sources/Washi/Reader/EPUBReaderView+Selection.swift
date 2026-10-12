@@ -194,10 +194,30 @@ extension EPUBReaderView {
 
     func cancelPendingTextRangeRequest(id: UUID? = nil) {
         if let id, pendingTextRangeRequest?.id != id { return }
+        // 取り消し(新しい移動・本の差し替え・読み込みの打ち切り)では、次の移動が
+        // 自分の位置を報告するので、抑制を解くだけで再報告は頼まない
+        spineLoad.isAwaitingTextAnchorLanding = false
         textRangeTask?.cancel()
         textRangeTask = nil
         let continuation = pendingTextRangeRequest?.continuation
         pendingTextRangeRequest = nil
         continuation?.resume(returning: nil)
+    }
+
+    /// 錨への着地(cooViewer-mzvd)が終わった。抑制を解き、見つかっていれば JS に位置を
+    /// 改めて報告させて応答まで待つ: 着地の pageChanged は locateAndShow の応答より先に
+    /// 届いて抑えられている(実測)ので、頼まないと最初の didMoveTo が届かない。待つのは
+    /// go(to:textRange:) の呼び出し側が戻る時点で currentLocator を着地位置にするため。
+    /// 重複は実位置なので許す。見つからなければ続く showProgression が自分で報告する
+    func finishTextAnchorLanding(found: Bool) async {
+        spineLoad.isAwaitingTextAnchorLanding = false
+        guard found, let webView else { return }
+        _ = await callWashi("return __washi.reportPosition();", arguments: [:], in: webView)
+    }
+
+    /// 利用者の操作(キー・ホイール・クリック・リンク)は着地待ちの抑制を解く。着地自体は
+    /// 取り消さず、その後の報告はそのまま届く(利用者の移動を黙殺しない)
+    func endTextAnchorLandingWaitForUserInput() {
+        spineLoad.isAwaitingTextAnchorLanding = false
     }
 }

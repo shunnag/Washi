@@ -37,6 +37,8 @@ extension EPUBReaderView {
         }
         isRoutingKeyDown = true
         defer { isRoutingKeyDown = false }
+        // キー操作は利用者の意図。錨への着地待ちの抑制を解いてから配送する
+        endTextAnchorLandingWaitForUserInput()
         // cooViewer-oxr.80: コンテナが responder の場合もキーを取りこぼさない。
         guard !settings.handlesKeyboardNavigation else {
             forward(event)
@@ -231,6 +233,7 @@ extension EPUBReaderView {
 
     /// クリックの共通ディスパッチ(JS の tap 通知と余白のネイティブクリック)
     func dispatchClick(_ event: EPUBClickEvent) {
+        endTextAnchorLandingWaitForUserInput()
         let request = navigationRequestGeneration
         if delegate?.readerView(self, didClick: event) != true,
            request == navigationRequestGeneration,
@@ -314,6 +317,7 @@ extension EPUBReaderView {
             super.scrollWheel(with: event)
             return
         }
+        endTextAnchorLandingWaitForUserInput()
         // WebView の上でここへ来るのは、重なったビュー(めくり演出や spine 遷移のカバー・
         // ノンブル)が当たり判定を取り、AppKit がそれを親へ転送したとき(macOS 27 では
         // 下にある WebView へ転送するが、それに頼らない)。ページ表示ではそれも送りに回し、

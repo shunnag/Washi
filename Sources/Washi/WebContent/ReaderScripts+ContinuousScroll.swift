@@ -311,6 +311,12 @@ extension ReaderScripts {
             }
             return scrollTo(offset() + (Number(delta) || 0));
         };
+        // cooViewer-mzvd: 位置を動かさず今の位置を改めて報告する(本体スクリプトと同じ役目)
+        api.reportPosition = function () {
+            if (!ready || !active) { return false; }
+            report();
+            return true;
+        };
         api.turnInDoc = function (forward) {
             if (!ready) { return 'ignored'; }
             if (forward ? offset() >= maximum() - 1 : offset() <= 1) {

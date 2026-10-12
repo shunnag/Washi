@@ -100,9 +100,11 @@ final class EPUBScrollLayoutTests: XCTestCase {
         for page in 0..<count {
             let locator = try XCTUnwrap(reader.censusLocator(forGlobalPage: page))
             XCTAssertEqual(reader.censusGlobalPage(for: locator), page)
-            let before = harness.moves
             reader.go(to: locator)
-            try await harness.wait { harness.moves > before }
+            // 章をまたぐ移動は連続文書の読み込み直しを伴い、setup の章頭 scroll の echo が
+            // 目的の位置より先に didMoveTo を届け得る(錨のない進行率の移動なので着地待ちの
+            // 対象外)。最初の報告ではなく、目的のページになるまで待つ
+            try await harness.wait { reader.currentGlobalPageRange?.lowerBound == page + 1 }
             XCTAssertEqual(reader.currentGlobalPageRange?.lowerBound, page + 1)
             XCTAssertEqual(reader.censusGlobalPage(for: reader.currentLocator), page)
         }
