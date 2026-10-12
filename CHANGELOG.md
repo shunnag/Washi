@@ -11,7 +11,7 @@
   宣言する下限(macOS 14、swift-tools-version 6.0)を検査するようにした。
 
 ### 修正
-- Xcode 16.2 (Swift 6.0) でビルドできなかった 2 箇所を直した。
+- Xcode 16.2 (Swift 6.0) でビルドできなかったライブラリの 2 箇所とテストターゲットの Darwin グローバル参照を直した。
 - 固定レイアウトのラスタライザ(`EPUBPageRasterizer`)が、描画する画面外ウインドウではなく
   main 画面の backing scale で拡大率を決めていた問題を修正した。Retina と非 Retina の
   混在や 1x のダミー表示では出力が `maxPixelSize` の 2 倍または 1/2 になっていた。
