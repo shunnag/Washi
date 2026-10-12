@@ -119,7 +119,8 @@ extension EPUBReaderView {
         if dict[.printPageMarkers] != nil { applySetupResult(dict) }
         pageInItem = dict["page"] as? Int ?? 0
         pageCountInItem = max(1, dict[.pageCount] as? Int ?? 1)
-        scrollProgression = (dict["progression"] as? Double).map(Self.clampedProgression)
+        // Swift 6.0.3 / Xcode 16.2 で通すため、MainActor メソッドをクロージャで呼ぶ。
+        scrollProgression = (dict["progression"] as? Double).map { Self.clampedProgression($0) }
         pagesPerScreen = max(1, dict[.pagesPerScreen] as? Int ?? pagesPerScreen)
         spineLoad.pendingRestoreLocator = nil  // 実位置が確定した
         updateCurrentPrintPage()
