@@ -422,6 +422,7 @@ extension EPUBReaderView {
     /// cooViewer-oxr.48: JS の機能検出結果を公開状態へ写し、縦見開きの
     /// 単ページ縮退を診断可能にする。
     func applySetupResult(_ result: [String: Any]) {
+        appliedSetupResultCount += 1
         // CSS の書字方向は JS の計測結果を使い、イベントごとの問い合わせを避ける。
         if let mode = result[.mode] as? String, mode != scrolledWheel.mode {
             scrolledWheel.reset(mode: mode)
@@ -435,14 +436,7 @@ extension EPUBReaderView {
             firstPageOnRight = measured
         }
         if let markers = result[.printPageMarkers] as? [[String: Any]] {
-            // cooViewer-oxr.38: JS の文書順を保ち、壊れた値だけを捨てる。
-            printPageMarkers = markers.compactMap { marker in
-                guard let label = marker["label"] as? String, !label.isEmpty,
-                      let page = marker["page"] as? Int, page >= 0 else {
-                    return nil
-                }
-                return PrintPageMarker(label: label, page: page)
-            }
+            printPageMarkers = Self.printPageMarkers(from: markers)
         }
         guard let supported = result[.supportsColumnAxis] as? Bool else { return }
         let shouldLog = columnAxisSupported && !supported && isSpread
@@ -451,6 +445,18 @@ extension EPUBReaderView {
         if shouldLog {
             Self.logger.warning(
                 "Vertical spread fell back to one page because column-axis is unsupported")
+        }
+    }
+
+    /// setup / pageChanged の printPageMarkers([{ label, page }])を読む。
+    /// cooViewer-oxr.38: JS の文書順を保ち、壊れた値だけを捨てる。
+    static func printPageMarkers(from markers: [[String: Any]]) -> [PrintPageMarker] {
+        markers.compactMap { marker in
+            guard let label = marker["label"] as? String, !label.isEmpty,
+                  let page = marker["page"] as? Int, page >= 0 else {
+                return nil
+            }
+            return PrintPageMarker(label: label, page: page)
         }
     }
 }

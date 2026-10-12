@@ -38,7 +38,12 @@ public final class EPUBReaderView: NSView {
     // - censusProgressionDivisions(+Census): 群の途中の章は count 分割で進行率を出す
     // - scrollFailure(+ScriptBridge): 遅延読み込みの失敗を delegate へ伝える
 
-    public internal(set) var publication: EPUBPublication?
+    public internal(set) var publication: EPUBPublication? {
+        didSet {
+            // page-list の解決結果は本に紐づく(EPUBPublication は不変)
+            if oldValue !== publication { resolvedPrintPageListCache = nil }
+        }
+    }
     public weak var delegate: (any EPUBReaderViewDelegate)?
 
     /// 現在の正規化済みテキスト選択。選択が空、または始点と終点が
@@ -84,7 +89,7 @@ public final class EPUBReaderView: NSView {
     /// Print page labels declared by the publication's page list, in document
     /// order.
     public var printPageLabels: [String] {
-        flattenedPrintPageList.map(\.title)
+        resolvedPrintPageList.map { $0.item.title }
     }
 
     /// 確定した読書位置、またはそれ以前にある最後の印刷ページマーカー。
@@ -105,6 +110,18 @@ public final class EPUBReaderView: NSView {
         let page: Int
     }
     var printPageMarkers: [PrintPageMarker] = []
+    /// 本の page-list を文書順に平坦化し、各項目の spine 番号を解決したもの。
+    /// 連続スクロールでは scroll イベントごと(ProMotion で毎秒 ~120 回)に
+    /// updateCurrentPrintPage が走るので、本ごとに一度だけ作って保持する
+    /// (publication の didSet で捨てる。resolvedPrintPageList が遅延構築する)
+    struct ResolvedPrintPage {
+        let item: EPUBNavItem
+        let spineIndex: Int?
+    }
+    var resolvedPrintPageListCache: [ResolvedPrintPage]?
+    /// テスト用: applySetupResult を適用した累計回数(連続スクロールの
+    /// pageChanged で同じ markers を読み飛ばすことの観測点)
+    var appliedSetupResultCount = 0
 
     var accessibilityShouldReduceMotion: Bool {
         accessibilityReduceMotionOverride
