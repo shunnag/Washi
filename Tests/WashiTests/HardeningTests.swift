@@ -1,4 +1,5 @@
-import Darwin
+// mach_task_self_ の参照を Swift 6.0.3 / Xcode 16.2 で通すため。
+@preconcurrency import Darwin
 import XCTest
 @testable import Washi
 @testable import WashiCore
