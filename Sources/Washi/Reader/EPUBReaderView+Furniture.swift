@@ -95,13 +95,11 @@ extension EPUBReaderView {
         let local = printPageMarkers.last {
             $0.page <= pageInItem
         }?.label
-        let fallback = flattenedPrintPageList.last { item in
-            guard let publication,
-                  let index = publication.spineIndex(forNavItem: item) else {
-                return false
-            }
+        // 解決済みの一覧を使う(spine 番号の解決を scroll イベントごとに繰り返さない)
+        let fallback = resolvedPrintPageList.last { entry in
+            guard let index = entry.spineIndex else { return false }
             return index < currentSpineIndex
-        }?.title
+        }?.item.title
         setCurrentPrintPage(local ?? fallback)
     }
 
