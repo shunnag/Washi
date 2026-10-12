@@ -62,18 +62,37 @@ public final class EPUBScreenAtlas {
     /// invalidate したあとに残った呼び出し元が census.measure / 新しい renderer を
     /// 起動し、不可視ウインドウ・WebContent プロセスを蘇らせてしまう(誰も畳まない)
     private var isInvalidated = false
+    /// 省エネ方針の実体。census とサムネイルレンダラへ渡して共有する
+    let offscreenEnergyPacer: EPUBOffscreenEnergyPacer
 
-    public init(publication: EPUBPublication) {
-        self.publication = publication
-        self.census = EPUBPaginationCensus()
+    /// census とサムネイルの省エネ方針。既定の
+    /// ``EPUBOffscreenEnergyPolicy/unrestricted`` は従来どおり。実行中に変えると
+    /// 次の spine 項目/ジョブから反映され、ページ数と画像は変わらない。
+    ///
+    /// Energy policy for the census and thumbnail work. The default
+    /// ``EPUBOffscreenEnergyPolicy/unrestricted`` behaves exactly as before.
+    /// Changing it at run time applies from the next spine item or job; page
+    /// counts and images are unaffected.
+    public var offscreenEnergyPolicy: EPUBOffscreenEnergyPolicy {
+        get { offscreenEnergyPacer.policy }
+        set { offscreenEnergyPacer.policy = newValue }
     }
 
-    /// テスト用: fake census を注入するイニシャライザ
+    public init(publication: EPUBPublication) {
+        let pacer = EPUBOffscreenEnergyPacer()
+        self.publication = publication
+        self.offscreenEnergyPacer = pacer
+        self.census = EPUBPaginationCensus(energyPacer: pacer)
+    }
+
+    /// テスト用: fake census(と省エネ pacer)を注入するイニシャライザ
     init(publication: EPUBPublication, census: any ScreenPageCensusing,
-         renderer: (any ScreenThumbnailRendering)? = nil) {
+         renderer: (any ScreenThumbnailRendering)? = nil,
+         energyPacer: EPUBOffscreenEnergyPacer = EPUBOffscreenEnergyPacer()) {
         self.publication = publication
         self.census = census
         self.renderer = renderer
+        self.offscreenEnergyPacer = energyPacer
     }
 
     /// テスト用: 実測中(合流対象)のメトリクスキー集合。並行要求の登録を
@@ -188,7 +207,8 @@ public final class EPUBScreenAtlas {
             .applyingRenditionFlow(publication.metadata.rendition.layout == .roll
                 ? .scrolledContinuous : publication.metadata.rendition.flow)
         let renderer = self.renderer
-            ?? EPUBScreenThumbnailRenderer(publication: publication)
+            ?? EPUBScreenThumbnailRenderer(publication: publication,
+                                           energyPacer: offscreenEnergyPacer)
         self.renderer = renderer
         return await renderer.thumbnail(
             spineIndex: spineIndex, pageInItem: pageInItem,

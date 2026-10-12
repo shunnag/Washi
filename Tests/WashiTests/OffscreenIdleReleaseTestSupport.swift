@@ -8,24 +8,29 @@ final class ManualOffscreenIdleScheduler {
     @MainActor
     final class Entry {
         let delay: Duration
+        /// 予約時の仮想時刻 + delay(advance(by:) の発火判定用)
+        let deadline: Duration
         let action: @MainActor @Sendable () -> Void
         var isCancelled = false
         var isFired = false
 
-        init(delay: Duration,
+        init(delay: Duration, deadline: Duration,
              action: @escaping @MainActor @Sendable () -> Void) {
             self.delay = delay
+            self.deadline = deadline
             self.action = action
         }
     }
 
+    /// 仮想時刻(advance(by:) で進む)
+    private(set) var elapsed: Duration = .zero
     private(set) var entries: [Entry] = []
     var firesNextEntrySynchronously = false
 
     var scheduler: EPUBOffscreenIdleReleaseTimer.Scheduler {
         { [weak self] delay, action in
             guard let self else { return {} }
-            let entry = Entry(delay: delay, action: action)
+            let entry = Entry(delay: delay, deadline: elapsed + delay, action: action)
             entries.append(entry)
             if firesNextEntrySynchronously {
                 firesNextEntrySynchronously = false
@@ -38,6 +43,14 @@ final class ManualOffscreenIdleScheduler {
 
     var lastActiveEntry: Entry? {
         entries.last { !$0.isCancelled && !$0.isFired }
+    }
+
+    /// 仮想時刻を進め、経過した有効な期限だけを発火する。
+    func advance(by duration: Duration) {
+        elapsed += duration
+        for entry in entries where entry.deadline <= elapsed {
+            fire(entry)
+        }
     }
 
     func fire(_ entry: Entry, includingCancelled: Bool = false) {

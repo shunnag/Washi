@@ -16,6 +16,7 @@ final class EPUBScreenThumbnailRenderer {
     private var fxlRasterizer: EPUBPageRasterizer?
     private var fxlAllowsScriptedContent: Bool?
     private let idleReleaseTimer: EPUBOffscreenIdleReleaseTimer
+    private let energyPacer: EPUBOffscreenEnergyPacer
     private var pendingRenderRequestCount = 0
     private var loadedSpineIndex: Int?
     private var loadedOptionsJSON: String?
@@ -29,14 +30,18 @@ final class EPUBScreenThumbnailRenderer {
         host.hasLiveWebView || fxlRasterizer?.hasLiveWebView == true
     }
 
+    /// `energyPacer` は所有者が census と共有する(方針の実体)。FXL の委譲先
+    /// ラスタライザは同じ FIFO のジョブとして走るので、ここでの休止で足りる。
     init(
         publication: EPUBPublication,
         idleTimerScheduler: @escaping EPUBOffscreenIdleReleaseTimer.Scheduler =
-            EPUBOffscreenIdleReleaseTimer.continuousScheduler
+            EPUBOffscreenIdleReleaseTimer.continuousScheduler,
+        energyPacer: EPUBOffscreenEnergyPacer = EPUBOffscreenEnergyPacer()
     ) {
         self.publication = publication
         idleReleaseTimer = EPUBOffscreenIdleReleaseTimer(
             scheduler: idleTimerScheduler)
+        self.energyPacer = energyPacer
     }
 
     /// オフスクリーンリソースを明示的に畳み、以後の要求を無効化する。
@@ -82,8 +87,16 @@ final class EPUBScreenThumbnailRenderer {
         // 優先度は明示的に userInitiated へ引き上げる。呼び出し元はサムネイル
         // 先読み(.utility の detached タスク)で、その優先度のまま WebKit へ
         // JS 実行を発行すると応答が返らない(QoS 逆転で永久待ち。実測)。
-        return await queue.enqueue(priority: .userInitiated) {
-            await self.render(
+        return await queue.enqueue(priority: .userInitiated) { () async -> CGImage? in
+            // ジョブの間の休止(followSystem で省エネが求められているときだけ)。
+            // FIFO の中で待つので先行ジョブとの間が空き、優先度はこのジョブのまま。
+            do {
+                try await self.energyPacer.pauseBeforeJobIfNeeded()
+            } catch {
+                return nil
+            }
+            guard !self.isInvalidated, !Task.isCancelled else { return nil }
+            return await self.render(
                 spineIndex: spineIndex, pageInItem: pageInItem,
                 optionsJSON: optionsJSON, contentSize: contentSize,
                 snapshotWidth: snapshotWidth)

@@ -6,6 +6,18 @@
 
 ## [Unreleased]
 
+### 追加
+- `EPUBOffscreenEnergyPolicy` と、`EPUBReaderView.offscreenEnergyPolicy` /
+  `EPUBScreenAtlas.offscreenEnergyPolicy`(既定 `.unrestricted` = 従来どおり)。
+  `.followSystem` にすると、低電力モードか熱状態が serious / critical のとき census の
+  spine 項目とサムネイルのジョブの前に 50 ms 休み、熱状態が critical の間は未開始の
+  census を始めない。優先度は下げず、ページ数・メトリクスキー・画像は変わらない。
+  実行中に変えると次の項目/ジョブから反映される。
+- `EPUBPageRasterizer.idleReleaseInterval`(既定 nil = 従来どおり `invalidate()` まで保持)。
+  設定すると、最後の描画要求が終わってからその時間アイドルが続いた時点で不可視ウインドウと
+  WebContent プロセスを解放し、次の描画で初回と同じ経路で作り直す。描画中と FIFO 待ちの
+  間には解放しない。
+
 ### 変更
 - CI に macos-14 ランナー(Xcode 16.2 / Swift 6.0)を追加し、README と Package.swift が
   宣言する下限(macOS 14、swift-tools-version 6.0)を検査するようにした。

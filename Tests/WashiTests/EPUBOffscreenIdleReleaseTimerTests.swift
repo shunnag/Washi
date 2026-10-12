@@ -3,6 +3,22 @@ import XCTest
 
 @MainActor
 final class EPUBOffscreenIdleReleaseTimerTests: XCTestCase {
+    /// 仮想時刻が指定した間隔に達するまで解放 callback は発火せず、達した後に 1 回だけ発火する。
+    func testInjectedClockReleasesOnlyAfterConfiguredInterval() {
+        let scheduler = ManualOffscreenIdleScheduler()
+        let timer = EPUBOffscreenIdleReleaseTimer(interval: .seconds(7),
+                                                 scheduler: scheduler.scheduler)
+        var releaseCount = 0
+
+        timer.restart { releaseCount += 1 }
+        scheduler.advance(by: .seconds(6))
+        XCTAssertEqual(releaseCount, 0)
+        scheduler.advance(by: .seconds(1))
+        XCTAssertEqual(releaseCount, 1)
+        scheduler.advance(by: .seconds(7))
+        XCTAssertEqual(releaseCount, 1)
+    }
+
     /// cooViewer-oxr.68: キャンセル済み期限が競合して到着しても発火せず、
     /// 置き換えた期限だけが既定の 20 秒後に発火する。
     func testRestartInvalidatesStaleCallbackAndKeepsTwentySecondDeadline() throws {
