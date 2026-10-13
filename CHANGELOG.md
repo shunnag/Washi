@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-10-13
+
 ### 追加
 - `EPUBOffscreenEnergyPolicy` と、`EPUBReaderView.offscreenEnergyPolicy` /
   `EPUBScreenAtlas.offscreenEnergyPolicy`(既定 `.unrestricted` = 従来どおり)。
