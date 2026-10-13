@@ -304,15 +304,18 @@ extension EPUBReaderView {
                 let landing = await self.locateTextRange(
                     utf16Offset: utf16Offset, utf16Length: utf16Length)
                 guard !Task.isCancelled else { return }
+                if landing == nil {
+                    // 待ちを解く前に進行率へ戻し、スクロールが済むまで待つ。解いてから戻すと、
+                    // 文書が応答の直後に出す章頭の報告(setup の scroll echo。遅い runner で
+                    // 探索の応答より後に届く)が戻る前の位置として漏れる(CI で再現)
+                    await self.showFallbackProgression(fallbackProgression)
+                    guard !Task.isCancelled else { return }
+                }
                 // 今の文書の着地だけが待ちを終える(次の spine 読み込みの錨待ちは続ける)。
                 // 再報告の応答を待つ間に取り消されたら、新しい移動に任せる
                 if generation == self.spineLoadGeneration {
-                    await self.finishTextAnchorLanding(found: landing != nil)
+                    await self.finishTextAnchorLanding()
                     guard !Task.isCancelled else { return }
-                }
-                if landing == nil {
-                    let safeProgression = Self.clampedProgression(fallbackProgression)
-                    self.evaluate("__washi.showProgression(\(safeProgression));")
                 }
                 if let requestID {
                     self.finishTextRangeRequest(id: requestID, landing: landing)

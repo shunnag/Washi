@@ -204,14 +204,27 @@ extension EPUBReaderView {
         continuation?.resume(returning: nil)
     }
 
-    /// 錨への着地(cooViewer-mzvd)が終わった。抑制を解き、見つかっていれば JS に位置を
-    /// 改めて報告させて応答まで待つ: 着地の pageChanged は locateAndShow の応答より先に
-    /// 届いて抑えられている(実測)ので、頼まないと最初の didMoveTo が届かない。待つのは
+    /// 錨が見つからなかったので保存済みの進行率へ戻す。着地待ちの窓は閉じたまま、
+    /// スクロールが済むまで待つ(移動の報告はこの間に届いて抑えられ、続く
+    /// finishTextAnchorLanding の再報告が実位置を届ける)。実 WebKit なし、または
+    /// テストの評価の捕捉があるときは従来どおり evaluate に流す
+    func showFallbackProgression(_ progression: Double) async {
+        let script = "__washi.showProgression(\(Self.clampedProgression(progression)));"
+        guard scriptEvaluationHandler == nil, let webView else {
+            evaluate(script)
+            return
+        }
+        _ = await callWashi("return \(script)", arguments: [:], in: webView)
+    }
+
+    /// 錨への着地(cooViewer-mzvd)が終わった(見つかって着地した、または進行率へ戻した)。
+    /// 抑制を解き、JS に位置を改めて報告させて応答まで待つ: 移動の pageChanged は応答より
+    /// 先に届いて抑えられている(実測)ので、頼まないと最初の didMoveTo が届かない。待つのは
     /// go(to:textRange:) の呼び出し側が戻る時点で currentLocator を着地位置にするため。
-    /// 重複は実位置なので許す。見つからなければ続く showProgression が自分で報告する
-    func finishTextAnchorLanding(found: Bool) async {
+    /// 重複は実位置なので許す
+    func finishTextAnchorLanding() async {
         spineLoad.isAwaitingTextAnchorLanding = false
-        guard found, let webView else { return }
+        guard let webView else { return }
         _ = await callWashi("return __washi.reportPosition();", arguments: [:], in: webView)
     }
 
