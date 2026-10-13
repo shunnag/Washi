@@ -157,6 +157,11 @@ extension EPUBReaderView {
     /// ライブリサイズ中に延期した census を、最終寸法のキーで一度だけ予約する
     /// (ドラッグ中はフレームごとにキーが変わり、起動しては中断する census が
     /// WebKit の仕事を無駄にするうえ、本番の再ページ割りと CPU を争う)
+    ///
+    /// Schedules the census deferred during live resize once, using the final
+    /// dimensions as its key. During a drag, the key changes with every frame;
+    /// repeatedly starting and cancelling the census wastes WebKit work and
+    /// competes with visible repagination for CPU time.
     public override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
         guard census.deferredForLiveResize else { return }

@@ -215,6 +215,36 @@ final class TextAnchorLandingReportTests: XCTestCase {
                        "章頭の一時的な位置を報告した: \(spy.reports)")
     }
 
+    /// 遅い runner では setup の章頭 scroll の echo が、錨の探索の応答より後・進行率へ戻る
+    /// より前に届く(CI で 1 回再現)。文書が探索の応答の直後に出す「今の位置」の報告を
+    /// setTimeout で再現し、進行率へ戻る間も抑制が続いて漏れないことを確かめる。
+    func testChapterTopReportEmittedAfterMissingAnchorReplyIsNotLeaked() async throws {
+        makeReader(size: CGSize(width: 500, height: 400))
+        let book = try continuousBook()
+        view.load(publication: book, at: book.locator(forSpineIndex: 1, progression: 0.55))
+        await waitForProgression(0.55)
+        let fallbackPage = view.pageInItem
+        XCTAssertGreaterThan(fallbackPage, 0)
+        view.textRangeLocationHandler = { [weak view] _, _ in
+            // 探索は「見つからない」。応答の後に文書が位置を報告する(scroll echo と同じく、
+            // 報告の時点の位置を読む)
+            _ = try? await view?.evaluateForTest(
+                "setTimeout(() => __washi.reportPosition(), 0); return true;")
+            return nil
+        }
+        for round in 0..<3 {
+            spy.reports = []
+            var missing = book.locator(forSpineIndex: 1, progression: 0.55)
+            missing.textOffset = 10_000_000
+            view.load(publication: book, at: missing)
+            await waitForLanding()
+            assertReportsOnlyAtLandedPosition(spineIndex: 1, page: fallbackPage)
+            XCTAssertFalse(spy.reports.contains { $0.progression < 0.01 },
+                           "章頭の一時的な位置を報告した(round \(round)): \(spy.reports)")
+        }
+        view.textRangeLocationHandler = nil
+    }
+
     // MARK: - 読み込み済みの本での go(to:)
 
     func testGoToAnchorWhileLoadedReportsOnlyTheLandedPositionInPagedMode() async throws {

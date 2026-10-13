@@ -68,7 +68,8 @@ final class ReaderViewTextAnchorLandingTests: XCTestCase {
         }
         view.scriptEvaluationHandler = { script in
             XCTAssertTrue(attempted)
-            XCTAssertFalse(view.spineLoad.isAwaitingTextAnchorLanding, "fallback より先に通知を再開する")
+            // 進行率へ戻る間も抑制を続け、戻った後に解いて再報告する(章頭の報告を漏らさない)
+            XCTAssertTrue(view.spineLoad.isAwaitingTextAnchorLanding, "fallback の間は抑制を続ける")
             scripts.append(script)
         }
 
@@ -77,6 +78,7 @@ final class ReaderViewTextAnchorLandingTests: XCTestCase {
 
         XCTAssertTrue(attempted)
         XCTAssertEqual(scripts, ["__washi.showProgression(0.625);"])
+        XCTAssertFalse(view.spineLoad.isAwaitingTextAnchorLanding, "fallback の後に抑制を解く")
     }
 
     /// 継続を持つ既存の async API は、正確な着地結果を引き続き返す。
