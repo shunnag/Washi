@@ -145,15 +145,8 @@ final class ReaderViewCensusTests: XCTestCase {
         let window = makeOffscreenWindow(containing: view)
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         view.load(publication: publication)
-        view.cancelPageCensus()
         let metrics = view.censusScreenMetrics
         let key = metrics.censusOptionsJSON
-
-        let reference = EPUBPaginationCensus()
-        defer { reference.invalidate() }
-        guard let full = await reference.measure(
-            publication: publication, optionsJSON: key, contentSize: metrics.contentSize)
-        else { return try failOrSkipIfWebKitUnavailable() }
 
         // 2 項目目の setup 直前にビューを隠す(viewDidHide が census を止める)
         let trigger = TriggeringSetupScheduler()
@@ -161,9 +154,19 @@ final class ReaderViewCensusTests: XCTestCase {
         trigger.onTrigger = { view.isHidden = true }
         let interruptedEngine = EPUBPaginationCensus(
             javaScriptTimeoutScheduler: trigger.scheduler)
+        // load は実測状態を初期化し、非同期の setup 後に実測を予約する。
+        // 最初の await より前に同じ MainActor 上で注入・予約を済ませ、
+        // 比較用の実測を待つ間に別のエンジンが先に走る競合を防ぐ。
         view.census.engine = interruptedEngine
         view.scheduleCensusIfNeeded()
         XCTAssertTrue(view.isPageCensusScheduled)
+
+        let reference = EPUBPaginationCensus()
+        defer { reference.invalidate() }
+        guard let full = await reference.measure(
+            publication: publication, optionsJSON: key, contentSize: metrics.contentSize)
+        else { return try failOrSkipIfWebKitUnavailable() }
+
         let stored = await waitUntil(timeout: .seconds(10)) {
             view.census.partialCounts[key] != nil
         }
@@ -173,9 +176,10 @@ final class ReaderViewCensusTests: XCTestCase {
         XCTAssertNil(view.pageCensus)
         XCTAssertFalse(view.isPageCensusScheduled)
 
-        view.isHidden = false
+        // 再表示による自動予約より先に、再開用のエンジンも注入する。
         let resumedEngine = EPUBPaginationCensus()
         view.census.engine = resumedEngine
+        view.isHidden = false
         view.scheduleCensusIfNeeded()
         let completed = await waitUntil(timeout: .seconds(10)) { view.pageCensus != nil }
         XCTAssertTrue(completed, "再開した census が完走しない")
@@ -194,7 +198,10 @@ final class ReaderViewCensusTests: XCTestCase {
         let window = makeOffscreenWindow(containing: view)
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         view.load(publication: publication)
-        view.cancelPageCensus()
+        // load による初期化の後、最初の await より前に注入する。
+        // setup 後の自動予約も、別キーの予約もこのエンジンを使う。
+        let engine = EPUBPaginationCensus()
+        view.census.engine = engine
         let keyA = view.censusScreenMetrics.censusOptionsJSON
         view.census.partialCounts.insert([1], forKey: keyA, protecting: nil)
 
@@ -203,8 +210,6 @@ final class ReaderViewCensusTests: XCTestCase {
         view.settings = settingsB
         let keyB = view.censusScreenMetrics.censusOptionsJSON
         XCTAssertNotEqual(keyA, keyB)
-        let engine = EPUBPaginationCensus()
-        view.census.engine = engine
         view.scheduleCensusIfNeeded()
         guard await waitUntil(timeout: .seconds(10), { view.pageCensus != nil })
         else { return try failOrSkipIfWebKitUnavailable() }
