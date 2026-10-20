@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### 修正
+
+- 展開済み EPUB の読み取りで起きた OS の I/O エラーを `resourceNotFound` に変換しない。mimetype・encryption.xml・nav・NCX・display-options の
+  I/O エラーも、空の値として確定させずに呼び出し側へ返す。欠落・破損した任意メタデータには、これまでどおり寛容に扱う。
+- スナップショットとページ合成の寸法を、WebKit への受け渡し・Int への変換・バッファ確保の前に検証する。出力は 1 枚あたり 256 MiB 以内に制限する。
+- サムネイルの無地判定で、`CGContext.data` を走査し終えるまで context を保持する。
+
 ## [1.24.0] - 2026-10-13
 
 ### 追加

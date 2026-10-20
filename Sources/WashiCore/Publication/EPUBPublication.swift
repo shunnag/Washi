@@ -111,7 +111,7 @@ public final class EPUBPublication: Sendable {
             let archive: ZipArchive
             do {
                 archive = try ZipArchive(url: url, readStrategy: readStrategy)
-            } catch {
+            } catch let error as ZipError {
                 throw EPUBError.notAnEPUB(
                     "Unable to read ZIP: \(error.localizedDescription)")
             }
@@ -150,14 +150,14 @@ public final class EPUBPublication: Sendable {
         // 固定レイアウト表明はパッケージ文書の外にあるので、ここで読んで渡す。
         let package = try PackageDocumentParser.parse(
             data: reader.read(packagePath), at: packagePath,
-            legacyFixedLayoutHint: Self.displayOptionsDeclareFixedLayout(reader: reader))
+            legacyFixedLayoutHint: try Self.displayOptionsDeclareFixedLayout(reader: reader))
         self.package = package
 
         // encryption.xml(なければ空)
         let encryptionPath = "META-INF/encryption.xml"
-        if reader.exists(encryptionPath) {
-            self.encryption = (try? EPUBEncryptionInfo.parse(
-                data: reader.read(encryptionPath))) ?? .empty
+        if reader.exists(encryptionPath),
+           let data = try optionalContainerData(reader, at: encryptionPath) {
+            self.encryption = (try? EPUBEncryptionInfo.parse(data: data)) ?? .empty
         } else {
             self.encryption = .empty
         }
@@ -209,8 +209,8 @@ public final class EPUBPublication: Sendable {
         if let navItem = package.navItem,
            let navPath = ContainerPath.resolve(base: packagePath, href: navItem.href),
            reader.exists(navPath),
-           let parsed = try? NavigationDocumentParser.parse(
-               data: reader.read(navPath), at: navPath) {
+           let data = try optionalContainerData(reader, at: navPath),
+           let parsed = try? NavigationDocumentParser.parse(data: data, at: navPath) {
             navigation = parsed
         }
         var tocBasePath = navigation.basePath
@@ -224,8 +224,8 @@ public final class EPUBPublication: Sendable {
                let ncxPath = ContainerPath.resolve(base: packagePath,
                                                    href: ncxItem.href),
                reader.exists(ncxPath),
-               let ncx = try? NCXParser.parse(
-                   data: reader.read(ncxPath), at: ncxPath) {
+               let data = try optionalContainerData(reader, at: ncxPath),
+               let ncx = try? NCXParser.parse(data: data, at: ncxPath) {
                 tocBasePath = ncx.basePath
                 if navigation.basePath.isEmpty {
                     navigation = ncx
@@ -256,11 +256,11 @@ public final class EPUBPublication: Sendable {
     /// META-INF の display-options.xml(Apple / Kobo)が固定レイアウトを表明して
     /// いるか。`<option name="fixed-layout">true</option>` の形。
     private static func displayOptionsDeclareFixedLayout(
-        reader: any ContainerReader) -> Bool {
+        reader: any ContainerReader) throws -> Bool {
         let paths = ["META-INF/com.apple.ibooks.display-options.xml",
                      "META-INF/com.kobobooks.display-options.xml"]
         for path in paths where reader.exists(path) {
-            guard let data = try? reader.read(path),
+            guard let data = try optionalContainerData(reader, at: path),
                   let document = try? WashiXML.document(from: data),
                   let root = document.rootElement() else { continue }
             if optionSaysFixedLayout(root) { return true }

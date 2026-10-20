@@ -18,12 +18,17 @@ extension EPUBReaderView {
     public func contentSnapshot(scale: CGFloat) async throws
         -> (image: NSImage, frame: CGRect) {
         guard let webView else { throw EPUBError.malformed("本が開かれていない") }
+        guard scale.isFinite, scale > 0,
+              webView.bounds.width.isFinite, webView.bounds.width > 0,
+              webView.bounds.height.isFinite, webView.bounds.height > 0 else {
+            throw EPUBError.malformed("スナップショットの寸法が無効")
+        }
         let configuration = Self.snapshotConfiguration(afterScreenUpdates: true)
         // cooViewer-hnt: snapshotWidth の単位は画素ではなく点。拡大要求は
         // WebKit にクランプされるため、live view の幅を上限にする。
         configuration.snapshotWidth = NSNumber(
             value: max(1, min(Double(webView.bounds.width),
-                              Double(webView.bounds.width * scale))))
+                              Double(webView.bounds.width) * Double(min(scale, 1)))))
         let image = try await webView.takeSnapshot(configuration: configuration)
         return (image, webView.frame)
     }
@@ -39,6 +44,10 @@ extension EPUBReaderView {
     /// headless verification, thumbnails, and the page-turn effects).
     public func snapshot() async throws -> NSImage {
         guard let webView else { throw EPUBError.malformed("本が開かれていない") }
+        guard webView.bounds.width.isFinite, webView.bounds.width > 0,
+              webView.bounds.height.isFinite, webView.bounds.height > 0 else {
+            throw EPUBError.malformed("スナップショットの寸法が無効")
+        }
         let webImage = try await webView.takeSnapshot(
             configuration: Self.snapshotConfiguration(afterScreenUpdates: true))
         return composeFullPage(webImage: webImage, in: webView.frame)
@@ -52,6 +61,19 @@ extension EPUBReaderView {
         return configuration
     }
 
+    /// Int 変換・行長・総画素の割当を、AppKit を呼ぶ前に検証する。
+    /// 既存の小数切捨ては保ち、画面合成 1 枚の予算は最大 256 MiB とする。
+    static func snapshotPixelDimensions(size: CGSize, scale: CGFloat) -> (width: Int, height: Int)? {
+        guard size.width.isFinite, size.height.isFinite, scale.isFinite,
+              size.width > 0, size.height > 0, scale > 0,
+              let width = Int(exactly: max(1, (size.width * scale).rounded(.towardZero))),
+              let height = Int(exactly: max(1, (size.height * scale).rounded(.towardZero))) else { return nil }
+        let (rowBytes, rowOverflow) = width.multipliedReportingOverflow(by: 4)
+        let (bytes, sizeOverflow) = rowBytes.multipliedReportingOverflow(by: height)
+        guard !rowOverflow, !sizeOverflow, bytes <= 256 * 1024 * 1024 else { return nil }
+        return (width, height)
+    }
+
     /// 背景(余白)+本文+ノンブルを 1 枚に焼いた「紙のページ全体」の像。
     /// snapshot()(検証・サムネイル)とページめくり演出が共用する:
     /// webView のスナップショットには本文領域しか写らないため、めくりを
@@ -62,10 +84,10 @@ extension EPUBReaderView {
     func composeFullPage(webImage: NSImage, in webFrame: NSRect) -> NSImage {
         let size = bounds.size
         let scale = window?.backingScaleFactor ?? 2
-        guard let rep = NSBitmapImageRep(
+        guard let pixels = Self.snapshotPixelDimensions(size: size, scale: scale),
+              let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
-            pixelsWide: max(1, Int(size.width * scale)),
-            pixelsHigh: max(1, Int(size.height * scale)),
+            pixelsWide: pixels.width, pixelsHigh: pixels.height,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
             colorSpaceName: .calibratedRGB, bytesPerRow: 0, bitsPerPixel: 0)
         else { return webImage }
