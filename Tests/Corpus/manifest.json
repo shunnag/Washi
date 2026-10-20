@@ -801,9 +801,9 @@
     {
       "path": "w3c/lay-pp-spine-overrides_image-only-reflow.epub",
       "url": "https://w3c.github.io/epub-tests/tests/lay-pp-spine-overrides_image-only-reflow.epub",
-      "sha256": "043551d1fd4e3530697b8d616e5db1450aa5c834c9750ee4cf76eb7b20f2ecc6",
-      "contentSHA256": "efe2e03694eb7d1118a477aaf869c4297b4b92c08fa932806cbfa199672e03e6",
-      "bytes": 190339
+      "sha256": "36efacb3e5eff230d565a769f838ae1b5633a29b0bd6ed6337862b2bfb780cef",
+      "contentSHA256": "cdaf7ae18ce88c363ad1c01fa17b6339e824f27ec9aa2f0dd5aff32f92487aca",
+      "bytes": 190344
     },
     {
       "path": "w3c/lay-pp-spine-overrides_image-spine-pp.epub",
@@ -815,9 +815,9 @@
     {
       "path": "w3c/lay-pp-spine-overrides_image-spine-reflow.epub",
       "url": "https://w3c.github.io/epub-tests/tests/lay-pp-spine-overrides_image-spine-reflow.epub",
-      "sha256": "d1de9f5a29d587f3a57e98d3a95e550729595aa8f3b76ef6dfd9832adb7803e7",
-      "contentSHA256": "aa95c522b8111b464dc607cce40afea7d3531a9a2968d7c226995cf0095128d2",
-      "bytes": 190355
+      "sha256": "a4a85b824351b0beec7b574fb33dfb6e89db75c42cef2b3cd8f6311d8f4122da",
+      "contentSHA256": "18d4cce18598f89b53372b7c106a265e28e8e8ce651221230de87015ee19cb69",
+      "bytes": 190369
     },
     {
       "path": "w3c/lay-pp-spread-none.epub",
