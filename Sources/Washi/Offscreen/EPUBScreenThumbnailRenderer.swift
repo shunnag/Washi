@@ -75,7 +75,8 @@ final class EPUBScreenThumbnailRenderer {
         // FXL は幅を 2 倍して Int に変換する。非有限値や変換不能な値を
         // WebKit の構築前に拒否し、例外で捕捉できない変換トラップを防ぐ。
         guard !isInvalidated, snapshotWidth.isFinite, snapshotWidth > 0,
-              snapshotWidth < CGFloat(Int.max) / 2 else { return nil }
+              snapshotWidth < CGFloat(Int.max) / 2,
+              EPUBReaderView.snapshotPixelDimensions(size: contentSize, scale: 2) != nil else { return nil }
         // cooViewer-oxr.68: FIFO 待ちも要求中として数え、最後の呼び出しが
         // 完了するまで不可視 WebKit を解放しない。
         pendingRenderRequestCount += 1
@@ -242,7 +243,7 @@ final class EPUBScreenThumbnailRenderer {
 
     /// ほぼ無地(1 色)のスナップショットか。16x16 へ縮小して各チャネルの
     /// 振れ幅を見る(初回描画の合成抜け検知用)
-    private static func looksBlank(_ image: CGImage) -> Bool {
+    static func looksBlank(_ image: CGImage) -> Bool {
         let side = 16
         guard let context = CGContext(
             data: nil, width: side, height: side, bitsPerComponent: 8,
@@ -252,17 +253,20 @@ final class EPUBScreenThumbnailRenderer {
         context.interpolationQuality = .low
         context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
         guard let data = context.data else { return false }
-        let pixels = data.bindMemory(to: UInt8.self, capacity: side * side * 4)
-        var minValue: [UInt8] = [255, 255, 255]
-        var maxValue: [UInt8] = [0, 0, 0]
-        for pixel in 0..<(side * side) {
-            for channel in 0..<3 {
-                let value = pixels[pixel * 4 + channel]
-                minValue[channel] = min(minValue[channel], value)
-                maxValue[channel] = max(maxValue[channel], value)
+        // data は context が所有する。走査の最後まで ARC に解放させない。
+        return withExtendedLifetime(context) {
+            let pixels = data.bindMemory(to: UInt8.self, capacity: side * side * 4)
+            var minValue: [UInt8] = [255, 255, 255]
+            var maxValue: [UInt8] = [0, 0, 0]
+            for pixel in 0..<(side * side) {
+                for channel in 0..<3 {
+                    let value = pixels[pixel * 4 + channel]
+                    minValue[channel] = min(minValue[channel], value)
+                    maxValue[channel] = max(maxValue[channel], value)
+                }
             }
+            return (0..<3).allSatisfy { maxValue[$0] - minValue[$0] < 8 }
         }
-        return (0..<3).allSatisfy { maxValue[$0] - minValue[$0] < 8 }
     }
 
     private func prepareIfNeeded(contentSize: NSSize,

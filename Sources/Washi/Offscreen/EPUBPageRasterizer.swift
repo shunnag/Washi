@@ -257,10 +257,8 @@ public final class EPUBPageRasterizer {
         // 決定の前に用意し、確定後に setContentSize で 1 回だけそろえる。
         let webView = try prepareWebView(initialSize: viewport)
         let backingScale = host.window?.backingScaleFactor ?? 2
-        let longSide = max(viewport.width, viewport.height)
-        let targetLongSidePixels = maxPixelSize.map { max(1, CGFloat($0)) }
-            ?? longSide * 2  // 既定は 2x(Retina 実寸)
-        let zoom = max(0.05, min(4, targetLongSidePixels / (longSide * backingScale)))
+        let zoom = Self.snapshotZoom(viewport: viewport, backingScale: backingScale,
+                                     maxPixelSize: maxPixelSize)
         let frameSize = NSSize(width: viewport.width * zoom,
                                height: viewport.height * zoom)
         host.setContentSize(frameSize)
@@ -287,6 +285,14 @@ public final class EPUBPageRasterizer {
     }
 
     /// 初回だけ `initialSize` で構築する。描画寸法は backing scale の確定後に
+    /// 巨大要求も bitmap 最大 8192² RGBA (256 MiB) に収める。
+    /// viewport 上限だけでは zoom 4 × Retina 2 で長辺 40000 画素まで増えてしまう。
+    static func snapshotZoom(viewport: CGSize, backingScale: CGFloat, maxPixelSize: Int?) -> CGFloat {
+        let longSide = max(viewport.width, viewport.height)
+        let target = min(8192, maxPixelSize.map { max(1, CGFloat($0)) } ?? longSide * 2)
+        return max(0.05, min(4, target / (longSide * backingScale)))
+    }
+
     /// 呼び出し元が setContentSize で 1 回だけ設定する(ここで寸法を変えると
     /// 稼働中の WebContent へ余分なジオメトリ更新を送ることになる)。
     private func prepareWebView(initialSize: NSSize) throws -> WKWebView {

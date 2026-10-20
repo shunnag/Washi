@@ -104,10 +104,18 @@ struct FolderContainerReader: ContainerReader {
         }
         do {
             return try Data(contentsOf: url, options: readStrategy.dataOptions)
-        } catch {
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain
+            && (error.code == NSFileReadNoSuchFileError || error.code == NSFileNoSuchFileError) {
             throw EPUBError.resourceNotFound(path)
         }
     }
+}
+
+/// 任意メタデータの欠落・破損には寛容でも、OS の I/O 失敗は空の成功結果にしない。
+/// 再 open で回復できるよう、Foundation/POSIX の元の error を呼出側へ渡す。
+func optionalContainerData(_ reader: any ContainerReader, at path: String) throws -> Data? {
+    do { return try reader.read(path) }
+    catch is EPUBError { return nil }
 }
 
 /// cooViewer-oxr.46 C44: 自炊層に多い梱包ミスを、厳密な解決が外れたときだけ

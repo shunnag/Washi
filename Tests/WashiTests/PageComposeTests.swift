@@ -9,6 +9,57 @@ import XCTest
 /// 余白を辺ごとに非対称にし、上下/左右の取り違え(flip)も検出する。
 @MainActor
 final class PageComposeTests: XCTestCase {
+    func testSnapshotDimensionsRejectNonfiniteOverflowAndExcessiveAllocation() {
+        for value in [CGFloat.nan, .infinity, -.infinity, 0, -1, CGFloat.greatestFiniteMagnitude] {
+            XCTAssertNil(EPUBReaderView.snapshotPixelDimensions(size: CGSize(width: value, height: 100), scale: 2))
+            XCTAssertNil(EPUBReaderView.snapshotPixelDimensions(size: CGSize(width: 100, height: value), scale: 2))
+            XCTAssertNil(EPUBReaderView.snapshotPixelDimensions(size: CGSize(width: 100, height: 100), scale: value))
+        }
+        XCTAssertNil(EPUBReaderView.snapshotPixelDimensions(size: CGSize(width: 100_000, height: 100_000), scale: 2))
+        let normal = EPUBReaderView.snapshotPixelDimensions(size: CGSize(width: 200.4, height: 100.9), scale: 2)
+        XCTAssertEqual(normal?.width, 400)
+        XCTAssertEqual(normal?.height, 201)
+    }
+
+    func testBlankDetectionKeepsBitmapAliveWhileReadingPixels() throws {
+        let context = try XCTUnwrap(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8,
+            bytesPerRow: 64 * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        let blank = try XCTUnwrap(context.makeImage())
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 32, height: 64))
+        let content = try XCTUnwrap(context.makeImage())
+        for _ in 0..<100 {
+            XCTAssertTrue(EPUBScreenThumbnailRenderer.looksBlank(blank))
+            XCTAssertFalse(EPUBScreenThumbnailRenderer.looksBlank(content))
+        }
+    }
+
+    func testExtremeRasterizerRequestsStayWithinBitmapBudget() {
+        for viewport in [CGSize(width: 1200, height: 1600), CGSize(width: 5000, height: 5000), CGSize(width: 1, height: 5000)] {
+            for scale: CGFloat in [1, 2] {
+                for requested in [nil, 300, 8192, Int.max] as [Int?] {
+                    let zoom = EPUBPageRasterizer.snapshotZoom(viewport: viewport, backingScale: scale, maxPixelSize: requested)
+                    XCTAssertGreaterThan(zoom, 0)
+                    let edge = max(viewport.width, viewport.height) * scale * zoom
+                    XCTAssertLessThanOrEqual(edge, 8192)
+                }
+            }
+        }
+    }
+
+    func testInvalidThumbnailContentSizeDoesNotCreateWebKit() async throws {
+        let renderer = EPUBScreenThumbnailRenderer(publication: try EPUBFixtures.verticalNovel())
+        for value: CGFloat in [.nan, .infinity, -.infinity, 0, -1, .greatestFiniteMagnitude] {
+            let image = await renderer.thumbnail(spineIndex: 0, pageInItem: 0, optionsJSON: "{}",
+                contentSize: CGSize(width: value, height: 100), snapshotWidth: 200)
+            XCTAssertNil(image)
+            XCTAssertFalse(renderer.hasLiveWebView)
+        }
+    }
+
     func testComposeFillsMarginsWithBackgroundAroundContent() throws {
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         view.layer?.backgroundColor =
