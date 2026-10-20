@@ -815,9 +815,9 @@
     {
       "path": "w3c/lay-pp-spine-overrides_image-spine-reflow.epub",
       "url": "https://w3c.github.io/epub-tests/tests/lay-pp-spine-overrides_image-spine-reflow.epub",
-      "sha256": "d1de9f5a29d587f3a57e98d3a95e550729595aa8f3b76ef6dfd9832adb7803e7",
-      "contentSHA256": "aa95c522b8111b464dc607cce40afea7d3531a9a2968d7c226995cf0095128d2",
-      "bytes": 190355
+      "sha256": "a4a85b824351b0beec7b574fb33dfb6e89db75c42cef2b3cd8f6311d8f4122da",
+      "contentSHA256": "18d4cce18598f89b53372b7c106a265e28e8e8ce651221230de87015ee19cb69",
+      "bytes": 190369
     },
     {
       "path": "w3c/lay-pp-spread-none.epub",
