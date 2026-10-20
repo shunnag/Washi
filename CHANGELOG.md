@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [1.24.1] - 2026-10-20
+
 ### 修正
 
 - 展開済み EPUB の読み取りで起きた OS の I/O エラーを `resourceNotFound` に変換しない。mimetype・encryption.xml・nav・NCX・display-options の
