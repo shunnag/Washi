@@ -12,7 +12,7 @@ struct OCFContainer: Sendable {
         // mimetype はあれば検証する(なくても開く: RS には寛容さが許される。
         // ZIP 圧縮済みでも中身が正しければ受け入れる)
         if reader.exists("mimetype") {
-            let mimetype = (try? reader.read("mimetype")).flatMap {
+            let mimetype = (try optionalContainerData(reader, at: "mimetype")).flatMap {
                 String(data: $0, encoding: .utf8)
             }?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let mimetype, mimetype != EPUBMediaType.epub {
