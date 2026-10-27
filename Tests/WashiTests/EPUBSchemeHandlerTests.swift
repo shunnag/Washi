@@ -21,13 +21,13 @@ final class EPUBSchemeHandlerTests: XCTestCase {
         let task = RecordingSchemeTask(request: URLRequest(
             url: try XCTUnwrap(handler.url(forContainerPath: path)))) { stopped.fulfill() }
         handler.webView(webView, start: task)
-        try await waitUntil { probe.started.count == 1 }
+        try await waitUntil(invertedExpectation: stopped) { probe.started.count == 1 }
         // 読取り入口だけでなく 64 KiB の展開ループに入る時間を取る。
         try await Task.sleep(for: .milliseconds(10))
         XCTAssertEqual(probe.completedCount, 0)
         handler.webView(webView, stop: task)
         handler.webView(webView, stop: task)
-        try await waitUntil { probe.cancelledCount == 1 }
+        try await waitUntil(invertedExpectation: stopped) { probe.cancelledCount == 1 }
         await fulfillment(of: [stopped], timeout: 0.05)
         XCTAssertEqual(probe.completedCount, 0)
         XCTAssertEqual(task.callbackCount, 0)
@@ -35,15 +35,18 @@ final class EPUBSchemeHandlerTests: XCTestCase {
 
     /// Washi-1mg: 背景処理をゲートで止め、上限・FIFO・待機中の取消しを決定的に検証する。
     func testExtractionLimitFIFOAndQueuedStop() async throws {
-        let paths = (0..<7).map { "budget/\($0).bin" }
+        let paths = (0..<5).map { "budget/\($0).bin" }
         let probe = SchemeReadProbe(paths: Set(paths), blocks: true)
         defer { probe.releaseAll() }
         let publication = try Self.makeImageSpinePublication(
             wrapReader: { ProbedSchemeReader(base: $0, probe: probe) })
         let handler = EPUBSchemeHandler(publication: publication)
+        XCTAssertEqual(handler.extractionLimit, 4)
+        // Washi-1mg: 少数コアでもゲート待ちが協調プールを使い切らないようにする。
+        handler.extractionLimit = 2
         let webView = WKWebView(frame: .zero)
-        let finished = expectation(description: "停止していない 5 要求が完了する")
-        finished.expectedFulfillmentCount = 5
+        let finished = expectation(description: "停止していない 3 要求が完了する")
+        finished.expectedFulfillmentCount = 3
         let tasks = try paths.map { path in
             RecordingSchemeTask(request: URLRequest(
                 url: try XCTUnwrap(handler.url(forContainerPath: path)))) {
@@ -51,40 +54,44 @@ final class EPUBSchemeHandlerTests: XCTestCase {
                 }
         }
         for task in tasks { handler.webView(webView, start: task) }
-        try await waitUntil { probe.started.count >= 4 }
+        try await waitUntil { probe.started.count >= 2 }
         try await Task.sleep(for: .milliseconds(30))
-        XCTAssertEqual(probe.started.count, 4)
-        XCTAssertEqual(Set(probe.started), Set(paths.prefix(4)))
-        handler.webView(webView, stop: tasks[4])
+        XCTAssertEqual(probe.started.count, 2)
+        XCTAssertEqual(Set(probe.started), Set(paths.prefix(2)))
+        handler.webView(webView, stop: tasks[2])
         handler.webView(webView, stop: tasks[0])
         // 取消しを無視する reader でも、実際に終了するまでは枠を返さない。
         try await Task.sleep(for: .milliseconds(30))
-        XCTAssertEqual(probe.started.count, 4)
+        XCTAssertEqual(probe.started.count, 2)
         probe.release(paths[0])
-        try await waitUntil { probe.started.count >= 5 }
-        XCTAssertEqual(probe.started[4], paths[5])
+        try await waitUntil { probe.started.count >= 3 }
+        XCTAssertEqual(probe.started[2], paths[3])
         probe.release(paths[1])
-        try await waitUntil { probe.started.count >= 6 }
-        XCTAssertEqual(probe.started[5], paths[6])
+        try await waitUntil { probe.started.count >= 4 }
+        XCTAssertEqual(probe.started[3], paths[4])
         probe.releaseAll()
         await fulfillment(of: [finished], timeout: 5)
-        XCTAssertEqual(probe.maximumActive, 4)
-        XCTAssertFalse(probe.started.contains(paths[4]))
+        XCTAssertEqual(probe.maximumActive, 2)
+        XCTAssertFalse(probe.started.contains(paths[2]))
         XCTAssertEqual(tasks[0].callbackCount, 0)
-        XCTAssertEqual(tasks[4].callbackCount, 0)
-        for index in [1, 2, 3, 5, 6] {
+        XCTAssertEqual(tasks[2].callbackCount, 0)
+        for index in [1, 3, 4] {
             XCTAssertNil(tasks[index].failure)
             XCTAssertEqual(tasks[index].receivedData, Data(paths[index].utf8))
         }
     }
 
-    /// Washi-1mg / Washi-j61: 予算超過の CSS は変換せず配信し、所要時間でなくバイト列で検証する。
+    /// Washi-1mg / Washi-j61: 境界の CSS は補完し、予算超過は変換せず、バイト列で検証する。
     func testOversizedCSSIsServedWithoutPolyfill() async throws {
         XCTAssertEqual(EPUBPrefixedCSS.stylesheetByteLimit, 32 << 20)
         let prefix = Data(".tcy { -epub-text-combine-horizontal: all; }".utf8)
         var data = Data(repeating: 0x20, count: EPUBPrefixedCSS.stylesheetByteLimit + 1)
         data.replaceSubrange(0..<prefix.count, with: prefix)
         XCTAssertEqual(EPUBPrefixedCSS.polyfilledStylesheet(data), data)
+        let bounded = data.prefix(EPUBPrefixedCSS.stylesheetByteLimit)
+        XCTAssertEqual(bounded.count, EPUBPrefixedCSS.stylesheetByteLimit)
+        XCTAssertTrue(String(decoding: EPUBPrefixedCSS.polyfilledStylesheet(bounded),
+                             as: UTF8.self).contains("text-combine-upright: all;"))
         let publication = try Self.makeImageSpinePublication(
             path: "style.css", mediaType: " TEXT/CSS ; charset=utf-8", data: data)
         let handler = EPUBSchemeHandler(publication: publication)
@@ -126,10 +133,14 @@ final class EPUBSchemeHandlerTests: XCTestCase {
         }
     }
 
-    private func waitUntil(_ predicate: () -> Bool) async throws {
+    private func waitUntil(invertedExpectation: XCTestExpectation? = nil,
+                           _ predicate: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(5)
         while !predicate() {
             guard ContinuousClock.now < deadline else {
+                if let invertedExpectation {
+                    await fulfillment(of: [invertedExpectation], timeout: 0.05)
+                }
                 XCTFail("背景処理が期限内に進まない")
                 throw URLError(.timedOut)
             }
