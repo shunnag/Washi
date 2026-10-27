@@ -59,6 +59,7 @@ public final class EPUBPublication: Sendable {
     let extractedTextCache: ExtractedTextCache
     let effectiveReadingDirectionCache = EffectiveReadingDirectionCache()
     let singleImageItemCache = SingleImageItemCache()
+    let fixedLayoutInfoCache: FixedLayoutInfoCache
 
     // MARK: - 初期化
 
@@ -189,6 +190,7 @@ public final class EPUBPublication: Sendable {
             throw EPUBError.malformed("Spine is empty")
         }
         self.readingOrder = readingOrder
+        self.fixedLayoutInfoCache = FixedLayoutInfoCache(entryLimit: readingOrder.count)
         self.manifestByPath = manifestByPath
 
         var spineIndexByContainerPath: [String: Int] = [:]
