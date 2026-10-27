@@ -439,8 +439,10 @@ final class HardeningTests: XCTestCase {
         }
     }
 
-    /// 孤立サロゲートで UTF-16 の復号を失敗させても、生バイトのまま
-    /// ASCII の DTD 検査を素通りして libxml2 に展開を任せない。
+    /// Washi-yru: 孤立サロゲートを含む UTF-16 の実体爆弾も、復号の挙動によらず拒否する。
+    /// macOS 14 では U+FFFD への置換で復号に成功し、UTF-8 正規化後の実体検査で拒否される。
+    /// この経路は testEntityBombUTF16Rejected の正しく符号化した UTF-16 の爆弾でも検証する。
+    /// macOS 15 以降では復号に失敗し、normalizedXMLBytes が生バイトを返さず拒否する。
     func testEntityBombUTF16WithLoneSurrogateRejected() throws {
         let xml = """
         <!DOCTYPE r [
@@ -453,10 +455,9 @@ final class HardeningTests: XCTestCase {
         data.append(try XCTUnwrap("<!--".data(using: .utf16LittleEndian)))
         data.append(contentsOf: [0x00, 0xD8])
         data.append(try XCTUnwrap(("-->" + xml).data(using: .utf16LittleEndian)))
-        XCTAssertNil(String(data: data.dropFirst(2), encoding: .utf16LittleEndian))
         XCTAssertThrowsError(try WashiXML.document(from: data)) { error in
             guard case EPUBError.malformed = error else {
-                return XCTFail("UTF-16 復号失敗の拒否ではない: \(error)")
+                return XCTFail("孤立サロゲートを含む UTF-16 の実体爆弾の拒否ではない: \(error)")
             }
         }
     }
