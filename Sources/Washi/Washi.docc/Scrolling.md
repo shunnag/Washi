@@ -28,6 +28,22 @@ pre-paginated plus scrolled-continuous combination also uses width-fitted roll r
 These interpretations follow EPUB Reading Systems 3.3 and the roll model in EPUB
 Reading Systems 3.4, a Candidate Recommendation Draft at the time of implementation.
 
+## 連続表示の項目数の上限 / Continuous group item limit
+
+連続表示の区間が 4,096 spine 項目を超えると、`roll` を含め、連続スクロール文書の
+構成は章単位スクロールへ縮退する。これは文書構成時の制限であり、
+`renderingFlow(at:)` は引き続き `.scrolledContinuous` を返す。
+`Tests/Corpus` の 251 冊のうち、`rendition:layout=roll` または
+`rendition:flow=scrolled-continuous` を宣言するのは 7 冊で、最大 spine は 9 項目のため、
+この制限でコーパス内の実在する本の表示は変わらない。
+
+When a continuous group exceeds 4,096 spine items, continuous-scroll document
+construction falls back to chapter-by-chapter scrolling, including for rolls.
+This limit applies during document construction; `renderingFlow(at:)` still returns
+`.scrolledContinuous`. Of the 251 books in `Tests/Corpus`, only seven declare
+`rendition:layout=roll` or `rendition:flow=scrolled-continuous`, and their largest spine
+has nine items, so this limit leaves those real-world books' presentation unchanged.
+
 ## 操作と設定 / Input and settings
 
 ホイールとトラックパッドは連続移動になり、ページ境界へ吸着しない。

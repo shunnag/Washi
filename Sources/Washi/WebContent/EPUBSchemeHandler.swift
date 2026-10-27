@@ -114,8 +114,12 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     /// URL をコンテナ内パスに変換する(この本に属さなければ nil)。
+    /// host 名が一致しても、port または userinfo がある URL は WebKit が
+    /// 別 origin として扱うため nil を返す。
     ///
     /// URL → container path (nil if it does not belong to this book).
+    /// Returns nil for a URL with a port or userinfo even when its host matches,
+    /// because WebKit treats it as a different origin.
     public func containerPath(for url: URL) -> String? {
         guard url.scheme?.lowercased() == Self.scheme,
               url.host()?.lowercased() == instanceID,

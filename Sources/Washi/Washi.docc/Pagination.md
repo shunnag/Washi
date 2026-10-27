@@ -20,11 +20,15 @@ gutter, typography, and scripted-content state from a viewport and
 census use the same setup, while ``EPUBScreenAtlas`` applies the publication's
 effective `rendition:spread` preference before measuring or rendering.
 
-スクロール表示では同じ仕組みで画面単位の区切りを数える。項目ごとのフロー、
-見開きの無効化、進行率と画面番号の関係は <doc:Scrolling> を参照。
+スクロール表示では同じ仕組みで画面単位の区切りを数える。
+連続表示の区間が 4,096 spine 項目を超えると、連続スクロール文書の構成は
+章単位スクロールへ縮退するが、`renderingFlow(at:)` は `.scrolledContinuous` を返し続ける。
+項目ごとのフロー、この上限、見開きの無効化、進行率と画面番号の関係は <doc:Scrolling> を参照。
 
-Scrolled rendering uses the same pipeline to count screen-sized steps. See
-<doc:Scrolling> for per-item flow, single-viewport layout, and locator mapping.
+Scrolled rendering uses the same pipeline to count screen-sized steps. When a continuous
+group exceeds 4,096 spine items, continuous-scroll document construction falls back to
+chapter-by-chapter scrolling; `renderingFlow(at:)` still returns `.scrolledContinuous`.
+See <doc:Scrolling> for per-item flow, this limit, single-viewport layout, and locator mapping.
 
 静的プロパティ `EPUBScreenMetrics.paginationVersion` の値は、すべての
 メトリクスキーに埋め込まれます。``EPUBReaderView/importCensus(_:)`` は、

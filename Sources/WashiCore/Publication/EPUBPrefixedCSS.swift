@@ -109,8 +109,10 @@ public enum EPUBPrefixedCSS {
     }
 
     /// テキスト種別が CSS のときだけ通す入口。
+    /// 入力が 32 MiB (32 × 1024 × 1024 バイト)を超える場合は、補完せずそのまま返す。
     ///
     /// An entry point to use only when the text type is CSS.
+    /// Inputs larger than 32 MiB (32 × 1024 × 1024 bytes) are returned unchanged without polyfilling.
     public static func polyfilledStylesheet(_ data: Data) -> Data {
         guard data.count <= stylesheetByteLimit else { return data }
         guard let text = String(data: data, encoding: .utf8),

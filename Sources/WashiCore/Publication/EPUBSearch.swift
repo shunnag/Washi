@@ -102,11 +102,15 @@ extension EPUBPublication {
     /// 初回利用時に解析するため、大きな本ではメインアクター以外からの呼び出しを
     /// 推奨する。現在のタスクがキャンセルされた場合は途中で止め、それまでに
     /// 見つかった一致結果を返す。
+    /// ZIP 展開中の `CancellationError` も外へ投げず、取消しで中断した項目を
+    /// 含めずに、それまでの一致結果を返す。
     ///
     /// This runs on the calling context; uncached content items are parsed on
     /// first use, so for a large book prefer calling it off the main actor.
     /// If the current task is cancelled, it stops early and returns the hits
     /// found so far.
+    /// A `CancellationError` during ZIP decompression is also handled without
+    /// throwing; the interrupted item is omitted and the hits found so far are returned.
     ///
     /// - Parameters:
     ///   - query: 探すテキスト。空または空白だけなら一致結果は返さない。
@@ -134,6 +138,13 @@ extension EPUBPublication {
     /// width-sensitive comparison is not requested. Search whitespace is
     /// normalized in the same way as extracted inline text, so ideographic and
     /// nonbreaking spaces match ordinary spaces.
+    ///
+    /// 呼び出し元 Task の取消しで途中までの一致結果を返し、ZIP 展開中の
+    /// `CancellationError` も外へ投げず、取消しで中断した項目は結果に含めない。
+    ///
+    /// Cancellation of the calling task returns the hits found so far; a
+    /// `CancellationError` during ZIP decompression is handled without throwing,
+    /// and the interrupted item is omitted from the results.
     ///
     /// - Parameters:
     ///   - query: 探すテキスト。空または空白だけなら一致結果は返さない。
