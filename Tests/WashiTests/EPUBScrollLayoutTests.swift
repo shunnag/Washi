@@ -384,25 +384,37 @@ final class EPUBScrollLayoutTests: XCTestCase {
 /// Washi-1nm: WebKit の起動時間を含めず、MainActor 上の同期 setup を検査する。
 @MainActor
 final class EPUBScrollDocumentTests: XCTestCase {
-    func testLargeRollSetupStaysUnderOneSecond() throws {
-        // 縮退直前の 4,096 項目で、寸法取得と JSON 生成が最大になる setup を測る。
-        // 繰り返し itemref・1 MiB の本文・deflate は実測された細工 EPUB に揃える。
+    func testLargeRollSetupStaysWithinDimensionBudget() throws {
+        // Washi-1nm: 縮退直前の 4,096 項目で、実時間ではなく setup の仕事量を検査する。
+        // counting reader は宣言サイズを公開しないため、XHTML 全体を 1 MiB に揃え、
+        // 取得後に累積する経路でも予算境界で止まることを確認する。
         let count = EPUBPublication.maximumEagerScrollItems
-        let chapter = dimensionChapter(bodyBytes: 1_048_576)
-        let book = try budgetPublication(count: count, chapter: chapter)
+        let chapter = dimensionChapter(bodyBytes: 1_048_576 - dimensionChapter().count)
+        let fixture = try budgetPublication(count: count, chapter: chapter)
+        let reader = ScrollDimensionCountingReader(base: fixture.container.reader)
+        let book = try EPUBPublication(url: fixture.url, reader: reader)
         let handler = EPUBSchemeHandler(publication: book)
+        // 出版物を開くためのメタデータ取得を除き、setup 中の全 read を数える。
+        let before = reader.totals
         let start = ContinuousClock.now
         let json = EPUBScrollDocument.options(
             "{\"width\":400,\"height\":600}", publication: book, index: 0, handler: handler)
         let elapsed = ContinuousClock.now - start
-        XCTAssertLessThan(elapsed, .seconds(1), "同期 setup: \(elapsed)")
-        print("[Washi-1nm] \(count) roll items: \(elapsed)")
+        let after = reader.totals
+        let readCount = after.count - before.count
+        let byteCount = after.byteCount - before.byteCount
+        XCTAssertLessThanOrEqual(readCount, EPUBScrollDocument.maximumExactDimensionItems)
+        XCTAssertLessThanOrEqual(byteCount, EPUBScrollDocument.maximumDimensionBytes)
+        print("[Washi-1nm] \(count) roll items: \(elapsed), \(readCount) reads, \(byteCount) bytes")
         XCTAssertEqual(try decodeOptions(json)["flow"] as? String,
                        RenditionFlow.scrolledContinuous.rawValue)
         let items = try continuousItems(in: json)
         XCTAssertEqual(items.count, count)
-        let exactCount = EPUBScrollDocument.maximumDimensionBytes / chapter.count
+        let exactCount = min(EPUBScrollDocument.maximumExactDimensionItems,
+                             EPUBScrollDocument.maximumDimensionBytes / chapter.count)
         XCTAssertGreaterThan(exactCount, 0)
+        XCTAssertEqual(readCount, exactCount)
+        XCTAssertEqual(byteCount, exactCount * chapter.count)
         XCTAssertEqual(items[exactCount - 1]["width"] as? Int, 600)
         XCTAssertEqual(items[exactCount]["width"] as? Int, 1200)
         XCTAssertEqual(items.last?["height"] as? Int, 1600)
@@ -504,7 +516,6 @@ final class EPUBScrollDocumentTests: XCTestCase {
                 let json = EPUBScrollDocument.options(
                     "{}", publication: book, index: index, handler: handler)
                 let elapsed = ContinuousClock.now - start
-                XCTAssertLessThan(elapsed, .seconds(1), "\(count) 項目の縮退 setup: \(elapsed)")
                 if index == 0 { print("[Washi-1nm] \(count) roll items, fallback: \(elapsed)") }
                 XCTAssertEqual(try decodeOptions(json)["flow"] as? String,
                                RenditionFlow.scrolledDoc.rawValue)
@@ -600,5 +611,34 @@ final class EPUBScrollDocumentTests: XCTestCase {
             ("OEBPS/package.opf", Data(opf.utf8)),
             ("OEBPS/page.xhtml", chapter ?? dimensionChapter())
         ], name: "scroll-budget", method: 8)
+    }
+}
+
+/// Washi-1nm: setup の仕事量を、キャッシュを介さない実際のコンテナ読み取りで数える。
+private final class ScrollDimensionCountingReader: ContainerReader, @unchecked Sendable {
+    private let base: any ContainerReader
+    private let lock = NSLock()
+    private var readCount = 0
+    private var readByteCount = 0
+
+    init(base: any ContainerReader) { self.base = base }
+    var allPaths: [String] { base.allPaths }
+    func exists(_ path: String) -> Bool { base.exists(path) }
+
+    func read(_ path: String) throws -> Data {
+        lock.lock()
+        readCount += 1
+        lock.unlock()
+        let data = try base.read(path)
+        lock.lock()
+        readByteCount += data.count
+        lock.unlock()
+        return data
+    }
+
+    var totals: (count: Int, byteCount: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (readCount, readByteCount)
     }
 }
