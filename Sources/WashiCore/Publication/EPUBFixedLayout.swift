@@ -55,6 +55,29 @@ final class SingleImageItemCache: @unchecked Sendable {
     }
 }
 
+/// Washi-1nm: 寸法・画像判定の値だけを spine 数まで保持し、章データや XML は残さない。
+/// EPUBPublication の Sendable 契約を保つため、可変状態は NSLock の内側で扱う。
+final class FixedLayoutInfoCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private let entryLimit: Int
+    private var perItem: [Int: FixedLayoutPageInfo] = [:]
+
+    init(entryLimit: Int) { self.entryLimit = max(0, entryLimit) }
+
+    func value(for index: Int) -> FixedLayoutPageInfo? {
+        lock.lock()
+        defer { lock.unlock() }
+        return perItem[index]
+    }
+
+    func insert(_ info: FixedLayoutPageInfo, for index: Int) {
+        guard (0..<entryLimit).contains(index) else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        if perItem[index] == nil { perItem[index] = info }
+    }
+}
+
 extension EPUBPublication {
     /// その spine 項目が「画像 1 枚だけの項目」か(表紙・挿絵・漫画のページ)。
     /// 表示・census・画面サムネイルが同じ答えを共有するよう、項目ごとに一度だけ
@@ -103,6 +126,70 @@ extension EPUBPublication {
         guard readingOrder.indices.contains(index) else {
             throw EPUBError.resourceNotFound("spine index \(index)")
         }
+        if let cached = fixedLayoutInfoCache.value(for: index) { return cached }
+        // SingleImageItemCache と同じく、展開と解析はロックの外で行う。
+        let data = try resource(at: readingOrder[index].resolvedContainerPath).data
+        let info = uncachedFixedLayoutInfo(forSpineIndex: index, data: data)
+        fixedLayoutInfoCache.insert(info, for: index)
+        return info
+    }
+
+    /// Washi-1nm: setup の累積展開予算。既知の値は予算を使わず再利用し、
+    /// 予算不足はキャッシュに入れない(後から通常の表示経路で正確に取得できる)。
+    package func cachedFixedLayoutInfo(forSpineIndex index: Int) -> FixedLayoutPageInfo? {
+        fixedLayoutInfoCache.value(for: index)
+    }
+
+    package func fixedLayoutInfo(forSpineIndex index: Int,
+                                 remainingByteCount: inout Int) throws -> FixedLayoutPageInfo? {
+        guard readingOrder.indices.contains(index) else {
+            throw EPUBError.resourceNotFound("spine index \(index)")
+        }
+        if let cached = fixedLayoutInfoCache.value(for: index) { return cached }
+        guard remainingByteCount > 0 else { return nil }
+        let path = readingOrder[index].resolvedContainerPath
+        let declaredSize = declaredFixedLayoutResourceSize(at: path)
+        if let size = declaredSize {
+            guard size <= UInt64(remainingByteCount) else {
+                remainingByteCount = 0
+                return nil
+            }
+            // 破損 ZIP で展開が失敗しても予算は消費し、同じ失敗を大量に繰り返さない。
+            remainingByteCount -= Int(size)
+        }
+        let data = try resource(at: path).data
+        // フォルダや独自 ContainerReader は宣言サイズを持たないため、取得後に
+        // 累積する。超過した文書は XML 解析せず、以降の未取得項目も止める。
+        if declaredSize == nil {
+            guard data.count <= remainingByteCount else {
+                remainingByteCount = 0
+                return nil
+            }
+            remainingByteCount -= data.count
+        }
+        let info = uncachedFixedLayoutInfo(forSpineIndex: index, data: data)
+        fixedLayoutInfoCache.insert(info, for: index)
+        return info
+    }
+
+    /// ContainerReader の公開面を増やさず、ZIP は展開前に中央ディレクトリを参照する。
+    /// 救済パスも read と同じ優先順(完全一致・ルート接頭辞・大小文字違い)で調べる。
+    private func declaredFixedLayoutResourceSize(at path: String) -> UInt64? {
+        guard let reader = container.reader as? RescuingContainerReader,
+              let zip = reader.base as? ZipContainerReader else { return nil }
+        let candidates: [String?] = [
+            path, reader.rootPrefix + path,
+            reader.caseInsensitiveIndex[path.lowercased()],
+            reader.caseInsensitiveIndex[(reader.rootPrefix + path).lowercased()]
+        ]
+        for candidate in candidates.compactMap({ $0 }) {
+            if let info = zip.archive.info(for: candidate) { return info.uncompressedSize }
+        }
+        return nil
+    }
+
+    private func uncachedFixedLayoutInfo(forSpineIndex index: Int,
+                                        data: Data) -> FixedLayoutPageInfo {
         let entry = readingOrder[index]
         // page-spread は接頭辞なし(EPUB 3.0 遺物)と rendition: 付き
         // (EPUB 3.1+)の両同義形を受ける
@@ -123,7 +210,6 @@ extension EPUBPublication {
         }
 
         let resolvedPath = entry.resolvedContainerPath
-        let data = try resource(at: resolvedPath).data
         let mediaType = EPUBMediaType.normalized(entry.resolvedItem.mediaType)
         // cooViewer-oxr.15: Core 画像が spine 自身なら ImageIO のヘッダー情報
         // だけで自然寸法を得て、WebKit を通さず画像そのものを表示できる。

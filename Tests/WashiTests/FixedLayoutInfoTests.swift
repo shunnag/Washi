@@ -29,6 +29,36 @@ final class FixedLayoutInfoTests: XCTestCase {
         XCTAssertEqual(page3.pageSpread, .right)
     }
 
+    /// Washi-1nm: 実際の deflate 読み取りを数え、再 setup と同じ反復取得で
+    /// 展開が増えず、共有パスでも spine ごとの配置情報を取り違えないことを確かめる。
+    func testFixedLayoutInfoCachesInflationPerSpineIndex() throws {
+        var entries = EPUBFixtures.fxlComicEntries()
+        let opfIndex = try XCTUnwrap(entries.firstIndex { $0.name == "OEBPS/package.opf" })
+        let opf = try XCTUnwrap(String(data: entries[opfIndex].data, encoding: .utf8))
+            .replacingOccurrences(of: "href=\"p002.xhtml\"", with: "href=\"p001.xhtml\"")
+        entries[opfIndex].data = Data(opf.utf8)
+        let reader = FixedLayoutCountingReader(archive: try ZipArchive(
+            data: ZipBuilder.build(entries, method: 8)))
+        let publication = try EPUBPublication(
+            url: URL(fileURLWithPath: "/tmp/fixed-layout-cache.epub"), reader: reader)
+        let path = "OEBPS/p001.xhtml"
+        XCTAssertEqual(reader.readCount(for: path), 0)
+        for _ in 0..<3 {
+            let first = try publication.fixedLayoutInfo(forSpineIndex: 0)
+            XCTAssertEqual(first.viewportSize, CGSize(width: 1200, height: 1920))
+            XCTAssertEqual(first.pageSpread, .center)
+        }
+        XCTAssertEqual(reader.readCount(for: path), 1)
+        for _ in 0..<3 {
+            let second = try publication.fixedLayoutInfo(forSpineIndex: 1)
+            XCTAssertEqual(second.spineIndex, 1)
+            XCTAssertEqual(second.pageSpread, .left)
+        }
+        XCTAssertEqual(reader.readCount(for: path), 2)
+        XCTAssertThrowsError(try publication.fixedLayoutInfo(forSpineIndex: -1))
+        XCTAssertThrowsError(try publication.fixedLayoutInfo(forSpineIndex: publication.readingOrder.count))
+    }
+
     /// 電書協 FXL テンプレートの SVG ラッパー形式でも画像を直接取り出せる
     func testSVGWrappedImagePage() throws {
         let svgPage = """
@@ -330,5 +360,28 @@ final class FixedLayoutInfoTests: XCTestCase {
         CGImageDestinationAddImage(destination, image, nil)
         XCTAssertTrue(CGImageDestinationFinalize(destination))
         return output as Data
+    }
+}
+
+private final class FixedLayoutCountingReader: ContainerReader, @unchecked Sendable {
+    private let base: ZipContainerReader
+    private let lock = NSLock()
+    private var readCounts: [String: Int] = [:]
+
+    init(archive: ZipArchive) { base = ZipContainerReader(archive: archive) }
+    var allPaths: [String] { base.allPaths }
+    func exists(_ path: String) -> Bool { base.exists(path) }
+
+    func read(_ path: String) throws -> Data {
+        lock.lock()
+        readCounts[path, default: 0] += 1
+        lock.unlock()
+        return try base.read(path)
+    }
+
+    func readCount(for path: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return readCounts[path, default: 0]
     }
 }

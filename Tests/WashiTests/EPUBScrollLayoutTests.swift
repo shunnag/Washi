@@ -2,6 +2,7 @@ import AppKit
 import WebKit
 import XCTest
 @testable import Washi
+@testable import WashiCore
 
 @MainActor
 final class EPUBScrollLayoutTests: XCTestCase {
@@ -377,5 +378,227 @@ final class EPUBScrollLayoutTests: XCTestCase {
                                       textRange: (hit.utf16Range.lowerBound, hit.utf16Range.count))
         XCTAssertNotNil(landing)
         XCTAssertGreaterThan(reader.currentLocator.progression, saved.progression)
+    }
+}
+
+/// Washi-1nm: WebKit の起動時間を含めず、MainActor 上の同期 setup を検査する。
+@MainActor
+final class EPUBScrollDocumentTests: XCTestCase {
+    func testLargeRollSetupStaysUnderOneSecond() throws {
+        // 縮退直前の 4,096 項目で、寸法取得と JSON 生成が最大になる setup を測る。
+        // 繰り返し itemref・1 MiB の本文・deflate は実測された細工 EPUB に揃える。
+        let count = EPUBPublication.maximumEagerScrollItems
+        let chapter = dimensionChapter(bodyBytes: 1_048_576)
+        let book = try budgetPublication(count: count, chapter: chapter)
+        let handler = EPUBSchemeHandler(publication: book)
+        let start = ContinuousClock.now
+        let json = EPUBScrollDocument.options(
+            "{\"width\":400,\"height\":600}", publication: book, index: 0, handler: handler)
+        let elapsed = ContinuousClock.now - start
+        XCTAssertLessThan(elapsed, .seconds(1), "同期 setup: \(elapsed)")
+        print("[Washi-1nm] \(count) roll items: \(elapsed)")
+        XCTAssertEqual(try decodeOptions(json)["flow"] as? String,
+                       RenditionFlow.scrolledContinuous.rawValue)
+        let items = try continuousItems(in: json)
+        XCTAssertEqual(items.count, count)
+        let exactCount = EPUBScrollDocument.maximumDimensionBytes / chapter.count
+        XCTAssertGreaterThan(exactCount, 0)
+        XCTAssertEqual(items[exactCount - 1]["width"] as? Int, 600)
+        XCTAssertEqual(items[exactCount]["width"] as? Int, 1200)
+        XCTAssertEqual(items.last?["height"] as? Int, 1600)
+        XCTAssertNil(book.cachedFixedLayoutInfo(forSpineIndex: exactCount))
+    }
+
+    func testRollDimensionItemBudgetAndCachedDeviceViewport() throws {
+        let limit = EPUBScrollDocument.maximumExactDimensionItems
+        let book = try budgetPublication(count: limit + 2, chapter: dimensionChapter())
+        let handler = EPUBSchemeHandler(publication: book)
+        let items = try continuousItems(in: EPUBScrollDocument.options(
+            "{}", publication: book, index: 0, handler: handler))
+        XCTAssertEqual(items[limit - 1]["width"] as? Int, 600)
+        XCTAssertEqual(items[limit]["width"] as? Int, 1200)
+        XCTAssertNil(book.cachedFixedLayoutInfo(forSpineIndex: limit))
+        // 予算不足は確定値として保存せず、後から正確に取得できる。
+        XCTAssertEqual(try book.fixedLayoutInfo(forSpineIndex: limit).viewportSize,
+                       CGSize(width: 600, height: 900))
+
+        let deviceBook = try budgetPublication(
+            count: limit + 2,
+            chapter: dimensionChapter(viewport: "width=device-width,height=device-height"))
+        _ = try deviceBook.fixedLayoutInfo(forSpineIndex: limit + 1)
+        let deviceHandler = EPUBSchemeHandler(publication: deviceBook)
+        for (width, height) in [(400, 600), (800, 500)] {
+            let deviceItems = try continuousItems(in: EPUBScrollDocument.options(
+                "{\"width\":\(width),\"height\":\(height)}", publication: deviceBook,
+                index: 0, handler: deviceHandler))
+            if width == 400 { XCTAssertEqual(deviceItems[limit]["width"] as? Int, 1200) }
+            XCTAssertEqual(deviceItems[limit + 1]["width"] as? Int, width)
+            XCTAssertEqual(deviceItems[limit + 1]["height"] as? Int, height)
+        }
+    }
+
+    func testOversizedZIPDimensionIsSkippedBeforeInflation() throws {
+        let book = try budgetPublication(
+            count: 2, chapter: dimensionChapter(
+                bodyBytes: EPUBScrollDocument.maximumDimensionBytes + 1))
+        var remaining = EPUBScrollDocument.maximumDimensionBytes
+        XCTAssertNil(try book.fixedLayoutInfo(forSpineIndex: 0, remainingByteCount: &remaining))
+        XCTAssertEqual(remaining, 0)
+        XCTAssertNil(book.cachedFixedLayoutInfo(forSpineIndex: 0))
+        // 後続 setup も通常の既定寸法を出せる。
+        let items = try continuousItems(in: EPUBScrollDocument.options(
+            "{}", publication: book, index: 0, handler: EPUBSchemeHandler(publication: book)))
+        XCTAssertEqual(items.map { $0["width"] as? Int }, [1200, 1200])
+    }
+
+    func testRollImageSpineDimensionsStayExactWithinBudget() throws {
+        // Corpus の lay-roll-images-in-spine(約 25.4 MiB)を上回る計 27 MiB。
+        // ヘッダーだけを見る ImageIO 用に、有効な小画像の後ろへ余白を置く。
+        var image = EPUBFixtures.tinyPNG
+        image.append(Data(count: 3 * 1_024 * 1_024 - image.count))
+        let book = try budgetPublication(count: 9, chapter: image, mediaType: "image/png")
+        let items = try continuousItems(in: EPUBScrollDocument.options(
+            "{}", publication: book, index: 0, handler: EPUBSchemeHandler(publication: book)))
+        XCTAssertEqual(items.count, 9)
+        XCTAssertTrue(items.allSatisfy { $0["width"] as? Int == 1 && $0["height"] as? Int == 1 })
+    }
+
+    func testOversizedReflowableGroupFallsBackToDocumentScroll() throws {
+        let count = EPUBPublication.maximumEagerScrollItems + 1
+        let book = try budgetPublication(count: count, layout: "reflowable")
+        let handler = EPUBSchemeHandler(publication: book)
+        for index in [0, count / 2, count - 1] {
+            let json = EPUBScrollDocument.options(
+                "{}", publication: book, index: index, handler: handler)
+            let options = try decodeOptions(json)
+            XCTAssertEqual(options["flow"] as? String, RenditionFlow.scrolledDoc.rawValue)
+            let items = try continuousItems(in: json)
+            XCTAssertEqual(items.count, 1)
+            XCTAssertEqual(items[0]["index"] as? Int, index)
+            XCTAssertEqual(items[0]["roll"] as? Bool, false)
+            XCTAssertEqual(book.scrollGroup(containing: index), index..<(index + 1))
+        }
+    }
+
+    func testReflowableGroupsThroughLimitKeepContinuousDisplay() throws {
+        // 連続表示を宣言する Corpus の最大 9 項目と、上限ちょうどを確認する。
+        for count in [9, EPUBPublication.maximumEagerScrollItems] {
+            let book = try budgetPublication(count: count, layout: "reflowable")
+            let json = EPUBScrollDocument.options(
+                "{}", publication: book, index: count / 2,
+                handler: EPUBSchemeHandler(publication: book))
+            XCTAssertEqual(try decodeOptions(json)["flow"] as? String,
+                           RenditionFlow.scrolledContinuous.rawValue)
+            XCTAssertEqual(try continuousItems(in: json).count, count)
+            XCTAssertEqual(book.scrollGroup(containing: count / 2), 0..<count)
+        }
+    }
+
+    func testOversizedRollGroupFallsBackToDocumentScroll() throws {
+        // 上限直後と実測された 200,000 項目の本で、roll も JSON を 1 件に抑える。
+        for count in [EPUBPublication.maximumEagerScrollItems + 1, 200_000] {
+            let book = try budgetPublication(count: count)
+            let handler = EPUBSchemeHandler(publication: book)
+            for index in [0, count / 2, count - 1] {
+                let start = ContinuousClock.now
+                let json = EPUBScrollDocument.options(
+                    "{}", publication: book, index: index, handler: handler)
+                let elapsed = ContinuousClock.now - start
+                XCTAssertLessThan(elapsed, .seconds(1), "\(count) 項目の縮退 setup: \(elapsed)")
+                if index == 0 { print("[Washi-1nm] \(count) roll items, fallback: \(elapsed)") }
+                XCTAssertEqual(try decodeOptions(json)["flow"] as? String,
+                               RenditionFlow.scrolledDoc.rawValue)
+                let items = try continuousItems(in: json)
+                XCTAssertEqual(items.count, 1)
+                XCTAssertEqual(items[0]["index"] as? Int, index)
+                XCTAssertEqual(items[0]["roll"] as? Bool, true)
+                XCTAssertEqual(book.scrollGroup(containing: index), index..<(index + 1))
+            }
+            // census 等が指定する単一項目は、巨大な roll 本でも正しい寸法を取得する。
+            let json = EPUBScrollDocument.options(
+                "{}", publication: book, index: count - 1, handler: handler, onlyItem: true)
+            XCTAssertEqual(try decodeOptions(json)["flow"] as? String,
+                           RenditionFlow.scrolledContinuous.rawValue)
+            let items = try continuousItems(in: json)
+            XCTAssertEqual(items.count, 1)
+            XCTAssertEqual(items[0]["index"] as? Int, count - 1)
+            XCTAssertEqual(items[0]["width"] as? Int, 600)
+        }
+    }
+
+    func testRollGroupsThroughLimitKeepContinuousDisplay() throws {
+        for count in [9, EPUBPublication.maximumEagerScrollItems] {
+            let book = try budgetPublication(count: count)
+            let json = EPUBScrollDocument.options(
+                "{}", publication: book, index: count / 2,
+                handler: EPUBSchemeHandler(publication: book))
+            XCTAssertEqual(try decodeOptions(json)["flow"] as? String,
+                           RenditionFlow.scrolledContinuous.rawValue)
+            let items = try continuousItems(in: json)
+            XCTAssertEqual(items.count, count)
+            XCTAssertTrue(items.allSatisfy { $0["roll"] as? Bool == true })
+            XCTAssertEqual(book.scrollGroup(containing: count / 2), 0..<count)
+        }
+    }
+
+    func testMixedOversizedGroupAlsoFallsBackAndOnlyItemStaysBounded() throws {
+        // roll が多くても非 roll が 1 件あれば JS は全件先読みする。
+        let count = EPUBPublication.maximumEagerScrollItems + 1
+        let book = try budgetPublication(count: count, layout: "reflowable", mixed: true)
+        let handler = EPUBSchemeHandler(publication: book)
+        for index in [0, count - 1] {
+            let options = try decodeOptions(EPUBScrollDocument.options(
+                "{}", publication: book, index: index, handler: handler))
+            XCTAssertEqual(options["flow"] as? String, RenditionFlow.scrolledDoc.rawValue)
+            XCTAssertEqual((options["continuousItems"] as? [[String: Any]])?.count, 1)
+        }
+        let roll = try budgetPublication(count: count)
+        let items = try continuousItems(in: EPUBScrollDocument.options(
+            "{}", publication: roll, index: count - 1,
+            handler: EPUBSchemeHandler(publication: roll), onlyItem: true))
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0]["index"] as? Int, count - 1)
+        XCTAssertEqual(items[0]["width"] as? Int, 600)
+    }
+
+    private func decodeOptions(_ json: String) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+    }
+
+    private func continuousItems(in json: String) throws -> [[String: Any]] {
+        try XCTUnwrap(decodeOptions(json)["continuousItems"] as? [[String: Any]])
+    }
+
+    private func dimensionChapter(bodyBytes: Int = 0,
+                                  viewport: String = "width=600,height=900") -> Data {
+        Data("""
+        <html xmlns="http://www.w3.org/1999/xhtml"><head>
+        <meta name="viewport" content="\(viewport)"/></head>
+        <body><p>\(String(repeating: "x", count: bodyBytes))</p></body></html>
+        """.utf8)
+    }
+
+    private func budgetPublication(count: Int, layout: String = "roll",
+                                   chapter: Data? = nil, mixed: Bool = false,
+                                   mediaType: String = "application/xhtml+xml") throws -> EPUBPublication {
+        let spine = (0..<count).map { index in
+            let properties = mixed && index < count - 1 ? "rendition:layout-pre-paginated" : ""
+            return "<itemref idref=\"page\" properties=\"\(properties)\"/>"
+        }.joined()
+        let opf = """
+        <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+        <dc:identifier id="uid">scroll-budget</dc:identifier><dc:title>予算</dc:title><dc:language>ja</dc:language>
+        <meta property="rendition:layout">\(layout)</meta>
+        <meta property="rendition:flow">scrolled-continuous</meta></metadata>
+        <manifest><item id="page" href="page.xhtml" media-type="\(mediaType)"/></manifest>
+        <spine>\(spine)</spine></package>
+        """
+        return try EPUBFixtures.publication([
+            ("mimetype", Data("application/epub+zip".utf8)),
+            ("META-INF/container.xml", Data(EPUBFixtures.containerXML.utf8)),
+            ("OEBPS/package.opf", Data(opf.utf8)),
+            ("OEBPS/page.xhtml", chapter ?? dimensionChapter())
+        ], name: "scroll-budget", method: 8)
     }
 }
