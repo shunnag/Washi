@@ -42,8 +42,12 @@ Three limits of that pass are worth recording, because they changed the result:
 - **Only the four most severe findings per area were attacked.** Findings
   recorded as `needs-measurement` were never refuted either.
 
-Of the 89 files, 42 (6,901 lines) were not read by any area reader; the critic
-read 21 of them and 25 files (about 6,570 lines, 31%) remained unread.
+Of the 89 files, 42 (6,901 lines) were not read by any area reader. The critic
+read 21 of those and reported that about 6,570 lines across 25 files were still
+unread or seen only through `grep` — a figure that counts partially-read files
+(`ReaderScripts.swift`, `EPUBModels.swift`, `XMLElement+EPUB.swift`) as unread,
+so it is not 42 minus 21. The line count is the reliable half: 6,570 of 20,859
+lines, or 31%.
 
 ## Confirmed defects and repairs
 
@@ -130,11 +134,79 @@ were built twice, so each had hardening the other lacked.
   header, moving type determination to WebKit's sniffing — the one thing the
   file's own documentation forbids.
 - Type decisions ran on the raw string, case-sensitively and by prefix, so
-  `TEXT/CSS` got neither the charset nor the `-epub-` polyfill while
-  `text/csszzz` got the polyfill. `EPUBMediaType.normalized` already existed and
-  was unused.
+  `TEXT/CSS` did not get the `-epub-` polyfill while `text/csszzz` did.
+  `EPUBMediaType.normalized` already existed but was not used in this response
+  path. (CSS never carries a charset in these responses; Washi supplies one only
+  for XML and HTML/XHTML.)
 - No test asserted that the CSP header is present, so it could be dropped
   silently. (The audit said the policy had seven directives; it has eight.)
+
+## What the pre-tag review found
+
+Before the tag, the whole diff was reviewed again from nine angles, with two
+adversarial lenses per confirmed finding and a completeness critic. It found
+three defects that would each have been worse to ship than to fix, and all three
+were then reproduced independently.
+
+### A third encoding bypassed the entity guard entirely
+
+The September and October guards closed UTF-32 and UTF-16. libxml2 also
+auto-detects EBCDIC: with `4C 6F A7 94` (`<?xm` in CP037) at the head, no
+signature matches, `encoding=` is not found because the scanner looks for ASCII,
+and the DOCTYPE scan finds no `<` because EBCDIC's is `0x4C`. `validateProlog`
+therefore returned without checking anything and libxml2 alone expanded the
+internal entities. A 415-byte document handed to `XMLDocument` with Washi's own
+options expanded to 64,000,000 characters in 0.167 s; the reviewer reached the
+same figure through `extractText` on a 2,166-byte EPUB. This was not a
+regression in this work — it had been open in `main` — but it is the same
+amplification and the same entry point as the bypass this release claims to
+close.
+
+### The cancellation point poisoned caches permanently
+
+Adding `Task.isCancelled` to the inflate loop changed what `try?` means
+everywhere downstream: before, it only swallowed real read failures; now it also
+swallows cancellation. Three caches memoized the result of such a `try?`
+unconditionally, so one read taken under cancellation fixed a wrong answer for
+the lifetime of the publication. Measured against `main` through the public API,
+with a book whose only reading-direction evidence is `writing-mode:vertical-rl`
+in CSS:
+
+| | first read in a cancelled task | afterwards, from a healthy context |
+|---|---|---|
+| `main` | rtl | rtl |
+| this branch, before the repair | ltr | **ltr** |
+| this branch, after the repair | ltr | rtl |
+
+A vertical Japanese book would have had its page-turn direction and spread sides
+inverted and stuck. The public `go(to:textRange:)` runs its body on the caller's
+task, so cancelling that await is enough to trigger it. The same shape affected
+the single-image-page test and the fixed-layout viewport cache; all of `Sources`
+was audited for the pattern, and the caches whose loaders throw before insertion
+(`FixedLayoutInfoCache`, `ExtractedTextCache`) were left alone.
+
+### A new test could not pass on the CI runners
+
+`testExtractionLimitFIFOAndQueuedStop` filled all four extraction slots, which
+requires blocking four cooperative threads at once. The pool's width is
+`activeProcessorCount`, and GitHub's arm64 macOS runners have 3 vCPUs. Measured
+by occupying threads deliberately:
+
+| free threads | 4 blocking requests | 2 blocking requests |
+|---|---|---|
+| 3 (the arm64 runner) | **3 of 4 — the test fails** | 2 of 2 |
+| 2 | — | 2 of 2 |
+| 4 | 4 of 4 | — |
+
+Four of the six test jobs are arm64, and the release job needs the test job, so
+the tag would have produced no GitHub Release. The limit became an instance
+property — following `rangeResourceCacheByteLimit`, which carries the same
+comment about tests using a smaller budget — and the test now blocks two.
+
+`LIBDISPATCH_COOPERATIVE_POOL_STRICT=1` is not a model of a small runner: it
+pins the pool to one thread (measured: 1 of 4 tasks start on a 16-core machine),
+so no thread-blocking test can pass under it. The acceptance criterion that
+asked for it was wrong.
 
 ## Findings refuted by measurement
 
@@ -197,10 +269,11 @@ the [CHANGELOG](../CHANGELOG.md) lists the behaviour changes they carry.
 
 ## Verification
 
-- `swift test`: 746 → 773 tests, 5 skipped, 0 failures, 224.6 s. The suite was
+- `swift test`: 746 → 784 tests, 5 skipped, 0 failures, 235 s. The suite was
   run after each repair rather than once at the end — 758 after the XML guard
   and the WebKit/scheme-handler work, 763 after the extraction limits, 773 after
-  the scroll budget — so a regression could be attributed to a single change.
+  the scroll budget, 784 after the pre-tag repairs below — so a regression could
+  be attributed to a single change.
 - The crafted inputs that the measurements above were taken with were re-run
   against the repaired code: all three forged-comment variants and the
   lone-surrogate UTF-16 document are rejected, and the 420-byte document that
