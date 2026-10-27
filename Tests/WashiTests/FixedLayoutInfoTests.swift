@@ -13,6 +13,49 @@ final class FixedLayoutInfoTests: XCTestCase {
             displayURL: URL(fileURLWithPath: "/tmp/comic.epub"))
     }
 
+    /// Washi-1mg: 取消済みの展開による false は次の画像判定で使い回さない。
+    func testSingleImageItemCacheRecomputesAfterCancellation() async throws {
+        let publication = try EPUBFixtures.fxlComic()
+        let task = Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            XCTAssertTrue(Task.isCancelled)
+            return publication.isSingleImageItem(atSpineIndex: 0)
+        }
+        let cancelled = await task.value
+        XCTAssertFalse(cancelled)
+
+        XCTAssertFalse(Task.isCancelled)
+        XCTAssertTrue(publication.isSingleImageItem(atSpineIndex: 0))
+        let cached = await Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return publication.isSingleImageItem(atSpineIndex: 0)
+        }.value
+        XCTAssertTrue(cached)
+    }
+
+    /// Washi-1mg: 取消しで得た仮寸法は残さず、正常な再取得後の寸法を保持する。
+    @MainActor
+    func testFixedLayoutViewportCacheRecomputesAfterCancellation() async throws {
+        let publication = try EPUBFixtures.fxlComic()
+        let available = CGSize(width: 600, height: 800)
+        var cache = EPUBReaderView.FixedLayoutViewportCache()
+        let task = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            XCTAssertTrue(Task.isCancelled)
+            let viewport = cache.viewport(forSpineIndex: 0, available: available,
+                                          publication: publication)
+            XCTAssertEqual(viewport, CGSize(width: 1200, height: 1600))
+            XCTAssertNil(cache.sizes[0])
+        }
+        await task.value
+
+        XCTAssertFalse(Task.isCancelled)
+        let viewport = cache.viewport(forSpineIndex: 0, available: available,
+                                      publication: publication)
+        XCTAssertEqual(viewport, CGSize(width: 1200, height: 1920))
+        XCTAssertEqual(cache.sizes[0], viewport)
+    }
+
     func testFixedLayoutInfo() throws {
         let publication = try openFXLComic()
         XCTAssertTrue(publication.isFixedLayout)

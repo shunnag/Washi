@@ -48,9 +48,12 @@ final class SingleImageItemCache: @unchecked Sendable {
         lock.unlock()
         // loader は zip 展開と XML 解析を伴うのでロックの外で回す
         let value = loader()
-        lock.lock()
-        perItem[index] = value
-        lock.unlock()
+        // Washi-1mg: 取消しで展開できなかった false を後続の判定に残さない。
+        if !Task.isCancelled {
+            lock.lock()
+            perItem[index] = value
+            lock.unlock()
+        }
         return value
     }
 }
