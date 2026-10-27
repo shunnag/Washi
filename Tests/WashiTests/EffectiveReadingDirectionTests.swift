@@ -72,6 +72,36 @@ final class EffectiveReadingDirectionTests: XCTestCase {
         XCTAssertEqual(publication.effectiveReadingDirectionSource, .fallback)
     }
 
+    /// Washi-1mg: 取消済みの CSS 読み取りが返す既定値を出版物に残さない。
+    func testReadingDirectionRecomputesAfterCancelledCSSRead() async throws {
+        var entries = EPUBFixtures.singleSpineEntries(bodyHTML: "<p>本文</p>")
+        let chapterIndex = try XCTUnwrap(entries.firstIndex {
+            $0.name == "OEBPS/text/c.xhtml"
+        })
+        entries[chapterIndex].data = Data("""
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <head><style>html{writing-mode:vertical-rl}</style></head>
+              <body><p>本文</p></body>
+            </html>
+            """.utf8)
+        let publication = try EPUBFixtures.publication(entries, method: 8)
+        XCTAssertEqual(publication.readingDirection, .byDefault)
+
+        let task = Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            XCTAssertTrue(Task.isCancelled)
+            return (publication.effectiveReadingDirection,
+                    publication.effectiveReadingDirectionSource)
+        }
+        let cancelled = await task.value
+        XCTAssertEqual(cancelled.0, .ltr)
+        XCTAssertEqual(cancelled.1, .fallback)
+
+        XCTAssertFalse(Task.isCancelled)
+        XCTAssertEqual(publication.effectiveReadingDirection, .rtl)
+        XCTAssertEqual(publication.effectiveReadingDirectionSource, .verticalWritingCSS)
+    }
+
     private func makePublication(
         spineDirection: String? = nil,
         metadataExtra: String = "",

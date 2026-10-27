@@ -455,7 +455,8 @@ public final class EPUBReaderView: NSView {
                 return available
             }
             let viewport = info?.viewportSize ?? CGSize(width: 1200, height: 1600)
-            sizes[index] = viewport
+            // Washi-1mg: 取消しによる仮寸法は残さず、破損時の既定寸法は再利用する。
+            if !Task.isCancelled { sizes[index] = viewport }
             return viewport
         }
     }
