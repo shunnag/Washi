@@ -47,7 +47,7 @@ let package = Package(
     name: "MyReader",
     platforms: [.macOS(.v14)],
     dependencies: [
-        .package(url: "https://github.com/shunnag/Washi.git", from: "1.24.1")
+        .package(url: "https://github.com/shunnag/Washi.git", from: "1.25.0")
     ],
     targets: [
         .executableTarget(
