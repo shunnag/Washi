@@ -312,6 +312,83 @@ final class HardeningTests: XCTestCase {
         XCTAssertThrowsError(try WashiXML.document(from: Data(xml.utf8)))
     }
 
+    /// 実体値のコメント区切りを宣言境界をまたいで結ぶと、入れ子の宣言が
+    /// 除去されるため、引用中の区切りはコメントとして扱わない。
+    func testEntityBombHiddenByQuotedCommentRejected() {
+        let xml = """
+        <!DOCTYPE r [
+          <!ENTITY open "<!-- ">
+          <!ENTITY a "\(String(repeating: "A", count: 64))">
+          <!ENTITY b "\(String(repeating: "&a;", count: 10))">
+          <!ENTITY c "\(String(repeating: "&b;", count: 10))">
+          <!ENTITY close "-->">
+        ]><r>&c;</r>
+        """
+        XCTAssertThrowsError(try WashiXML.document(from: Data(xml.utf8))) { error in
+            guard case EPUBError.malformed = error else {
+                return XCTFail("引用内コメントによる迂回の拒否ではない: \(error)")
+            }
+        }
+    }
+
+    /// 引用中の PI 区切りを結んでも、間の実体宣言を検査から隠せない。
+    func testEntityBombHiddenByQuotedPIRejected() {
+        let xml = """
+        <!DOCTYPE r [
+          <!ENTITY open "<?">
+          <!ENTITY a "\(String(repeating: "A", count: 64))">
+          <!ENTITY b "\(String(repeating: "&a;", count: 10))">
+          <!ENTITY c "\(String(repeating: "&b;", count: 10))">
+          <!ENTITY close "?>">
+        ]><r>&c;</r>
+        """
+        XCTAssertThrowsError(try WashiXML.document(from: Data(xml.utf8))) { error in
+            guard case EPUBError.malformed = error else {
+                return XCTFail("引用内 PI による迂回の拒否ではない: \(error)")
+            }
+        }
+    }
+
+    /// 外部 ID の引用値から内部サブセットへコメントを捏造しても、
+    /// 内部の実体宣言を検査から除外させない。
+    func testEntityBombHiddenBySystemLiteralRejected() {
+        let xml = """
+        <!DOCTYPE r SYSTEM "<!--" [
+          <!ENTITY a "\(String(repeating: "A", count: 64))">
+          <!ENTITY b "\(String(repeating: "&a;", count: 10))">
+          <!ENTITY c "\(String(repeating: "&b;", count: 10))">
+          <!ENTITY z "-->">
+        ]><r>&c;</r>
+        """
+        XCTAssertThrowsError(try WashiXML.document(from: Data(xml.utf8))) { error in
+            guard case EPUBError.malformed = error else {
+                return XCTFail("SYSTEM リテラルによる迂回の拒否ではない: \(error)")
+            }
+        }
+    }
+
+    /// 孤立サロゲートで UTF-16 の復号を失敗させても、生バイトのまま
+    /// ASCII の DTD 検査を素通りして libxml2 に展開を任せない。
+    func testEntityBombUTF16WithLoneSurrogateRejected() throws {
+        let xml = """
+        <!DOCTYPE r [
+          <!ENTITY a "\(String(repeating: "A", count: 64))">
+          <!ENTITY b "\(String(repeating: "&a;", count: 10))">
+          <!ENTITY c "\(String(repeating: "&b;", count: 10))">
+        ]><r>&c;</r>
+        """
+        var data = Data([0xFF, 0xFE])
+        data.append(try XCTUnwrap("<!--".data(using: .utf16LittleEndian)))
+        data.append(contentsOf: [0x00, 0xD8])
+        data.append(try XCTUnwrap(("-->" + xml).data(using: .utf16LittleEndian)))
+        XCTAssertNil(String(data: data.dropFirst(2), encoding: .utf16LittleEndian))
+        XCTAssertThrowsError(try WashiXML.document(from: data)) { error in
+            guard case EPUBError.malformed = error else {
+                return XCTFail("UTF-16 復号失敗の拒否ではない: \(error)")
+            }
+        }
+    }
+
     /// UTF-16 で書かれた実体爆弾もガードを迂回できない
     func testEntityBombUTF16Rejected() {
         let xml = """
