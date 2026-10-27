@@ -6,6 +6,58 @@
 
 ## [Unreleased]
 
+2026-10 の監査(`Documentation/EPUB-Audit-2026-10.md`)の修正。
+
+### 変更
+
+- 内部 DTD を持つ XML で、UTF-16 の署名があるのに復号できないバイト列を拒否する。
+  これまでは生のバイト列をそのまま libxml2 へ渡していた(UTF-8 の復号失敗は以前から拒否していた)。
+  孤立サロゲートを含む UTF-16 の文書は開けなくなる(Washi-yru)。
+- 画面上の表示でも、本文の媒体再生に利用者の操作を要求する。悪意ある EPUB の
+  `<audio autoplay>` / `<video autoplay>` が、本を開いただけでは鳴らない。画面外の
+  census・サムネイル・ラスタライザでは以前から要求していた。朗読(media overlay)は
+  `AVAudioPlayer` を使うので変わらず、利用者が `<audio controls>` を押す再生も残る。
+  画面上と画面外の構成を 1 つの関数に寄せ、片方にしかない硬化が残らないようにした(Washi-hgd)。
+- manifest が宣言した media-type を配信前に検査する。`type/subtype` の token に合わない宣言と、
+  制御文字を含む宣言は `application/octet-stream` で配信する(文字参照で CR/LF を入れると
+  Foundation が `Content-Type` ごと捨て、型の決定が WebKit の推測に移っていた)。型の判定は
+  大文字小文字とパラメータを正規化してから行うので、`TEXT/CSS` でも charset と `-epub-` の
+  補完が当たり、`text/csszzz` には当たらない。宣言されたパラメータは配信時に保つ(Washi-hyt)。
+- `washi-epub` の URL に port か userinfo が付いていると、ホスト名が一致しても受理しない。
+  WebKit はこれらを別 origin として扱うため(Washi-hyt)。
+- 連続表示の group が 4,096 項目を超えると、章単位スクロール(`scrolled-doc`)へ縮退する。
+  `rendition:layout=roll` の本も対象。Tests/Corpus の 251 冊のうち連続表示を宣言するのは
+  7 冊で最大 9 項目なので、実在する本の表示は変わらない(Washi-1nm)。
+- `EPUBPublication.resource(at:)` と、これを経由する読み取りは、呼び出し元の Task が
+  キャンセルされていると `CancellationError` を投げる。これまでは取消しを見ずに展開を
+  完走していた(Washi-1mg)。
+
+### 修正
+
+- 内部 DTD の実体宣言の検査を迂回できた欠陥を直す。引用に対応した走査で DOCTYPE を
+  切り出したあと、引用に対応しない正規表現でコメントと処理命令を取り除いてから宣言を
+  数えていたため、実体値や外部 ID のリテラルに `<!--` / `<?` を置くと、宣言境界を
+  またいだコメント/PI を捏造して間の宣言を検査から消せた。420 バイトの文書が
+  64,000,000 文字に展開できた。内部サブセットの抽出を同じ 1 回の走査で行う(Washi-yru)。
+- 連続スクロールの setup で、spine 項目ごとの寸法情報を spine 数まで再利用する。
+  寸法の取得には件数(2,048)と累積展開量(28 MiB)の予算を置き、予算の外の項目は
+  既定寸法で埋める。再ページ割りのたびに group 全体を展開し直さない。11,832 バイトの
+  細工 EPUB で 6,373 秒かかっていた setup が 1 秒未満に収まる(Washi-1nm)。
+- `WKURLSchemeHandler` の停止要求で、進行中の展開を打ち切る。展開を担う detached task は
+  外側の取消しを継がないため、停止後も最後まで走っていた。ZIP の展開ループにも
+  取消し点を置く(Washi-1mg)。
+- scheme handler の同時展開を 4 本に絞る。1 つの文書が参照する多数のサブリソースで、
+  1 件あたり最大 512 MiB の展開が要求数だけ同時に確保されないようにする(Washi-1mg)。
+- `-epub-` 接頭辞 CSS の補完を背景処理へ移し、入力に 32 MiB の上限を置く。これまでは
+  配信経路の main actor 上で、入力の数倍の複製を作りながら同期に実行していた。Range の
+  キャッシュには補完済みのデータを保持する(Washi-1mg)。
+- Range 応答の切り出しで、`Data` の slice が親の添字空間を保つ場合にも正しい範囲を返す。
+  現状の供給元はすべて 0 起点だが、不変条件ではなく構成で正しくなるようにした(Washi-hyt)。
+- 応答ヘッダに Content-Security-Policy の 8 directive が載ることを、200 と 206 の
+  両方で試験する(Washi-hyt)。
+- GitHub Actions を commit SHA で固定し、dependabot(月 1 回・1 PR)で追う。
+  ワークフローに既定の `permissions: contents: read` を置く(Washi-2s5)。
+
 ## [1.24.1] - 2026-10-20
 
 ### 修正
