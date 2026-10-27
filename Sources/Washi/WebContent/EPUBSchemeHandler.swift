@@ -45,6 +45,16 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
     var scrollDocumentURL: URL? { url(forContainerPath: scrollDocumentPath) }
 
     private var liveTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+    private typealias ResourcePayload = (data: Data, mediaType: String)
+    // Washi-1mg: detached は外側の取消しを継がないため、stop で両方を止める。
+    private var extractionTasks: [ObjectIdentifier: Task<ResourcePayload?, Never>] = [:]
+    // Washi-1mg: 画像・CSS 等を並行して読みつつ、最大 512 MiB の展開が要求数だけ
+    // 同時確保されないよう 4 本に絞る。枠は取消要求時でなく背景処理の終了時に返す。
+    private static let extractionLimit = 4
+    private var activeExtractionCount = 0
+    private var extractionWaiters: [
+        (id: ObjectIdentifier, continuation: CheckedContinuation<Bool, Never>)
+    ] = []
 
     /// 直近に Range 要求で展開したリソース(1件)。audio/video のシークは同じ
     /// ファイルへ Range 要求を繰り返すが、各要求ごとに publication.resource(at:) が
@@ -107,7 +117,8 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
     /// URL → container path (nil if it does not belong to this book).
     public func containerPath(for url: URL) -> String? {
         guard url.scheme?.lowercased() == Self.scheme,
-              url.host()?.lowercased() == instanceID else { return nil }
+              url.host()?.lowercased() == instanceID,
+              url.port == nil, url.user() == nil else { return nil }
         let path = url.path(percentEncoded: false)
         return path.hasPrefix("/") ? String(path.dropFirst()) : path
     }
@@ -156,12 +167,31 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
                            mediaType: cached.mediaType, rangeHeader: rangeHeader)
                 return
             }
-            // 展開・難読化解除はバックグラウンドで(メインを塞がない)
-            let payload = await Task.detached(priority: .userInitiated) {
-                () -> (data: Data, mediaType: String)? in
-                try? publication.resource(at: path)
-            }.value
-            guard let self, self.liveTasks[id] != nil else { return }  // stop 済み
+            guard let self, await self.acquireExtractionSlot(for: id) else { return }
+            // 待機中に stop された場合は、予約された枠を返して展開を始めない。
+            guard self.liveTasks[id] != nil, !Task.isCancelled else {
+                self.releaseExtractionSlot()
+                return
+            }
+            // Washi-1mg: CSS も同じ背景処理で補い、Range キャッシュには適用済みの
+            // データを保持する。命中時の再走査・再複製とメインスレッドの占有を避ける。
+            let extraction = Task.detached(priority: .userInitiated) {
+                () -> ResourcePayload? in
+                guard !Task.isCancelled,
+                      var payload = try? publication.resource(at: path),
+                      !Task.isCancelled else { return nil }
+                // ヘッダ検証で octet-stream になる制御文字付き宣言も、従来どおり補わない。
+                if EPUBMediaType.normalized(payload.mediaType) == EPUBMediaType.css,
+                   !payload.mediaType.utf8.contains(where: { $0 < 0x20 || $0 == 0x7f }) {
+                    payload.data = EPUBPrefixedCSS.polyfilledStylesheet(payload.data)
+                }
+                return Task.isCancelled ? nil : payload
+            }
+            self.extractionTasks[id] = extraction
+            let payload = await extraction.value
+            self.extractionTasks[id] = nil
+            self.releaseExtractionSlot()
+            guard self.liveTasks[id] != nil else { return }  // stop 済み
             self.liveTasks[id] = nil
             guard let payload else {
                 urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
@@ -183,30 +213,72 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
     public func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
         let id = ObjectIdentifier(urlSchemeTask)
         liveTasks[id]?.cancel()
+        extractionTasks[id]?.cancel()
         liveTasks[id] = nil  // 以後この task へは決して応答しない
+        if let index = extractionWaiters.firstIndex(where: { $0.id == id }) {
+            extractionWaiters.remove(at: index).continuation.resume(returning: false)
+        }
+    }
+
+    private func acquireExtractionSlot(for id: ObjectIdentifier) async -> Bool {
+        guard liveTasks[id] != nil, !Task.isCancelled else { return false }
+        if activeExtractionCount < Self.extractionLimit {
+            activeExtractionCount += 1
+            return true
+        }
+        return await withCheckedContinuation { continuation in
+            extractionWaiters.append((id, continuation))
+        }
+    }
+
+    private func releaseExtractionSlot() {
+        activeExtractionCount -= 1
+        // Washi-1mg: MainActor 上で FIFO の先頭へ枠を予約してから再開する。
+        // 再開待ちの間に新しい要求が割り込んでも、同時数と順番を保つ。
+        if !extractionWaiters.isEmpty {
+            activeExtractionCount += 1
+            extractionWaiters.removeFirst().continuation.resume(returning: true)
+        }
     }
 
     static func contentType(for mediaType: String, data: Data) -> String {
-        guard EPUBMediaType.isTextual(mediaType) else { return mediaType }
-        let type = mediaType.split(separator: ";", maxSplits: 1)[0]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        // Washi-hyt: 制御文字でヘッダが捨てられ、WebKit の型推測へ戻るのを防ぐ。
+        guard !mediaType.utf8.contains(where: { $0 < 0x20 || $0 == 0x7f }) else {
+            return "application/octet-stream"
+        }
+        let type = EPUBMediaType.normalized(mediaType)
+        let parts = type.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts.allSatisfy({ part in
+            !part.isEmpty && part.utf8.allSatisfy { byte in
+                switch byte {
+                case 0x30...0x39, 0x61...0x7a: return true
+                default: return "!#$%&'*+-.^_`|~".utf8.contains(byte)
+                }
+            }
+        }) else { return "application/octet-stream" }
+        // Washi-hyt: 宣言 charset を落として WebKit に推測させないよう、
+        // charset を補わない経路では元のパラメータを保つ。
+        let parameters = mediaType.firstIndex(of: ";").map {
+            mediaType[$0...].trimmingCharacters(in: .whitespacesAndNewlines)
+        } ?? ""
+        let contentType = type + parameters
+        guard EPUBMediaType.isTextual(type) else { return contentType }
         let isXML = type == "application/xml" || type.hasSuffix("+xml")
         if isXML, let charset = XMLCharsetDetector.declaredCharsetName(
             in: data, includesHTMLMeta: false)
         {
-            return "\(mediaType); charset=\(charset)"
+            return "\(type); charset=\(charset)"
         }
 
         guard type == "text/html" || type == EPUBMediaType.xhtml,
               let charset = XMLCharsetDetector.declaredCharsetName(in: data)
-        else { return mediaType }
+        else { return contentType }
         // cooViewer-oxr.12: UTF-8 として正しい本文では古い meta 宣言を採用せず、
         // WebKit が誤った Shift_JIS 等で再解釈しないよう明示的に UTF-8 を返す。
         if String(data: data, encoding: .utf8) != nil {
-            return "\(mediaType); charset=utf-8"
+            return "\(type); charset=utf-8"
         }
-        return "\(mediaType); charset=\(charset)"
+        return "\(type); charset=\(charset)"
     }
 
     static func isImageWrapperURL(_ url: URL) -> Bool {
@@ -266,18 +338,14 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
                 // オリジン分離(ホスト名が本ごとの UUID)で塞がったまま。
                 + "script-src \(scriptSource); connect-src 'none'; frame-src 'self'",
         ]
-        headers["Content-Type"] = Self.contentType(for: mediaType, data: data)
-        // cooViewer-oxr.46 C42: WebKit に別名の無い -epub- 接頭辞 CSS を補う
-        // (縦中横の -epub-text-combine-horizontal など。実測で 6 つ)。
-        var data = data
-        if mediaType.hasPrefix("text/css") {
-            data = EPUBPrefixedCSS.polyfilledStylesheet(data)
-        }
+        let mediaType = Self.contentType(for: mediaType, data: data)
+        headers["Content-Type"] = mediaType
 
         // Range 要求(audio/video のシーク)には 206 で応える
         if let rangeHeader, rangeHeader.hasPrefix("bytes="),
            let range = Self.parseRange(rangeHeader, total: data.count) {
-            let slice = data.subdata(in: range)
+            let base = data.startIndex
+            let slice = data.subdata(in: (base + range.lowerBound)..<(base + range.upperBound))
             headers["Content-Length"] = String(slice.count)
             headers["Accept-Ranges"] = "bytes"
             headers["Content-Range"] =

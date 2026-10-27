@@ -147,19 +147,14 @@ extension EPUBReaderView {
                                         allowsScripts: settings.allowsScriptedContent)
         self.schemeHandler = handler
 
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript =
-            settings.allowsScriptedContent
+        let configuration = WebViewConfiguration.makeHardened(
+            allowsScriptedContent: settings.allowsScriptedContent)
         configuration.setURLSchemeHandler(handler, forURLScheme: EPUBSchemeHandler.scheme)
 
         let proxy = MessageProxy(owner: self)
         self.messageProxy = proxy
         let controller = configuration.userContentController
         controller.add(proxy, contentWorld: WashiContentWorld.world, name: "washi")
-        EPUBScriptedContentHardening.install(
-            in: controller,
-            allowsScriptedContent: settings.allowsScriptedContent)
         EPUBScrollDocument.install(in: controller, handler: handler)
 
         let webView = WashiWebView(frame: contentFrame,
