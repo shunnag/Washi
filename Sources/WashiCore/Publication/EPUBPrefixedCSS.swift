@@ -24,6 +24,10 @@ import Foundation
 /// declarations are appended. If WebKit gains support for `-epub-` in the
 /// future, the result will remain the same because the values are identical.
 public enum EPUBPrefixedCSS {
+    // Washi-1mg: Range/抽出本文キャッシュと同じ 32 MiB を入力予算にする。
+    // 通常の CSS には十分な余裕を取り、巨大な宣言での文字列・配列の多重複製を防ぐ。
+    static let stylesheetByteLimit = 32 * 1024 * 1024
+
     /// 補う対象(`-epub-` 名 → 標準名)。WebKit が解釈するものは入れない。
     static let unsupported: [(prefixed: String, standard: String)] = [
         ("-epub-text-combine-horizontal", "text-combine-upright"),
@@ -108,6 +112,7 @@ public enum EPUBPrefixedCSS {
     ///
     /// An entry point to use only when the text type is CSS.
     public static func polyfilledStylesheet(_ data: Data) -> Data {
+        guard data.count <= stylesheetByteLimit else { return data }
         guard let text = String(data: data, encoding: .utf8),
               text.range(of: "-epub-", options: .caseInsensitive) != nil else { return data }
         let converted = polyfilled(text)

@@ -437,6 +437,9 @@ public final class ZipArchive: Sendable {
                 // 宣言サイズは偽装され得るため、巨大な事前確保を避けて 4 MiB を上限とする。
                 result.reserveCapacity(min(uncompressedSize, 4 << 20))
                 while true {
+                    // Washi-1mg: 1 回の出力は最大 64 KiB。ここで取消しを確認し、
+                    // 巨大展開を早く止める。CancellationError は ZIP 破損へ変換しない。
+                    if Task.isCancelled { throw CancellationError() }
                     let previousInputSize = stream.src_size
                     stream.dst_ptr = destination.baseAddress!
                     stream.dst_size = destination.count
