@@ -367,6 +367,78 @@ final class HardeningTests: XCTestCase {
         }
     }
 
+    /// Washi-yru: 単引用符内のコメント区切りも宣言をまたいで結ばない。
+    func testEntityBombHiddenBySingleQuotedCommentRejected() {
+        let xml = """
+        <!DOCTYPE r [
+          <!ENTITY o '<!--'>
+          <!ENTITY a "\(String(repeating: "A", count: 64))">
+          <!ENTITY b "\(String(repeating: "&a;", count: 10))">
+          <!ENTITY c "\(String(repeating: "&b;", count: 10))">
+          <!ENTITY cl '-->'>
+        ]><r>&c;</r>
+        """
+        XCTAssertThrowsError(try WashiXML.document(from: Data(xml.utf8))) { error in
+            guard case EPUBError.malformed = error else {
+                return XCTFail("単引用符内コメントによる迂回の拒否ではない: \(error)")
+            }
+        }
+    }
+
+    /// Washi-yru: 単引用符内の PI 区切りも実体宣言を検査から隠せない。
+    func testEntityBombHiddenBySingleQuotedPIRejected() {
+        let xml = """
+        <!DOCTYPE r [
+          <!ENTITY o '<?'>
+          <!ENTITY a "\(String(repeating: "A", count: 64))">
+          <!ENTITY b "\(String(repeating: "&a;", count: 10))">
+          <!ENTITY c "\(String(repeating: "&b;", count: 10))">
+          <!ENTITY cl '?>'>
+        ]><r>&c;</r>
+        """
+        XCTAssertThrowsError(try WashiXML.document(from: Data(xml.utf8))) { error in
+            guard case EPUBError.malformed = error else {
+                return XCTFail("単引用符内 PI による迂回の拒否ではない: \(error)")
+            }
+        }
+    }
+
+    /// Washi-yru: NOTATION の SYSTEM 値にあるコメント区切りも値として扱う。
+    func testEntityBombHiddenByNotationCommentRejected() {
+        let xml = """
+        <!DOCTYPE r [
+          <!NOTATION n SYSTEM "<!--">
+          <!ENTITY a "\(String(repeating: "A", count: 64))">
+          <!ENTITY b "\(String(repeating: "&a;", count: 10))">
+          <!ENTITY c "\(String(repeating: "&b;", count: 10))">
+          <!NOTATION m SYSTEM "-->">
+        ]><r>&c;</r>
+        """
+        XCTAssertThrowsError(try WashiXML.document(from: Data(xml.utf8))) { error in
+            guard case EPUBError.malformed = error else {
+                return XCTFail("NOTATION コメントによる迂回の拒否ではない: \(error)")
+            }
+        }
+    }
+
+    /// Washi-yru: NOTATION の SYSTEM 値にある PI 区切りも値として扱う。
+    func testEntityBombHiddenByNotationPIRejected() {
+        let xml = """
+        <!DOCTYPE r [
+          <!NOTATION n SYSTEM "<?">
+          <!ENTITY a "\(String(repeating: "A", count: 64))">
+          <!ENTITY b "\(String(repeating: "&a;", count: 10))">
+          <!ENTITY c "\(String(repeating: "&b;", count: 10))">
+          <!NOTATION m SYSTEM "?>">
+        ]><r>&c;</r>
+        """
+        XCTAssertThrowsError(try WashiXML.document(from: Data(xml.utf8))) { error in
+            guard case EPUBError.malformed = error else {
+                return XCTFail("NOTATION PI による迂回の拒否ではない: \(error)")
+            }
+        }
+    }
+
     /// 孤立サロゲートで UTF-16 の復号を失敗させても、生バイトのまま
     /// ASCII の DTD 検査を素通りして libxml2 に展開を任せない。
     func testEntityBombUTF16WithLoneSurrogateRejected() throws {
@@ -406,6 +478,22 @@ final class HardeningTests: XCTestCase {
             data.append(xml.data(using: encoding)!)
             XCTAssertThrowsError(try WashiXML.document(from: data),
                                  "\(encoding) 実体爆弾が通った")
+        }
+    }
+
+    /// Washi-yru: EBCDIC の自動判定シグネチャは libxml2 に渡す前に拒否する。
+    func testEBCDICXMLRejectedBeforeParsing() {
+        // CP037 で符号化した <?xml version="1.0"?><r/>。
+        let data = Data([
+            0x4C, 0x6F, 0xA7, 0x94, 0x93, 0x40, 0xA5, 0x85,
+            0x99, 0xA2, 0x89, 0x96, 0x95, 0x7E, 0x7F, 0xF1,
+            0x4B, 0xF0, 0x7F, 0x6F, 0x6E, 0x4C, 0x99, 0x61, 0x6E,
+        ])
+        XCTAssertThrowsError(try WashiXML.document(from: data)) { error in
+            guard case EPUBError.malformed(let detail) = error else {
+                return XCTFail("EBCDIC 専用の拒否ではない: \(error)")
+            }
+            XCTAssertEqual(detail, "EBCDIC XML is not supported")
         }
     }
 
@@ -497,6 +585,65 @@ final class HardeningTests: XCTestCase {
         """
         let document = try WashiXML.document(from: Data(xml.utf8))
         XCTAssertEqual(document.rootElement()?.name, "html")
+    }
+
+    /// Washi-yru: 実体宣言のない非 UTF-8 の内部サブセットは従来どおり通す。
+    func testJapaneseNonEntityInternalSubsetAccepted() throws {
+        for (charset, encoding) in [
+            ("Shift_JIS", String.Encoding.shiftJIS), ("EUC-JP", .japaneseEUC),
+        ] {
+            let xml = """
+            <?xml version="1.0" encoding="\(charset)"?>
+            <!DOCTYPE r [
+              <!ELEMENT r (#PCDATA)>
+              <!ATTLIST r t CDATA "日本語">
+            ]><r>日本語</r>
+            """
+            let data = try XCTUnwrap(xml.data(using: encoding))
+            XCTAssertNil(String(data: data, encoding: .utf8))
+            let document = try WashiXML.document(from: data)
+            XCTAssertEqual(document.rootElement()?.stringValue, "日本語", charset)
+        }
+    }
+
+    /// Washi-yru: 復号できない内部サブセットに実体宣言があれば安全側で拒否する。
+    func testJapaneseInternalSubsetWithEntityRejected() throws {
+        for (charset, encoding) in [
+            ("Shift_JIS", String.Encoding.shiftJIS), ("EUC-JP", .japaneseEUC),
+        ] {
+            let xml = """
+            <?xml version="1.0" encoding="\(charset)"?>
+            <!DOCTYPE r [
+              <!ATTLIST r t CDATA "日本語">
+              <!ENTITY a "A">
+              <!ENTITY b "&a;&a;">
+              <!ENTITY c "&b;&b;">
+            ]><r>&c;</r>
+            """
+            let data = try XCTUnwrap(xml.data(using: encoding))
+            XCTAssertThrowsError(try WashiXML.document(from: data), charset) { error in
+                guard case EPUBError.malformed(let detail) = error else {
+                    return XCTFail("非 UTF-8 の実体宣言の拒否ではない: \(error)")
+                }
+                XCTAssertEqual(detail, "DTD の文字コードを判定できない")
+            }
+        }
+    }
+
+    /// Washi-yru: 外部 ID の非 ASCII リテラルは内部の安全な実体シムを妨げない。
+    func testJapaneseSystemLiteralWithEntityShimAccepted() throws {
+        for (charset, encoding) in [
+            ("Shift_JIS", String.Encoding.shiftJIS), ("EUC-JP", .japaneseEUC),
+        ] {
+            let xml = """
+            <?xml version="1.0" encoding="\(charset)"?>
+            <!DOCTYPE r SYSTEM "日本語.dtd" [<!ENTITY ok "&#160;">]>
+            <r>a&ok;b</r>
+            """
+            let data = try XCTUnwrap(xml.data(using: encoding))
+            let document = try WashiXML.document(from: data)
+            XCTAssertEqual(document.rootElement()?.stringValue, "a\u{00A0}b", charset)
+        }
     }
 
     /// 文字参照密輸(&#38; → 参照後付け)・巨大値・大量宣言も拒否される

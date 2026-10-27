@@ -118,11 +118,11 @@ enum WashiXML {
     /// `<!ENTITY nbsp "&#160;">` 程度の互換シムが紛れるため、全面禁止は
     /// せず「少数・短値・入れ子なし」の宣言だけを許す
     private static func validateProlog(_ rawData: Data) throws {
-        // cooViewer-oxr.85: EPUB が許すのは UTF-8/UTF-16。UTF-32 は ASCII
-        // バイト検査を迂回して libxml2 に巨大な内部実体を展開させるため、
-        // BOM・先頭バイト列・XML 宣言のいずれで判明しても解析前に拒否する。
-        guard !isUTF32XML(rawData) else {
-            throw EPUBError.malformed("UTF-32 XML is not supported")
+        // cooViewer-oxr.85 / Washi-yru: UTF-32・EBCDIC は ASCII バイト検査を
+        // 迂回して libxml2 に巨大な内部実体を展開させるため、BOM・先頭
+        // バイト列・XML 宣言のいずれで判明しても解析前に拒否する。
+        if let encoding = unsupportedXMLEncoding(rawData) {
+            throw EPUBError.malformed("\(encoding) XML is not supported")
         }
         // libxml2 が見るのと同じ文字列で検査する。UTF-16(BOM または
         // 交互の 0x00)は UTF-8 相当へ正規化する — さもないと ASCII バイト
@@ -154,26 +154,30 @@ enum WashiXML {
         }
     }
 
-    private static func isUTF32XML(_ data: Data) -> Bool {
+    private static func unsupportedXMLEncoding(_ data: Data) -> String? {
         let head = Array(data.prefix(4))
         if head.count == 4 {
             // 通常の UTF-32 BOM、XML 1.0 が定義する BOM なしの先頭 '<'、
             // および稀な UCS-4 2143/3412 バイト順をすべて安全側で扱う。
-            let signatures: [[UInt8]] = [
-                [0xFF, 0xFE, 0x00, 0x00], [0x00, 0x00, 0xFE, 0xFF],
-                [0x3C, 0x00, 0x00, 0x00], [0x00, 0x00, 0x00, 0x3C],
-                [0x00, 0x00, 0x3C, 0x00], [0x00, 0x3C, 0x00, 0x00],
-                [0x00, 0x00, 0xFF, 0xFE], [0xFE, 0xFF, 0x00, 0x00],
+            // Washi-yru: libxml2 xmlDetectCharEncoding の全分岐(UCS-4 4 種・UTF-16 BOM・UTF-8 BOM・EBCDIC)を拒否または後段で検査する。
+            let signatures: [(bytes: [UInt8], encoding: String)] = [
+                ([0xFF, 0xFE, 0x00, 0x00], "UTF-32"), ([0x00, 0x00, 0xFE, 0xFF], "UTF-32"),
+                ([0x3C, 0x00, 0x00, 0x00], "UTF-32"), ([0x00, 0x00, 0x00, 0x3C], "UTF-32"),
+                ([0x00, 0x00, 0x3C, 0x00], "UTF-32"), ([0x00, 0x3C, 0x00, 0x00], "UTF-32"),
+                ([0x00, 0x00, 0xFF, 0xFE], "UTF-32"), ([0xFE, 0xFF, 0x00, 0x00], "UTF-32"),
+                ([0x4C, 0x6F, 0xA7, 0x94], "EBCDIC"),
             ]
-            if signatures.contains(head) { return true }
+            if let match = signatures.first(where: { $0.bytes == head }) {
+                return match.encoding
+            }
         }
         guard let name = XMLCharsetDetector.declaredCharsetName(
             in: data, includesHTMLMeta: false)
-        else { return false }
+        else { return nil }
         let normalized = name.lowercased()
             .replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "_", with: "")
-        return normalized.hasPrefix("utf32") || normalized.hasPrefix("ucs4")
+        return normalized.hasPrefix("utf32") || normalized.hasPrefix("ucs4") ? "UTF-32" : nil
     }
 
     /// 実体値の安全判定: 64 バイト以下で、`&` は「文字参照 `&#…;`」または
@@ -321,9 +325,14 @@ enum WashiXML {
                     } else if byte == UInt8(ascii: "]") {
                         subsetDepth = max(0, subsetDepth - 1)
                     } else if byte == UInt8(ascii: ">"), subsetDepth == 0 {
-                        // 検査できない内部サブセットを後段へ渡さない。
                         guard let text = String(data: subset, encoding: .utf8) else {
-                            throw EPUBError.malformed("DTD の文字コードを判定できない")
+                            // Washi-yru: < (0x3C) は Shift_JIS/EUC-JP の trail byte に
+                            // 現れないため、生バイトで実体宣言の有無を判定できる。
+                            // 実体を含まない非 UTF-8 の宣言は検査対象から外す。
+                            guard subset.firstRange(of: Data("<!ENTITY".utf8)) == nil else {
+                                throw EPUBError.malformed("DTD の文字コードを判定できない")
+                            }
+                            return (data[start...j], "")
                         }
                         return (data[start...j], text)
                     }
