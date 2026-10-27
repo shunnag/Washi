@@ -1,6 +1,8 @@
 # EPUB audit — October 2026
 
-Status: in progress. This record follows the September 2026 audit
+Status: the repairs below ship in Washi 1.25.0 (see the
+[CHANGELOG](../CHANGELOG.md) for the behaviour changes they carry); what follows
+is the audit record. It continues the September 2026 audit
 ([EPUB-Audit-2026-09.md](EPUB-Audit-2026-09.md)) and re-examines the same
 surfaces after the cooViewer audit of 2026-10-26 raised three starting points
 about the WebKit configuration. Open items are tracked in this repository's

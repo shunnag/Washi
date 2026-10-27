@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-10-27
+
 2026-10 の監査(`Documentation/EPUB-Audit-2026-10.md`)の修正。
 
 ### 変更
