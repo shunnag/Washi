@@ -5,6 +5,23 @@ import XCTest
 /// 宣言された大きさと CRC は deflate ストリーム全体を表していなければならず、
 /// 呼び出し側の出力バッファにたまたま収まった先頭部分だけでは足りない。
 final class ZipIntegrityTests: XCTestCase {
+    /// Washi-1mg: 同期の ZIP/ContainerReader 境界でも取消しを破損扱いしない。
+    func testCancelledInflationPreservesCancellationErrorThroughContainerReader() async throws {
+        let zip = try ZipArchive(data: ZipBuilder.build([
+            ("payload.bin", Data(repeating: 0x61, count: 1 << 20))
+        ], method: 8))
+        let task = Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try ZipContainerReader(archive: zip).read("payload.bin")
+        }
+        do {
+            _ = try await task.value
+            XCTFail("取消済みの展開が成功した")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "取消しが変換された: \(error)")
+        }
+    }
+
     private func archive(stream: Data, declared: Data) throws -> ZipArchive {
         let name = "payload.bin"
         var zip = ZipBuilder.build([(name, stream)])

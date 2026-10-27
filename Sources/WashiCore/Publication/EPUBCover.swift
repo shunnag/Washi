@@ -82,14 +82,17 @@ extension EPUBPublication {
     /// 表紙画像をデコードして返す(ImageIO だけを使い、WebKit/AppKit は不要なので
     /// ヘッドレスの索引作成ツールでも動く)。maxPixelSize を渡すと、EXIF の回転を
     /// 適用したうえで、長辺がそのピクセル数以下のサムネイルに縮小する。
-    /// 表紙を解決できない、デコードできない(SVG など)、または DRM により読めない
-    /// 場合は nil を返す。
+    /// 表紙を解決できない、デコードできない(SVG など)、DRM により読めない、
+    /// または ZIP 展開中に呼び出し元 Task の取消しを検出した場合は nil を返す
+    /// (取消し時は表紙を解決できる本でも nil になり、`CancellationError` は投げない)。
     ///
     /// Decodes and returns the cover image (ImageIO only, no WebKit/AppKit, so
     /// it works from headless indexing tools too). Passing maxPixelSize scales
     /// it down to a thumbnail whose long edge is at most that many pixels (with
     /// EXIF rotation applied). Returns nil when the cover cannot be resolved,
-    /// cannot be decoded (e.g. SVG), or is unreadable due to DRM.
+    /// cannot be decoded (e.g. SVG), is unreadable due to DRM, or cancellation of
+    /// the calling task is detected during ZIP decompression; cancellation returns
+    /// nil without throwing `CancellationError` even for a book with a resolvable cover.
     public func coverImage(maxPixelSize: Int? = nil) -> CGImage? {
         guard let path = resolvedCoverImagePath,
               let (data, _) = try? resource(at: path),
@@ -110,14 +113,18 @@ extension EPUBPublication {
     /// 解決した表紙画像をデコードせず、生のバイト列とメディアタイプで返す。
     /// 元ファイルをそのまま保存・配信したいとき(ライブラリのキャッシュや Web の
     /// レスポンスなど)に使える。``coverImage(maxPixelSize:)`` と同じ
-    /// フォールバック連鎖を使う。表紙が見つからない、または DRM などで読めない
-    /// 場合は nil。
+    /// フォールバック連鎖を使う。表紙が見つからない、DRM などで読めない、
+    /// または ZIP 展開中に呼び出し元 Task の取消しを検出した場合は nil を返す
+    /// (取消し時は表紙を解決できる本でも nil になり、`CancellationError` は投げない)。
     ///
     /// The resolved cover image's raw bytes and media type, without decoding —
     /// useful to store or serve the original file as-is (e.g. a library cache
     /// or a web response). Uses the same fallback chain as
     /// ``coverImage(maxPixelSize:)``.
-    /// Nil if no cover resolves or it cannot be read (e.g. DRM).
+    /// Returns nil if no cover resolves, it cannot be read (e.g. DRM), or
+    /// cancellation of the calling task is detected during ZIP decompression;
+    /// cancellation returns nil without throwing `CancellationError` even for
+    /// a book with a resolvable cover.
     public func coverImageData() -> (data: Data, mediaType: String)? {
         guard let path = resolvedCoverImagePath else { return nil }
         return try? resource(at: path)

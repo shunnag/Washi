@@ -21,8 +21,10 @@ extension EPUBPublication {
     /// - Returns: 項目の本文。読める body がなければ空文字列(画像だけのページなど)。
     ///   the item's plain text, or an empty string if it has no
     ///   readable body (e.g. an image-only page).
-    /// - Throws: 項目を読み取れない場合は ``EPUBError``。
-    ///   ``EPUBError`` if the item cannot be read.
+    /// - Throws: 項目を読み取れない場合は ``EPUBError`` または基底の I/O エラー、
+    ///   ZIP 展開中に呼び出し元 Task の取消しを検出した場合は `CancellationError`。
+    ///   ``EPUBError`` or an underlying I/O error if the item cannot be read;
+    ///   `CancellationError` if cancellation of the calling task is detected during ZIP decompression.
     public func extractText(forSpineIndex index: Int) throws -> String {
         guard readingOrder.indices.contains(index) else {
             throw EPUBError.resourceNotFound("spine index \(index)")

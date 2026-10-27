@@ -18,7 +18,8 @@ final class EffectiveReadingDirectionCache: @unchecked Sendable {
         defer { lock.unlock() }
         if let resolution { return resolution }
         let loaded = loader()
-        resolution = loaded
+        // Washi-1mg: 取消しで CSS を読めなかった判定は、次の参照で計算し直す。
+        if !Task.isCancelled { resolution = loaded }
         return loaded
     }
 }

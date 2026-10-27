@@ -65,6 +65,24 @@ Place it with `BookReader(publication: book).frame(minWidth: 400, minHeight: 500
 Cancel pending open/search tasks when the owner closes. Retain the file-access owner
 until the view and all outstanding work finish using the publication.
 
+## 表示設定と媒体再生 / Display settings and media playback
+
+フォントや配色などの表示設定は ``EPUBReaderSettings`` で渡す。
+画面上の媒体再生にも利用者の操作を要求するため、悪意ある EPUB の
+`<audio autoplay>` / `<video autoplay>` は本を開いただけでは再生されない。
+利用者が `<audio controls>` を押す再生は引き続き利用できる。
+朗読(media overlay)は AVAudioPlayer を使うため、この制限では変わらない。
+現状の制限として、正規の本の `<video autoplay muted loop>` のような装飾も
+画面上で自動再生されず、ホストが opt-in する手段はない。
+
+Pass display preferences such as fonts and colors through ``EPUBReaderSettings``.
+Onscreen media playback also requires user interaction, so malicious EPUBs cannot play
+`<audio autoplay>` / `<video autoplay>` merely by being opened. Playback initiated by
+pressing `<audio controls>` remains available. Media overlay narration uses AVAudioPlayer
+and is unchanged by this restriction. As a current limitation, decorative media in
+legitimate books, such as `<video autoplay muted loop>`, also cannot autoplay onscreen,
+and hosts have no way to opt in.
+
 ## ファイル選択・状態管理を含める / Include file selection and state
 
 [サンプルの ReaderSession と ReaderSurface](https://github.com/shunnag/Washi/tree/main/Samples/Sources/ReaderSampleSupport)

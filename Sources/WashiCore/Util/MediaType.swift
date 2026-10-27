@@ -53,8 +53,9 @@ public enum EPUBMediaType {
 
     /// マニフェスト宣言のメディアタイプを比較用に正規化する(`;charset=…` 等の
     /// パラメータを落とし、前後の空白を除いて小文字化する)。
-    static func normalized(_ mediaType: String) -> String {
-        mediaType.split(separator: ";", maxSplits: 1).first.map {
+    package static func normalized(_ mediaType: String) -> String {
+        mediaType.split(separator: ";", maxSplits: 1,
+                        omittingEmptySubsequences: false).first.map {
             String($0).trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
         } ?? ""

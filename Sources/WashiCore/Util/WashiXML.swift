@@ -36,14 +36,14 @@ enum WashiXML {
         // WebKit の DOM 本文と抽出テキストを一致させる(cooViewer-aj4)。
         // ※ CDATA/コメント内の見かけ実体も置換されるが、従来の catch 経路と同じ
         //   既知の制限(実在 EPUB では稀)。
-        let source = containsNamedEntity(data) ? sanitizeEntities(data) : data
+        let source = try containsNamedEntity(data) ? sanitizeEntities(data) : data
         try validateStructure(source)
         let document: XMLDocument
         do {
             document = try XMLDocument(data: source, options: options)
         } catch {
             // 前処理で拾えない実体・別の整形不良は従来どおり sanitize で再挑戦
-            let sanitized = sanitizeEntities(data)
+            let sanitized = try sanitizeEntities(data)
             try validateStructure(sanitized)
             document = try XMLDocument(data: sanitized, options: options)
         }
@@ -118,29 +118,22 @@ enum WashiXML {
     /// `<!ENTITY nbsp "&#160;">` 程度の互換シムが紛れるため、全面禁止は
     /// せず「少数・短値・入れ子なし」の宣言だけを許す
     private static func validateProlog(_ rawData: Data) throws {
-        // cooViewer-oxr.85: EPUB が許すのは UTF-8/UTF-16。UTF-32 は ASCII
-        // バイト検査を迂回して libxml2 に巨大な内部実体を展開させるため、
-        // BOM・先頭バイト列・XML 宣言のいずれで判明しても解析前に拒否する。
-        guard !isUTF32XML(rawData) else {
-            throw EPUBError.malformed("UTF-32 XML is not supported")
+        // cooViewer-oxr.85 / Washi-yru: UTF-32・EBCDIC は ASCII バイト検査を
+        // 迂回して libxml2 に巨大な内部実体を展開させるため、BOM・先頭
+        // バイト列・XML 宣言のいずれで判明しても解析前に拒否する。
+        if let encoding = unsupportedXMLEncoding(rawData) {
+            throw EPUBError.malformed("\(encoding) XML is not supported")
         }
         // libxml2 が見るのと同じ文字列で検査する。UTF-16(BOM または
         // 交互の 0x00)は UTF-8 相当へ正規化する — さもないと ASCII バイト
         // リテラルを見るスキャナが DOCTYPE を素通しし、UTF-16 で書かれた
         // 実体爆弾がガードを丸ごと迂回する
-        let data = normalizedXMLBytes(rawData)
-        guard let doctype = try internalDoctypeSlice(data),
-              doctype.firstRange(of: Data("<!ENTITY".utf8)) != nil else { return }
-        guard let rawText = String(data: doctype, encoding: .utf8) else {
-            // 内部 DTD に非 UTF-8 のバイトを含む(実体値の日本語等)。
-            // ENTITY 宣言があるのに検査できないので安全側で拒否する
-            // (実在 EPUB の XML はほぼ UTF-8/UTF-16)
-            throw EPUBError.malformed("DTD の文字コードを判定できない")
-        }
-        // 内部サブセットのコメント・処理命令を除去してから宣言を数える。
-        // コメントアウトされた `<!ENTITY>` を宣言と誤認して正当な XML を
-        // 拒否しないため(かつ PI 内に隠した宣言も無効化される)
-        let text = strippingCommentsAndPIs(rawText)
+        let data = try normalizedXMLBytes(rawData)
+        guard let doctype = try internalDoctypeSlice(data) else { return }
+        // 引用状態を追う走査で得た内部サブセットだけを検査する。
+        // 引用内のコメント/PI 区切りを宣言境界をまたいで結ぶと、
+        // 間にある危険な宣言が除去され、検査を迂回されてしまう。
+        let text = doctype.internalSubset
         guard text.contains("<!ENTITY") else { return }
         // 宣言の形は「名前 + 引用値」のみ許可(SYSTEM/PUBLIC/NDATA/
         // パラメータ実体 % は不許可 — 外部実体は読まないので宣言ごと拒否)
@@ -161,26 +154,30 @@ enum WashiXML {
         }
     }
 
-    private static func isUTF32XML(_ data: Data) -> Bool {
+    private static func unsupportedXMLEncoding(_ data: Data) -> String? {
         let head = Array(data.prefix(4))
         if head.count == 4 {
             // 通常の UTF-32 BOM、XML 1.0 が定義する BOM なしの先頭 '<'、
             // および稀な UCS-4 2143/3412 バイト順をすべて安全側で扱う。
-            let signatures: [[UInt8]] = [
-                [0xFF, 0xFE, 0x00, 0x00], [0x00, 0x00, 0xFE, 0xFF],
-                [0x3C, 0x00, 0x00, 0x00], [0x00, 0x00, 0x00, 0x3C],
-                [0x00, 0x00, 0x3C, 0x00], [0x00, 0x3C, 0x00, 0x00],
-                [0x00, 0x00, 0xFF, 0xFE], [0xFE, 0xFF, 0x00, 0x00],
+            // Washi-yru: libxml2 xmlDetectCharEncoding の全分岐(UCS-4 4 種・UTF-16 BOM・UTF-8 BOM・EBCDIC)を拒否または後段で検査する。
+            let signatures: [(bytes: [UInt8], encoding: String)] = [
+                ([0xFF, 0xFE, 0x00, 0x00], "UTF-32"), ([0x00, 0x00, 0xFE, 0xFF], "UTF-32"),
+                ([0x3C, 0x00, 0x00, 0x00], "UTF-32"), ([0x00, 0x00, 0x00, 0x3C], "UTF-32"),
+                ([0x00, 0x00, 0x3C, 0x00], "UTF-32"), ([0x00, 0x3C, 0x00, 0x00], "UTF-32"),
+                ([0x00, 0x00, 0xFF, 0xFE], "UTF-32"), ([0xFE, 0xFF, 0x00, 0x00], "UTF-32"),
+                ([0x4C, 0x6F, 0xA7, 0x94], "EBCDIC"),
             ]
-            if signatures.contains(head) { return true }
+            if let match = signatures.first(where: { $0.bytes == head }) {
+                return match.encoding
+            }
         }
         guard let name = XMLCharsetDetector.declaredCharsetName(
             in: data, includesHTMLMeta: false)
-        else { return false }
+        else { return nil }
         let normalized = name.lowercased()
             .replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "_", with: "")
-        return normalized.hasPrefix("utf32") || normalized.hasPrefix("ucs4")
+        return normalized.hasPrefix("utf32") || normalized.hasPrefix("ucs4") ? "UTF-32" : nil
     }
 
     /// 実体値の安全判定: 64 バイト以下で、`&` は「文字参照 `&#…;`」または
@@ -214,48 +211,41 @@ enum WashiXML {
     /// UTF-16(BOM 付き、または BOM なしで交互に 0x00 が入る)を UTF-8 の
     /// バイト列へ変換する。それ以外(UTF-8・Shift_JIS 等の ASCII 上位互換)は
     /// そのまま返す。DOCTYPE スキャナが ASCII リテラルで動くための正規化
-    private static func normalizedXMLBytes(_ data: Data) -> Data {
-        func toUTF8(_ encoding: String.Encoding, skippingBOM: Int) -> Data? {
-            String(data: data.dropFirst(skippingBOM), encoding: encoding)
-                .map { Data($0.utf8) }
+    private static func normalizedXMLBytes(_ data: Data) throws -> Data {
+        func toUTF8(_ encoding: String.Encoding, skippingBOM: Int) throws -> Data {
+            // 復号できない UTF-16 を生バイトで返すと ASCII の DTD 検査を
+            // 素通りし、libxml2 だけが実体宣言を解釈するため拒否する。
+            guard let text = String(data: data.dropFirst(skippingBOM), encoding: encoding)
+            else { throw EPUBError.malformed("UTF-16 XML を復号できない") }
+            return Data(text.utf8)
         }
         let head = Array(data.prefix(4))
         if head.count >= 2 {
             if head[0] == 0xFF, head[1] == 0xFE {
-                return toUTF8(.utf16LittleEndian, skippingBOM: 2) ?? data
+                return try toUTF8(.utf16LittleEndian, skippingBOM: 2)
             }
             if head[0] == 0xFE, head[1] == 0xFF {
-                return toUTF8(.utf16BigEndian, skippingBOM: 2) ?? data
+                return try toUTF8(.utf16BigEndian, skippingBOM: 2)
             }
         }
         // BOM なし UTF-16 は先頭 '<'(0x3C)が 0x00 と対になる
         if head.count >= 2 {
             if head[0] == 0x3C, head[1] == 0x00 {
-                return toUTF8(.utf16LittleEndian, skippingBOM: 0) ?? data
+                return try toUTF8(.utf16LittleEndian, skippingBOM: 0)
             }
             if head[0] == 0x00, head[1] == 0x3C {
-                return toUTF8(.utf16BigEndian, skippingBOM: 0) ?? data
+                return try toUTF8(.utf16BigEndian, skippingBOM: 0)
             }
         }
         return data
     }
 
-    /// 文字列からコメント(`<!-- -->`)と処理命令(`<? ?>`)を取り除く。
-    /// DOCTYPE 内部サブセットの実体宣言カウントを、コメント/PI に隠された
-    /// `<!ENTITY` に惑わされずに行うための前処理
-    private static func strippingCommentsAndPIs(_ text: String) -> String {
-        var result = text
-        for pattern in [/<!--[\s\S]*?-->/, /<\?[\s\S]*?\?>/] {
-            result = result.replacing(pattern, with: "")
-        }
-        return result
-    }
-
-    /// プロローグ(ルート要素より前)にある DOCTYPE 宣言全体のスライスを返す。
+    /// DOCTYPE 宣言全体のスライスと、コメント・PI を除いた内部サブセットを返す。
     /// コメント・処理命令を正しく飛ばし、DOCTYPE 内は引用文字列・コメント・
     /// 内部サブセット [ ] を追跡して終端 `>` を決める(引用中の `]>` 等で
     /// 早期終了して以降の宣言を見逃さないため)
-    private static func internalDoctypeSlice(_ data: Data) throws -> Data? {
+    private static func internalDoctypeSlice(_ data: Data) throws
+        -> (doctype: Data, internalSubset: String)? {
         // cooViewer-oxr.86: 未終端 DOCTYPE を後段の正規表現へ無制限に渡さない。
         // 1 回の前向き走査を 64 KiB で打ち切り、入力長に依存する二乗時間を防ぐ。
         let maxDoctypeByteCount = 64 * 1024
@@ -292,12 +282,14 @@ enum WashiXML {
                 var subsetDepth = 0
                 var inComment = false
                 var inProcessingInstruction = false
+                var subset = Data()
                 while j < data.endIndex {
                     guard data.distance(from: start, to: j) < maxDoctypeByteCount else {
                         throw EPUBError.malformed(
                             "DOCTYPE exceeds the 65536-byte safety limit")
                     }
                     let byte = data[j]
+                    let wasInSubset = subsetDepth > 0
                     if inComment {
                         if matches("-->", at: j) {
                             inComment = false
@@ -313,12 +305,16 @@ enum WashiXML {
                     } else if let q = quote {
                         if byte == q { quote = nil }
                     } else if matches("<!--", at: j) {
+                        // 除去したコメント/PI の両側を連結して、元にない
+                        // 宣言トークンを作らないよう空白を残す。
+                        if wasInSubset { subset.append(UInt8(ascii: " ")) }
                         inComment = true
                         j = data.index(j, offsetBy: 4)
                         continue
                     } else if matches("<?", at: j) {
                         // 内部サブセット内の処理命令。PI 内の `]` や `>` に
                         // 騙されて DOCTYPE を早期終了しないよう "?>" まで飛ばす
+                        if wasInSubset { subset.append(UInt8(ascii: " ")) }
                         inProcessingInstruction = true
                         j = data.index(j, offsetBy: 2)
                         continue
@@ -329,7 +325,21 @@ enum WashiXML {
                     } else if byte == UInt8(ascii: "]") {
                         subsetDepth = max(0, subsetDepth - 1)
                     } else if byte == UInt8(ascii: ">"), subsetDepth == 0 {
-                        return data[start...j]
+                        guard let text = String(data: subset, encoding: .utf8) else {
+                            // Washi-yru: < (0x3C) は Shift_JIS/EUC-JP の trail byte に
+                            // 現れないため、生バイトで実体宣言の有無を判定できる。
+                            // 実体を含まない非 UTF-8 の宣言は検査対象から外す。
+                            guard subset.firstRange(of: Data("<!ENTITY".utf8)) == nil else {
+                                throw EPUBError.malformed("DTD の文字コードを判定できない")
+                            }
+                            return (data[start...j], "")
+                        }
+                        return (data[start...j], text)
+                    }
+                    // 外部 ID のリテラルと外側の [ ] は含めず、本物の
+                    // コメント/PI だけを省く。引用内の区切りは値として残す。
+                    if wasInSubset, subsetDepth > 0, !inComment, !inProcessingInstruction {
+                        subset.append(byte)
                     }
                     j = data.index(after: j)
                 }
@@ -344,8 +354,8 @@ enum WashiXML {
     /// cooViewer-oxr.10/13: WHATWG 表にある HTML 名前実体を 1 回の走査で探す。
     /// & (0x26) は Shift_JIS/EUC-JP の trail byte 範囲に入らないため、
     /// 非 UTF-8 のまま走査しても ASCII の実体名を誤認しない。
-    private static func containsNamedEntity(_ data: Data) -> Bool {
-        let normalized = normalizedXMLBytes(data)
+    private static func containsNamedEntity(_ data: Data) throws -> Bool {
+        let normalized = try normalizedXMLBytes(data)
         return normalized.withUnsafeBytes { rawBuffer in
             let bytes = rawBuffer.bindMemory(to: UInt8.self)
             var index = 0
@@ -380,9 +390,9 @@ enum WashiXML {
     /// 1 回の走査で数値文字参照へ置換する。未知の実体名は変更しない。
     /// 非 UTF-8(Shift_JIS/EUC-JP/UTF-16)の文書でも救済できるよう、宣言の
     /// encoding を尊重して復号してから置換し、UTF-8 で再エンコードする
-    private static func sanitizeEntities(_ rawData: Data) -> Data {
+    private static func sanitizeEntities(_ rawData: Data) throws -> Data {
         // UTF-16 は先に UTF-8 バイトへ畳む
-        let data = normalizedXMLBytes(rawData)
+        let data = try normalizedXMLBytes(rawData)
         guard let text = decodeXMLText(data) else { return data }
         let sanitized = replacingNamedEntities(in: text)
         // 出力バイトは UTF-8。宣言の encoding が別物のままだと再パースが
