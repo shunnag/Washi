@@ -393,9 +393,11 @@ public final class EPUBPublication: Sendable {
 
     /// コンテナ内パスでリソースを読み取り、フォントの難読化は透過的に解除する。
     /// 未知の暗号化が施されたリソースでは drmProtected を投げる。
+    /// ZIP 展開中に呼び出し元 Task の取消しを検出すると `CancellationError` を投げる。
     ///
     /// Reads a resource by its container path, transparently reversing font
     /// obfuscation. Throws drmProtected for a resource under unknown encryption.
+    /// Throws `CancellationError` if cancellation of the calling task is detected during ZIP decompression.
     public func resource(at containerPath: String) throws -> (data: Data, mediaType: String) {
         // コンテナ内パスはデコード済みが正規形。二重デコードしない(sanitize)
         let path = ContainerPath.sanitize(containerPath)
@@ -467,8 +469,10 @@ public final class EPUBPublication: Sendable {
     }
 
     /// 基準パスと相対 href からリソースを読み取る(ナビゲーション項目の解決など)。
+    /// ZIP 展開中に呼び出し元 Task の取消しを検出すると `CancellationError` を投げる。
     ///
     /// Reads a resource from a base path plus a relative href (e.g. resolving navigation items).
+    /// Throws `CancellationError` if cancellation of the calling task is detected during ZIP decompression.
     public func resource(relativeTo basePath: String,
                          href: String) throws -> (data: Data, mediaType: String) {
         guard let path = ContainerPath.resolve(base: basePath, href: href) else {

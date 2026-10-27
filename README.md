@@ -151,7 +151,12 @@ the latest GitHub Release. MIT-licensed, with no third-party package dependencie
   による外字画像の反転)。電書連(DPFJ)EPUB 3 制作ガイド ver.1.1.4 の抽象フォント名
   (`serif-ja` 等)をヒラギノへ結ぶ `@font-face` ポリフィル。
   `WKURLSchemeHandler` によるコンテナ内配信(MIME / CSP / Range)、外部ネットワーク遮断、
-  本の JavaScript は既定で無効(有効化時も WebRTC コンストラクタを使用不能にする)
+  本の JavaScript は既定で無効(有効化時も WebRTC コンストラクタを使用不能にする)。
+  画面上の媒体再生にも利用者の操作を要求するため、悪意ある EPUB の `<audio autoplay>` /
+  `<video autoplay>` は本を開いただけでは再生されず、`<audio controls>` を利用者が
+  押す再生は引き続き利用できる。朗読(media overlay)は AVAudioPlayer を使うため変わらない。
+  現状の制限として、正規の本の `<video autoplay muted loop>` のような装飾も画面上で
+  自動再生されず、ホストが opt-in する手段はない。
 
   **Reflowable renderer** `EPUBReaderView` (AppKit / WKWebView): pagination with standard
   CSS multicol; vertical writing uses stacked columns and non-animated jumps (the Bibi /
@@ -163,7 +168,12 @@ the latest GitHub Release. MIT-licensed, with no third-party package dependencie
   EPUB 3 guide (ver. 1.1.4) abstract font names such as `serif-ja` to Hiragino.
   Container resources are served through `WKURLSchemeHandler` (MIME / CSP / Range);
   external network access is blocked; book JavaScript is off by default and, when
-  enabled, WebRTC constructors are disabled.
+  enabled, WebRTC constructors are disabled. Onscreen media playback also requires
+  user interaction, so malicious EPUBs cannot play `<audio autoplay>` / `<video autoplay>`
+  merely by being opened; playback initiated by pressing `<audio controls>` remains available.
+  Media overlay narration uses AVAudioPlayer and is unchanged. As a current limitation,
+  decorative media in legitimate books, such as `<video autoplay muted loop>`, also cannot
+  autoplay onscreen, and hosts have no way to opt in.
 
 - **設定・位置・履歴**: `EPUBReaderSettings` でフォント倍率・行間・横組み字間・段落間隔・
   著者フォント上書き・ルビ表示・配色・余白・ユーザー CSS。`EPUBLocator`(spine index +
@@ -333,10 +343,20 @@ See the guides for the remaining APIs. Every code example is typechecked in CI.
   `pre-paginated` + `scrolled-continuous` は幅を合わせて隙間なく並べる。スクロール中のページ番号は
   画面サイズに基づく区切りで、印刷ページ番号とは異なる。詳細は
   [スクロール表示](Sources/Washi/Washi.docc/Scrolling.md) を参照。
+  連続表示の区間が 4,096 spine 項目を超えると、連続スクロール文書の構成は
+  章単位スクロールへ縮退するが、`renderingFlow(at:)` は `.scrolledContinuous` を返し続ける。
+  `Tests/Corpus` の 251 冊のうち、`rendition:layout=roll` または
+  `rendition:flow=scrolled-continuous` を宣言するのは 7 冊で、最大 spine は 9 項目のため、
+  この制限でコーパス内の実在する本の表示は変わらない。
 
   `scrolled-doc` scrolls each chapter; `scrolled-continuous` joins consecutive chapters.
   Roll and legacy fixed continuous content fit the viewport width without gaps. Screen
   numbers in these modes describe viewport-sized steps, not printed pages.
+  When a continuous group exceeds 4,096 spine items, continuous-scroll document
+  construction falls back to chapter-by-chapter scrolling; `renderingFlow(at:)` still
+  returns `.scrolledContinuous`. Of the 251 books in `Tests/Corpus`, only seven declare
+  `rendition:layout=roll` or `rendition:flow=scrolled-continuous`, and their largest spine
+  has nine items, so this limit leaves those real-world books' presentation unchanged.
 
 - `text/html` 宣言の非準拠 spine は、ヘッドレスの本文抽出・検索では可能な範囲で読むが、表示には
   XHTML 等の対応形式への fallback が必要。表示できない項目の正確な検索位置・選択矩形・

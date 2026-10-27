@@ -121,10 +121,19 @@ extension EPUBPublication {
     /// 固定レイアウトのページの構造情報(ビューポート・画像だけのページの検出・
     /// 見開き内の配置)。リフローの本の spine 項目についても、ビューポートなしの
     /// 情報を返す。
+    /// 未キャッシュの項目の ZIP 展開中に呼び出し元 Task の取消しを検出すると
+    /// `CancellationError` を投げる。
+    /// 同じ spine 添字の結果は出版物の生存期間中、spine 数を上限に再利用するため、
+    /// フォルダコンテナの内容が途中で変わっても、2 回目以降は最初の値を返す。
     ///
     /// Structural information about an FXL page (viewport, single-image-page
     /// detection, spread placement). Also returns viewport-less info for the
     /// spine items of a reflowable book.
+    /// Throws `CancellationError` if cancellation of the calling task is detected
+    /// during ZIP decompression of an uncached item.
+    /// Results for the same spine index are reused for the publication's lifetime,
+    /// bounded by the spine count, so subsequent calls return the initial value
+    /// even if a folder container's contents change in the meantime.
     public func fixedLayoutInfo(forSpineIndex index: Int) throws -> FixedLayoutPageInfo {
         guard readingOrder.indices.contains(index) else {
             throw EPUBError.resourceNotFound("spine index \(index)")
