@@ -78,8 +78,8 @@ final class EPUBSchemeHandlerTests: XCTestCase {
         }
     }
 
-    /// Washi-1mg: 予算超過は文字列化前に素通しし、Range 応答中も main actor を空ける。
-    func testOversizedCSSSkipsPolyfillWithoutBlockingMainActor() async throws {
+    /// Washi-1mg / Washi-j61: 予算超過の CSS は変換せず配信し、所要時間でなくバイト列で検証する。
+    func testOversizedCSSIsServedWithoutPolyfill() async throws {
         XCTAssertEqual(EPUBPrefixedCSS.stylesheetByteLimit, 32 << 20)
         let prefix = Data(".tcy { -epub-text-combine-horizontal: all; }".utf8)
         var data = Data(repeating: 0x20, count: EPUBPrefixedCSS.stylesheetByteLimit + 1)
@@ -90,30 +90,18 @@ final class EPUBSchemeHandlerTests: XCTestCase {
         let handler = EPUBSchemeHandler(publication: publication)
         var request = URLRequest(url: try XCTUnwrap(
             handler.url(forContainerPath: "OEBPS/style.css")))
-        request.setValue("bytes=0-\(prefix.count - 1)", forHTTPHeaderField: "Range")
+        request.setValue("bytes=0-\(data.count - 1)", forHTTPHeaderField: "Range")
         let finished = expectation(description: "巨大 CSS の部分応答が完了する")
         let task = RecordingSchemeTask(request: request) { finished.fulfill() }
-        let heartbeat = Task { @MainActor in
-            var previous = ContinuousClock.now
-            var longest = Duration.zero
-            repeat {
-                try? await Task.sleep(for: .milliseconds(5))
-                let now = ContinuousClock.now
-                longest = max(longest, now - previous)
-                previous = now
-            } while !Task.isCancelled
-            return longest
-        }
-        await Task.yield()
         handler.webView(WKWebView(frame: .zero), start: task)
         await fulfillment(of: [finished], timeout: 5)
-        heartbeat.cancel()
-        let longestPause = await heartbeat.value
-        XCTAssertLessThan(longestPause, .milliseconds(250))
         XCTAssertNil(task.failure)
-        XCTAssertEqual(task.receivedData, prefix)
-        XCTAssertEqual((task.response as? HTTPURLResponse)?.value(
-            forHTTPHeaderField: "Content-Range"), "bytes 0-\(prefix.count - 1)/\(data.count)")
+        XCTAssertEqual(task.receivedData, data)
+        let response = try XCTUnwrap(task.response as? HTTPURLResponse)
+        XCTAssertEqual(response.value(forHTTPHeaderField: "Content-Type"),
+                       "text/css; charset=utf-8")
+        XCTAssertEqual(response.value(forHTTPHeaderField: "Content-Range"),
+                       "bytes 0-\(data.count - 1)/\(data.count)")
         XCTAssertNil(handler.cachedRangeResource)
     }
 

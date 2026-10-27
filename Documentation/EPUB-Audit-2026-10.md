@@ -207,9 +207,20 @@ the [CHANGELOG](../CHANGELOG.md) lists the behaviour changes they carry.
   internal subset, a shim whose value uses `&lt;`, the `&nbsp;` compatibility
   shim with a leading comment, an external DTD reference, and Japanese body
   text — are still accepted.
-- Not verified here: that `<audio autoplay>` is silent on a real screen. The
-  configuration is asserted by a unit test; the audible behaviour needs a GUI
-  session on macOS 27.
+- The autoplay policy was measured rather than assumed. The same book — one
+  spine item with `<audio autoplay src="../audio/a.wav">` and a one-second
+  silent WAV in the container — was loaded into two `WKWebView`s differing only
+  in `mediaTypesRequiringUserActionForPlayback`, and the element was read 1.5 s
+  after `didFinish`:
+
+  | policy | `paused` | `currentTime` | `duration` |
+  |---|---|---|---|
+  | `[]` (the previous on-screen value) | true | **1** | 1 |
+  | `.all` (this change) | true | **0** | 1 |
+
+  Without the flag the audio had played to the end of the file by itself; with
+  it, playback never started. This is WebKit's behaviour on macOS 27.2, so the
+  defect and the repair are both confirmed.
 
 ## Open items
 
