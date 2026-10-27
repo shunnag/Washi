@@ -50,7 +50,8 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
     private var extractionTasks: [ObjectIdentifier: Task<ResourcePayload?, Never>] = [:]
     // Washi-1mg: 画像・CSS 等を並行して読みつつ、最大 512 MiB の展開が要求数だけ
     // 同時確保されないよう 4 本に絞る。枠は取消要求時でなく背景処理の終了時に返す。
-    private static let extractionLimit = 4
+    /// Washi-1mg: 構成時に設定し、要求の処理中は変更しない。
+    var extractionLimit = 4
     private var activeExtractionCount = 0
     private var extractionWaiters: [
         (id: ObjectIdentifier, continuation: CheckedContinuation<Bool, Never>)
@@ -222,7 +223,7 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
 
     private func acquireExtractionSlot(for id: ObjectIdentifier) async -> Bool {
         guard liveTasks[id] != nil, !Task.isCancelled else { return false }
-        if activeExtractionCount < Self.extractionLimit {
+        if activeExtractionCount < extractionLimit {
             activeExtractionCount += 1
             return true
         }
