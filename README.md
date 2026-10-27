@@ -392,6 +392,11 @@ See the guides for the remaining APIs. Every code example is typechecked in CI.
   [Documentation/EPUB-Audit-2026-09.md](Documentation/EPUB-Audit-2026-09.md); its repairs
   shipped in 1.18.0.
 
+- 2026 年 10 月の監査の記録は [Documentation/EPUB-Audit-2026-10.md](Documentation/EPUB-Audit-2026-10.md)
+  にある(残った課題は beads で追う)。 The October 2026 audit is recorded in
+  [Documentation/EPUB-Audit-2026-10.md](Documentation/EPUB-Audit-2026-10.md); its open items
+  are tracked in beads.
+
 ## ドキュメント / Documentation
 
 [公開 DocC / Online DocC](https://shunnag.github.io/Washi/) から Washi と WashiCore の両方を

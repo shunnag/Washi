@@ -54,3 +54,4 @@
 {"id":"int-d8240b2e9b42837688f43947e8b5d278","kind":"field_change","created_at":"2026-10-05T07:22:22.624515Z","actor":"shunnag","issue_id":"Washi-8z4","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-cda8008f289cca4c1e352f937efce817","kind":"field_change","created_at":"2026-10-05T07:22:23.582Z","actor":"shunnag","issue_id":"Washi-640","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-3d4526793d10b626236069060102b6eb","kind":"field_change","created_at":"2026-10-05T07:22:24.555208Z","actor":"shunnag","issue_id":"Washi-huz","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
+{"id":"int-1ffd717bd4d1c115676745080eba0c66","kind":"field_change","created_at":"2026-10-27T09:17:30.459493Z","actor":"shunnag","issue_id":"Washi-6yx","extra":{"field":"priority","new_value":"3","old_value":"2"}}
