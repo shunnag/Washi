@@ -109,6 +109,10 @@ public struct ZipEntryInfo: Sendable, Hashable {
 /// immutable data, so it is thread-safe (Sendable). Entry names are never used
 /// for any path operation (no zip-slip concern).
 public final class ZipArchive: Sendable {
+    /// Washi-yy2: 未終端チャンクまでの展開バイト数を通知する試験用。
+    /// 設定した読取りのタスク内だけに適用する。
+    @TaskLocal static var inflationChunkObserver: (@Sendable (Int) -> Void)?
+
     /// 1 エントリの展開後サイズに対する既定の上限(512 MB)。画像・音声・動画を
     /// 含む実在の EPUB でも、これを超える単一ファイルはなく、十分余裕のある値。
     ///
@@ -461,6 +465,7 @@ public final class ZipArchive: Sendable {
                           produced > 0 || stream.src_size < previousInputSize else {
                         throw ZipError.corruptEntry(entryName)
                     }
+                    inflationChunkObserver?(result.count)
                 }
             }
         }
