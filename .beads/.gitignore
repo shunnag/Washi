@@ -39,3 +39,8 @@ backup/
 *.db-shm
 db.sqlite
 bd.db
+# JSONL の書き出しは追跡しない。issue の正はローカルの Dolt で、非公開の記録や旧い owner 情報を
+# 公開リポジトリへ載せないため(cooViewer と同じ運用)。
+issues.jsonl
+interactions.jsonl
+.auto-import-issues.jsonl
