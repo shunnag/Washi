@@ -5,6 +5,79 @@ import XCTest
 
 @MainActor
 final class EPUBScreenThumbnailRendererTests: XCTestCase {
+    func testPixelSizeUsesLongEdgeAndActualBackingScale() {
+        for contentSize in [CGSize(width: 420, height: 600),
+                            CGSize(width: 900, height: 600)] {
+            for backingScale: CGFloat in [1, 1.5, 2, 3] {
+                for pixels in [1, 255, 256, 8192] {
+                    let size = ScreenThumbnailSize.maxPixelSize(pixels)
+                    XCTAssertTrue(size.isValid)
+                    let width = size.snapshotWidth(contentSize: contentSize,
+                                                   backingScale: backingScale)
+                    let longEdge = width * backingScale
+                        * max(contentSize.width, contentSize.height) / contentSize.width
+                    XCTAssertEqual(longEdge, CGFloat(pixels), accuracy: 0.000001)
+                    XCTAssertEqual(size.rasterizerMaxPixelSize(backingScale: backingScale), pixels)
+                }
+                let legacy = ScreenThumbnailSize.widthInPoints(256)
+                XCTAssertEqual(legacy.snapshotWidth(contentSize: contentSize,
+                                                     backingScale: backingScale), 256)
+                XCTAssertEqual(legacy.rasterizerMaxPixelSize(backingScale: backingScale),
+                               Int(256 * backingScale))
+            }
+        }
+    }
+
+    func testPixelSizeNormalizesRoundingAndRasterizerZoomLimits() throws {
+        for dimensions in [(512, 731), (731, 512), (3, 7), (256, 256)] {
+            let context = try XCTUnwrap(CGContext(
+                data: nil, width: dimensions.0, height: dimensions.1,
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            let source = try XCTUnwrap(context.makeImage())
+            for pixels in [1, 255, 256] {
+                let image = try XCTUnwrap(EPUBScreenThumbnailRenderer.resized(
+                    source, maxPixelSize: pixels))
+                XCTAssertEqual(max(image.width, image.height), pixels)
+                let ratio = CGFloat(pixels) / CGFloat(max(source.width, source.height))
+                XCTAssertEqual(CGFloat(image.width), CGFloat(source.width) * ratio, accuracy: 1)
+                XCTAssertEqual(CGFloat(image.height), CGFloat(source.height) * ratio, accuracy: 1)
+            }
+        }
+    }
+
+    func testInvalidPixelSizesDoNotCreateWebKit() async throws {
+        let renderer = EPUBScreenThumbnailRenderer(publication: try makeSmallPublication())
+        defer { renderer.invalidate() }
+        for pixels in [Int.min, -1, 0, 8193, Int.max] {
+            let image = await renderer.thumbnail(
+                spineIndex: 0, pageInItem: 0, optionsJSON: "{}",
+                contentSize: makeMetrics().contentSize, size: .maxPixelSize(pixels))
+            XCTAssertNil(image)
+            XCTAssertFalse(renderer.hasLiveWebView)
+        }
+    }
+
+    /// 低優先度の先読みからでも明示的な描画優先度へ昇格し、両レイアウトで
+    /// 指定ピクセル数になることを実 WebKit で確かめる。
+    func testPublicPixelThumbnailsFromUtilityTask() async throws {
+        for publication in [try makeSmallPublication(), try makeFXLPublication()] {
+            let atlas = EPUBScreenAtlas(publication: publication)
+            defer { atlas.invalidate() }
+            let metrics = makeMetrics()
+            for pixels in [256, 255, 1] {
+                let image = await Task.detached(priority: .utility) {
+                    await atlas.thumbnail(
+                        spineIndex: 0, pageInItem: 0, metrics: metrics,
+                        isDark: false, maxPixelSize: pixels)
+                }.value
+                guard let image else { return try failOrSkipIfWebKitUnavailable() }
+                XCTAssertEqual(max(image.width, image.height), pixels)
+            }
+        }
+    }
+
     /// cooViewer-oxr.68: レンダー完了後の idle 期限で不可視 WebKit を解放し、
     /// 次の要求では同じ renderer が遅延再構築して再び画像を返す。
     func testIdleReleaseTearsDownWebViewAndNextThumbnailRebuilds() async throws {

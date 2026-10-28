@@ -8,6 +8,63 @@ import XCTest
 
 @MainActor
 final class ReaderViewCensusTests: XCTestCase {
+    func testFirstCensusStartsWithoutDebounce() async throws {
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
+        view.load(publication: try EPUBFixtures.fxlComic(name: "census-first-start"))
+        view.cancelPageCensus()
+        var debounceCalls = 0
+        view.census.debounceSleep = { debounceCalls += 1 }
+
+        view.scheduleCensusIfNeeded()
+        let started = await waitUntil(timeout: .seconds(1)) {
+            view.census.engine != nil || debounceCalls > 0
+        }
+        XCTAssertTrue(started)
+        XCTAssertEqual(debounceCalls, 0)
+        XCTAssertNotNil(view.census.engine)
+    }
+
+    /// 古い結果を無効化した後も、保存済みの結果や中断控えがあれば
+    /// 設定変更・寸法変更の再実測はデバウンスを通る。
+    func testCensusRemeasureDebouncesCompletedAndPartialResults() async throws {
+        for hasCompletedResult in [true, false] {
+            let publication = try makePublication()
+            let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+            let window = makeOffscreenWindow(containing: view)
+            defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
+            view.load(publication: publication)
+            view.cancelPageCensus()
+            let oldKey = view.censusScreenMetrics.censusOptionsJSON
+            if hasCompletedResult {
+                XCTAssertTrue(view.importCensus(EPUBCensusRecord(
+                    metricsKey: oldKey, counts: [2, 3, 1],
+                    releaseIdentifier: publication.metadata.releaseIdentifier)))
+                var settings = view.settings
+                settings.fontScale = 1.2
+                view.settings = settings
+            } else {
+                view.census.partialCounts.insert([2], forKey: oldKey, protecting: nil)
+                view.frame.size.width = 1000
+            }
+            var debounceCalls = 0
+            view.census.debounceSleep = {
+                debounceCalls += 1
+                XCTAssertGreaterThanOrEqual(Task.currentPriority, .userInitiated)
+                try await Task.sleep(for: .seconds(60))
+            }
+
+            view.scheduleCensusIfNeeded()
+            let sleeping = await waitUntil(timeout: .seconds(1)) { debounceCalls > 0 }
+            XCTAssertTrue(sleeping)
+            XCTAssertEqual(debounceCalls, 1)
+            XCTAssertNil(view.pageCensus)
+            XCTAssertNil(view.census.engine)
+            view.cancelPageCensus()
+        }
+    }
+
     private func makePublication() throws -> EPUBPublication {
         try EPUBFixtures.verticalNovel(name: "washi-reader-regression")
     }
@@ -364,6 +421,11 @@ final class ReaderViewCensusTests: XCTestCase {
         defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
         view.load(publication: publication)
         view.cancelPageCensus()
+        XCTAssertTrue(view.importCensus(EPUBCensusRecord(
+            metricsKey: view.censusScreenMetrics.censusOptionsJSON,
+            counts: publication.readingOrder.map { _ in 1 },
+            releaseIdentifier: publication.metadata.releaseIdentifier)))
+        view.frame.size.width = 1000
         let startsBefore = view.pageCensusStartCount
 
         view.scheduleCensusIfNeeded()
