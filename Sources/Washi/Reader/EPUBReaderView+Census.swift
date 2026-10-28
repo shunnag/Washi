@@ -187,13 +187,38 @@ extension EPUBReaderView {
 
     /// 指定した画面のサムネイル(表示中のビューや census と同じページ割りで、
     /// 現在のテーマに合わせた配色でオフスクリーン描画する)。`width` は
-    /// 出力幅(pt)。失敗時、ウインドウから外れている間、非表示中は nil。
+    /// 出力幅(pt。FXL では長辺)。描画先の backing scale が掛かり、2x では
+    /// 256 pt が 512 px になる。ピクセル指定には `maxPixelSize:` を使う。
+    /// 失敗時、ウインドウから外れている間、非表示中は nil。
     ///
     /// Thumbnail of a given screen (the same pagination as the live view and the
     /// census; rendered offscreen, colored to match the current theme). `width`
-    /// is the output width in pt. Nil on failure, while detached, or while hidden.
+    /// is the output width in pt (the long edge for FXL). The rendering window's
+    /// backing scale applies: 256 pt produces 512 px at 2x. Use `maxPixelSize:`
+    /// to specify pixels. Nil on failure, while detached, or while hidden.
     public func screenThumbnail(spineIndex: Int, pageInItem: Int,
                                 width: CGFloat) async -> CGImage? {
+        await screenThumbnail(spineIndex: spineIndex, pageInItem: pageInItem,
+                              size: .widthInPoints(width))
+    }
+
+    /// 現在のメトリクスとテーマで、長辺が `maxPixelSize` ピクセルの画面
+    /// サムネイルを描画する。縦横比とページ割りを保ち、表示倍率には依存しない。
+    /// 値は 1...8192。範囲外、失敗時、キャンセル時、非表示中やウインドウ離脱中は nil。
+    ///
+    /// Renders a screen thumbnail with a long edge of `maxPixelSize` pixels
+    /// using the current metrics and theme, preserving aspect ratio and
+    /// pagination independently of display scale. Valid values are 1...8192.
+    /// Returns nil for invalid values, failure, cancellation, or while hidden
+    /// or detached from a window.
+    public func screenThumbnail(spineIndex: Int, pageInItem: Int,
+                                maxPixelSize: Int) async -> CGImage? {
+        await screenThumbnail(spineIndex: spineIndex, pageInItem: pageInItem,
+                              size: .maxPixelSize(maxPixelSize))
+    }
+
+    private func screenThumbnail(spineIndex: Int, pageInItem: Int,
+                                  size: ScreenThumbnailSize) async -> CGImage? {
         // 破棄後に届くホストの先読みで、不可視 WebKit を作り直さない。
         guard allowsVisibleRenderingWork, let publication else { return nil }
         let renderer = thumbnailRenderer
@@ -204,7 +229,7 @@ extension EPUBReaderView {
         return await renderer.thumbnail(
             spineIndex: spineIndex, pageInItem: pageInItem,
             optionsJSON: itemMetrics.themedOptionsJSON(isDark: isDarkEffective),
-            contentSize: itemMetrics.contentSize, snapshotWidth: width)
+            contentSize: itemMetrics.contentSize, size: size)
     }
 
     /// バックグラウンドの census を停止する(ホストが EPUB ビューから
@@ -302,12 +327,16 @@ extension EPUBReaderView {
             return
         }
         let previous = census.task
+        // 保存・実測済みの結果がまだなければ、初回の N/M 表示を待たせない。
+        // 別メトリクスの結果や中断控えがある再実測は、連続の変更を合流させる。
+        let shouldDebounce = census.cache.count > 0 || census.partialCounts.count > 0
         census.startCount += 1
         // オフスクリーン WebKit のジョブは明示 .userInitiated で起動する
         // (低 QoS 継承だと最初の JS 実行の返信が返らない。兄弟の census/
         // rasterizer/thumbnail レンダラと規約を揃える)
         census.task = Task(priority: .userInitiated) { [weak self] in
-            await Self.runCensus(key: key, size: size, previous: previous) { self }
+            await Self.runCensus(key: key, size: size, previous: previous,
+                                 shouldDebounce: shouldDebounce) { self }
         }
     }
 
@@ -338,9 +367,12 @@ extension EPUBReaderView {
     /// インスタンスメソッドにせず、`reader` の弱参照から都度取り出す
     private static func runCensus(key: String, size: NSSize,
                                   previous: Task<Void, Never>?,
+                                  shouldDebounce: Bool,
                                   reader: () -> EPUBReaderView?) async {
         // リサイズ嵐・連続の設定変更を合流させる
-        try? await Task.sleep(for: .milliseconds(300))
+        if shouldDebounce {
+            try? await reader()?.census.debounceSleep()
+        }
         // 旧計測の完全な離脱を待つ(FIFO 直列化)。同じ WKWebView 上で
         // 新旧の measure が並走すると、ナビゲーションイベントの取り違えで
         // 失敗や「1 項目ずれた実測値」のキャッシュ汚染が起きる

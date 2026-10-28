@@ -18,7 +18,7 @@ extension EPUBPaginationCensus: ScreenPageCensusing {}
 @MainActor
 protocol ScreenThumbnailRendering {
     func thumbnail(spineIndex: Int, pageInItem: Int, optionsJSON: String,
-                   contentSize: NSSize, snapshotWidth: CGFloat) async -> CGImage?
+                   contentSize: NSSize, size: ScreenThumbnailSize) async -> CGImage?
     func invalidate()
 }
 
@@ -196,11 +196,39 @@ public final class EPUBScreenAtlas {
     }
 
     /// 指定画面のサムネイル(失敗時や `invalidate()` の呼び出し後は nil)。
+    /// `width` はリフローではポイント幅、FXL ではポイント長辺として扱う。
+    /// 実際の描画先の backing scale が掛かるため、2x では 256 pt が
+    /// 512 px になる。ピクセル数を指定する場合は `maxPixelSize:` を使う。
     ///
     /// Thumbnail for the given screen (nil on failure or after `invalidate()`).
+    /// `width` is a point width for reflowable content and a point long edge for
+    /// FXL. The rendering window's backing scale applies, so 256 pt produces
+    /// 512 px at 2x. Use `maxPixelSize:` to specify pixels.
     public func thumbnail(spineIndex: Int, pageInItem: Int,
                           metrics: EPUBScreenMetrics, isDark: Bool,
                           width: CGFloat) async -> CGImage? {
+        await thumbnail(spineIndex: spineIndex, pageInItem: pageInItem,
+                        metrics: metrics, isDark: isDark, size: .widthInPoints(width))
+    }
+
+    /// 指定画面のサムネイルを、長辺が `maxPixelSize` ピクセルになるよう描画する。
+    /// 縦横比とページ割りを保ち、表示倍率には依存しない。値は 1...8192。
+    /// 範囲外、失敗時、キャンセル時、無効化後は nil。
+    ///
+    /// Renders a screen thumbnail with a long edge of `maxPixelSize` pixels,
+    /// preserving aspect ratio and pagination independently of display scale.
+    /// Valid values are 1...8192. Returns nil for invalid values, failure,
+    /// cancellation, or after invalidation.
+    public func thumbnail(spineIndex: Int, pageInItem: Int,
+                          metrics: EPUBScreenMetrics, isDark: Bool,
+                          maxPixelSize: Int) async -> CGImage? {
+        await thumbnail(spineIndex: spineIndex, pageInItem: pageInItem,
+                        metrics: metrics, isDark: isDark, size: .maxPixelSize(maxPixelSize))
+    }
+
+    private func thumbnail(spineIndex: Int, pageInItem: Int,
+                           metrics: EPUBScreenMetrics, isDark: Bool,
+                           size: ScreenThumbnailSize) async -> CGImage? {
         guard !isInvalidated else { return nil }
         let m = metrics.applyingRenditionSpread(
             publication.metadata.rendition.spread)
@@ -213,7 +241,7 @@ public final class EPUBScreenAtlas {
         return await renderer.thumbnail(
             spineIndex: spineIndex, pageInItem: pageInItem,
             optionsJSON: m.themedOptionsJSON(isDark: isDark),
-            contentSize: m.contentSize, snapshotWidth: width)
+            contentSize: m.contentSize, size: size)
     }
 
     /// 各項目の画面を列挙する際のページ番号の増分。スクロールと固定レイアウトは 1。
