@@ -1,5 +1,5 @@
-import Compression
 import Foundation
+import zlib
 
 /// ZIP(OCF)コンテナの読み取り中に発生するエラー。
 ///
@@ -87,14 +87,14 @@ public struct ZipEntryInfo: Sendable, Hashable {
 }
 
 /// EPUB(OCF ZIP)コンテナ向けの読み取り専用 ZIP リーダー。
-/// 依存ゼロの方針を守るため XADMaster などは使わず、Foundation + Compression
+/// 依存ゼロの方針を守るため XADMaster などは使わず、Foundation + OS 標準の zlib(libz)
 /// だけで実装する。対応範囲は実際の EPUB で使われる store/deflate、zip64、
 /// UTF-8 のファイル名(非 UTF-8 の名前は Shift_JIS へフォールバック)。
 /// ZIP 暗号化と分割アーカイブは未対応で、明示的なエラーを返す。
 ///
 /// A read-only ZIP reader for EPUB (OCF ZIP) containers.
 /// To honor the zero-dependency policy it avoids XADMaster and the like,
-/// building only on Foundation + Compression. Its scope matches what EPUBs
+/// building only on Foundation + the OS-provided zlib (libz). Its scope matches what EPUBs
 /// actually use: store/deflate, zip64, and UTF-8 names (non-UTF-8 names fall
 /// back to Shift_JIS). ZIP encryption and multi-volume archives are
 /// unsupported (they raise an explicit error).
@@ -411,10 +411,11 @@ public final class ZipArchive: Sendable {
 
     // MARK: - deflate 展開
 
-    /// raw deflate を終端まで検証する。decode_buffer は出力領域が満杯なら
-    /// その長さを返すため、宣言サイズと CRC が「先頭部分だけ」を指す不正な
-    /// ZIP を検出できない。ストリーム API で余分な出力・未終端を
-    /// 拒否し、出力は実際に得られたぶんだけ確保する。
+    /// raw deflate を終端まで検証し、出力が宣言サイズと完全に一致することを要求する。
+    /// 余分な出力は 1 バイトの余裕で検出し、未終端も拒否する。最初は最大 4 MiB だけ
+    /// 確保し、実際の出力に応じて宣言サイズ + 1 まで幾何級数的に拡張する。
+    /// 最終バッファへ最大 64 KiB ずつ直接書き込み、その間に取消しを確認する。
+    /// 従来の Compression 実装と同じく、終端後の未消費の圧縮バイトは検査しない。
     private static func inflate(_ compressed: Data, uncompressedSize: Int,
                                 entryName: String) throws -> Data {
         try compressed.withUnsafeBytes { (rawSource: UnsafeRawBufferPointer) -> Data in
@@ -422,51 +423,58 @@ public final class ZipArchive: Sendable {
                   let source = rawSource.bindMemory(to: UInt8.self).baseAddress else {
                 throw ZipError.corruptEntry(entryName)
             }
-            // 空のエントリにも 1 バイトの出力領域を渡し、偽装されたデータを
-            // 検出する。巨大な宣言値だけでメモリを確保しない。
-            var buffer = [UInt8](repeating: 0, count: min(max(uncompressedSize, 1), 64 * 1024))
-            return try buffer.withUnsafeMutableBufferPointer { destination in
-                var stream = compression_stream(
-                    dst_ptr: destination.baseAddress!, dst_size: 0,
-                    src_ptr: source, src_size: 0, state: nil)
-                guard compression_stream_init(
-                    &stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB
-                ) == COMPRESSION_STATUS_OK else {
+            let (outputLimit, overflow) = uncompressedSize.addingReportingOverflow(1)
+            guard !overflow else { throw ZipError.corruptEntry(entryName) }
+            var stream = z_stream()
+            guard inflateInit2_(&stream, -15, ZLIB_VERSION,
+                                Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
+                throw ZipError.corruptEntry(entryName)
+            }
+            defer { inflateEnd(&stream) }
+            // 空のエントリにも 1 バイトを渡し、偽装された出力を検出する。
+            var result = Data(count: min(max(uncompressedSize, 1), 4 << 20))
+            var outputCount = 0
+            var inputOffset = 0
+            while true {
+                // Washi-1mg: 出力窓の間で取消しを確認し、破損エラーへ変換せず伝える。
+                if Task.isCancelled { throw CancellationError() }
+                if outputCount == result.count {
+                    // 加算も倍増も宣言サイズ + 1 を超えないようにする。
+                    result.count += min(result.count, outputLimit - result.count)
+                }
+                if stream.avail_in == 0, inputOffset < rawSource.count {
+                    let count = min(rawSource.count - inputOffset, Int(UInt32.max))
+                    stream.next_in = UnsafeMutablePointer(mutating: source.advanced(by: inputOffset))
+                    stream.avail_in = uInt(count)
+                    inputOffset += count
+                }
+                let previousInputSize = stream.avail_in
+                let windowSize = min(result.count - outputCount, 64 * 1024)
+                let status = result.withUnsafeMutableBytes { (destination: UnsafeMutableRawBufferPointer) in
+                    stream.next_out = destination.bindMemory(to: UInt8.self).baseAddress!
+                        .advanced(by: outputCount)
+                    stream.avail_out = uInt(windowSize)
+                    defer { stream.next_out = nil }
+                    return zlib.inflate(&stream, Z_NO_FLUSH)
+                }
+                let produced = windowSize - Int(stream.avail_out)
+                outputCount += produced
+                guard outputCount <= uncompressedSize else {
                     throw ZipError.corruptEntry(entryName)
                 }
-                defer { compression_stream_destroy(&stream) }
-                stream.src_ptr = source
-                stream.src_size = compressed.count
-                var result = Data()
-                // 宣言サイズは偽装され得るため、巨大な事前確保を避けて 4 MiB を上限とする。
-                result.reserveCapacity(min(uncompressedSize, 4 << 20))
-                while true {
-                    // Washi-1mg: 1 回の出力は最大 64 KiB。ここで取消しを確認し、
-                    // 巨大展開を早く止める。CancellationError は ZIP 破損へ変換しない。
-                    if Task.isCancelled { throw CancellationError() }
-                    let previousInputSize = stream.src_size
-                    stream.dst_ptr = destination.baseAddress!
-                    stream.dst_size = destination.count
-                    let status = compression_stream_process(
-                        &stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
-                    let produced = destination.count - stream.dst_size
-                    guard produced <= uncompressedSize - result.count else {
+                if status == Z_STREAM_END {
+                    guard outputCount == uncompressedSize else {
                         throw ZipError.corruptEntry(entryName)
                     }
-                    result.append(destination.baseAddress!, count: produced)
-                    if status == COMPRESSION_STATUS_END {
-                        guard result.count == uncompressedSize else {
-                            throw ZipError.corruptEntry(entryName)
-                        }
-                        return result
-                    }
-                    // FINALIZE と進捗検査を併用し、壊れた入力で永久ループしない。
-                    guard status == COMPRESSION_STATUS_OK,
-                          produced > 0 || stream.src_size < previousInputSize else {
-                        throw ZipError.corruptEntry(entryName)
-                    }
-                    inflationChunkObserver?(result.count)
+                    result.count = outputCount
+                    return result
                 }
+                // Z_BUF_ERROR も進捗がなければ拒否する。他のエラーもすべて破損扱いにする。
+                guard status == Z_OK || status == Z_BUF_ERROR,
+                      produced > 0 || stream.avail_in < previousInputSize else {
+                    throw ZipError.corruptEntry(entryName)
+                }
+                inflationChunkObserver?(outputCount)
             }
         }
     }

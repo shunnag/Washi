@@ -1,7 +1,7 @@
 // swift-tools-version: 6.0
 // Washi — macOS ネイティブ技術だけで実装する EPUB 3 ツールキット。
 // 依存パッケージゼロを設計原則とする。2 層のターゲットに分割する:
-//   - WashiCore: 解析層(Foundation / Compression / CryptoKit / CoreGraphics /
+//   - WashiCore: 解析層(Foundation / zlib(libz) / CryptoKit / CoreGraphics /
 //     ImageIO のみ)。OCF/OPF/nav 解析・メタデータ・本文抽出/検索・表紙デコード
 //     まで。GUI セッションのないヘッドレス利用(CLI・索引・サーバ)で使える。
 //   - Washi: 表示層(AppKit / WebKit を追加)。リフロー/FXL リーダービュー・
@@ -51,7 +51,8 @@ let package = Package(
             name: "WashiCore",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
-            ]
+            ],
+            linkerSettings: [.linkedLibrary("z")]
         ),
         .target(
             name: "Washi",

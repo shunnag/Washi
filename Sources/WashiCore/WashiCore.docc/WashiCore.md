@@ -17,6 +17,14 @@ directories, and in-memory EPUB data; exposes package, navigation,
 accessibility, encryption, and media-overlay metadata; resolves resources and
 locators; decodes covers; and extracts or searches publication text.
 
+第三者パッケージには依存しません。Foundation・CoreFoundation・zlib(libz)・
+CryptoKit・CoreGraphics・ImageIO という OS 標準の構成要素を使い、
+ZIP の deflate 展開と CRC-32 検証には zlib を使います。
+
+There are no third-party package dependencies. WashiCore uses the OS-provided
+Foundation, CoreFoundation, zlib (libz), CryptoKit, CoreGraphics, and ImageIO.
+ZIP deflate decompression and CRC-32 validation use zlib.
+
 UI コードでは ``EPUBPublication/open(url:readStrategy:)`` を使い、
 コンテナと XML の解析を main actor の外で実行してください。
 

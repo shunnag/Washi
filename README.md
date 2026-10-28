@@ -88,12 +88,12 @@ the latest GitHub Release. MIT-licensed, with no third-party package dependencie
 ## 特徴 / Features
 
 - **依存ゼロ**: ZIP 読み取り(zip64・CRC 検証)から自前実装。解析層は Foundation の
-  `XMLDocument`・CoreFoundation・Compression・CryptoKit・CoreGraphics・ImageIO のみ
+  `XMLDocument`・CoreFoundation・zlib(libz、OS 標準)・CryptoKit・CoreGraphics・ImageIO のみ
   (ヘッドレス利用可)、表示層(`EPUBReaderView` 等)は AppKit・WebKit を使用
 
   **Zero dependencies**: implemented in-house, starting with ZIP reading (zip64,
   CRC validation). The parsing layer uses only Foundation's `XMLDocument`,
-  CoreFoundation, Compression, CryptoKit, CoreGraphics, and ImageIO (headless);
+  CoreFoundation, zlib (libz, part of the OS), CryptoKit, CoreGraphics, and ImageIO (headless);
   the rendering layer (`EPUBReaderView` and related types) uses AppKit and WebKit.
 
 - **攻撃的 EPUB への耐性**: zip 爆弾(比率+絶対上限)、XML 実体爆弾(billion laughs。
