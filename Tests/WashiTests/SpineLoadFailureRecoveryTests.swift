@@ -315,7 +315,9 @@ final class SpineLoadFailureRecoveryTests: XCTestCase {
         XCTAssertEqual(try view.firstWebView().alphaValue, 1)
     }
 
-    func testNilInitialLoadStopsWithoutAttemptingRecovery() throws {
+    func testNilInitialLoadStopsWithoutAttemptingRecovery() async throws {
+        // 初回ナビゲーションは通信ルールの準備を待つため、ここでは先に準備する。
+        await NetworkLockdownRuleList.shared.prepare()
         let book = try publication()
         let (view, window, delegate) = reader()
         defer { closeReader(view, in: window, teardown: .unload) }

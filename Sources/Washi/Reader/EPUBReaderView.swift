@@ -581,20 +581,11 @@ public final class EPUBReaderView: NSView {
     /// テスト用: WebKit が読み込みを開始しない場合を、実際の再読み込みと組み合わせて検証する。
     var spineLoadHandler: ((URLRequest) -> WKNavigation?)?
 
-    /// 外部ネットワークを遮断するコンテンツルール(コンパイルは初回のみ)
-    static let contentRuleList: Task<WKContentRuleList?, Never> = Task { @MainActor in
-        let json = """
-        [
-          {"trigger": {"url-filter": "https?://.*"}, "action": {"type": "block"}},
-          {"trigger": {"url-filter": "wss?://.*"}, "action": {"type": "block"}},
-          {"trigger": {"url-filter": "^washi-epub://.*"},
-           "action": {"type": "ignore-previous-rules"}}
-        ]
-        """
-        return try? await WKContentRuleListStore.default()?
-            .compileContentRuleList(forIdentifier: "washi-network-lockdown",
-                                    encodedContentRuleList: json)
-    }
+    /// 初回読み込みの前に用意する通信ルール。テストではインスタンスごと差し替える。
+    var networkLockdown = NetworkLockdownRuleList.shared
+    /// 現在の WebView に対する準備が完了したか(失敗時の描画継続も含む)。
+    var networkLockdownReady = false
+    var networkLockdownTask: Task<Void, Never>?
 
     // MARK: - ライフサイクル
 

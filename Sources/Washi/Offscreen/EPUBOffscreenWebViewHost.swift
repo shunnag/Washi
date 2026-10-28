@@ -19,6 +19,15 @@ final class EPUBOffscreenWebViewHost {
     // navigationDelegate は弱参照なので、解決後も保持して外部遷移を遮断する。
     private var pendingNavigationWaiter: NavigationWaiter?
     private var configuredAllowsScriptedContent: Bool?
+    private let networkLockdown: NetworkLockdownRuleList
+    private var networkLockdownReady = false
+
+    /// テスト用: 実 WebKit の応答に依存せず、読み込みを渡す時点を検証する。
+    var navigationLoadHandler: ((WKWebView, URLRequest) -> WKNavigation?)?
+
+    init(networkLockdown: NetworkLockdownRuleList = .shared) {
+        self.networkLockdown = networkLockdown
+    }
 
     /// cooViewer-oxr.68: 所有者の診断用。release 後は false になり、次の
     /// prepare を通ると再び true になる。
@@ -64,6 +73,7 @@ final class EPUBOffscreenWebViewHost {
             self.window = window
         }
         if webView == nil {
+            networkLockdownReady = false
             let handler = makeSchemeHandler()
             schemeHandler = handler
             let configuration = EPUBOffscreenWebViewConfiguration.make(
@@ -101,10 +111,25 @@ final class EPUBOffscreenWebViewHost {
     }
 
     private func load(url: URL, timeout: Duration, in webView: WKWebView) async throws {
+        try Task.checkCancellation()
+        if !networkLockdownReady {
+            await networkLockdown.prepare()
+            try Task.checkCancellation()
+            // 待機中に解放・再構築された WebView へ読み込まない。
+            guard webView === self.webView else { throw CancellationError() }
+            networkLockdownReady = networkLockdown.installIfReady(
+                in: webView.configuration.userContentController)
+        }
+        // 同じジョブで待ってから読み込むため、最初の JS も既存の優先度を保つ。
         let waiter = NavigationWaiter()
         pendingNavigationWaiter = waiter
         webView.navigationDelegate = waiter
-        waiter.expect(webView.load(URLRequest(url: url)))
+        let request = URLRequest(url: url)
+        if let navigationLoadHandler {
+            waiter.expect(navigationLoadHandler(webView, request))
+        } else {
+            waiter.expect(webView.load(request))
+        }
         // オフスクリーンの WebContent プロセスはジェットサム候補のため、
         // 落ちた/固まったときに永久待ちしないようタイムアウト付きで待つ
         do {
@@ -159,6 +184,7 @@ final class EPUBOffscreenWebViewHost {
         webView = nil
         schemeHandler = nil
         configuredAllowsScriptedContent = nil
+        networkLockdownReady = false
         window?.orderOut(nil)
         window = nil
     }
