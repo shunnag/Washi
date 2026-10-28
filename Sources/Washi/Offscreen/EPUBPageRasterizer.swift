@@ -183,9 +183,16 @@ public final class EPUBPageRasterizer {
             deviceViewportSize: deviceViewportSize)
     }
 
+    /// サムネイルの旧ポイント指定も、描画先の倍率が確定してから換算する。
+    func renderPage(atSpineIndex index: Int,
+                    thumbnailSize: ScreenThumbnailSize) async throws -> CGImage {
+        try await enqueueRender(atSpineIndex: index, maxPixelSize: nil,
+                                deviceViewportSize: nil, thumbnailSize: thumbnailSize)
+    }
+
     private func enqueueRender(
         atSpineIndex index: Int, maxPixelSize: Int?,
-        deviceViewportSize: CGSize?
+        deviceViewportSize: CGSize?, thumbnailSize: ScreenThumbnailSize? = nil
     ) async throws -> CGImage {
         guard !isInvalidated else { throw RasterizeError.loadFailed }
         // FIFO 待ちも要求中として数え、最後の描画が終わるまでアイドル解放しない
@@ -202,7 +209,8 @@ public final class EPUBPageRasterizer {
         return try await queue.enqueue(priority: .userInitiated) {
             try await self.performRender(atSpineIndex: index,
                                          maxPixelSize: maxPixelSize,
-                                         deviceViewportSize: deviceViewportSize)
+                                         deviceViewportSize: deviceViewportSize,
+                                         thumbnailSize: thumbnailSize)
         }
     }
 
@@ -223,7 +231,8 @@ public final class EPUBPageRasterizer {
 
     private func performRender(atSpineIndex index: Int,
                                maxPixelSize: Int?,
-                               deviceViewportSize: CGSize?) async throws -> CGImage {
+                               deviceViewportSize: CGSize?,
+                               thumbnailSize: ScreenThumbnailSize?) async throws -> CGImage {
         // FIFO 待ちの間に invalidate された場合、ここでオフスクリーンを
         // 作り直さない(畳んだはずのウインドウ/プロセスを復活させない)
         try Task.checkCancellation()
@@ -256,7 +265,11 @@ public final class EPUBPageRasterizer {
         // 2 倍または 1/2 になる)。ウインドウは prepare で初めて作られるので、寸法
         // 決定の前に用意し、確定後に setContentSize で 1 回だけそろえる。
         let webView = try prepareWebView(initialSize: viewport)
-        let backingScale = host.window?.backingScaleFactor ?? 2
+        guard let backingScale = host.window?.backingScaleFactor else {
+            throw RasterizeError.loadFailed
+        }
+        let maxPixelSize = thumbnailSize?.rasterizerMaxPixelSize(backingScale: backingScale)
+            ?? maxPixelSize
         let zoom = Self.snapshotZoom(viewport: viewport, backingScale: backingScale,
                                      maxPixelSize: maxPixelSize)
         let frameSize = NSSize(width: viewport.width * zoom,

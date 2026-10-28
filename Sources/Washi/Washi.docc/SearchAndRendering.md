@@ -49,7 +49,7 @@ or documents whose extracted text differs from the DOM; nil falls back to chapte
 | 用途 / Use | API | 実行環境 / Environment |
 |---|---|---|
 | 本棚の表紙 / Library cover | `publication.coverImage(maxPixelSize:)` | WashiCore、WebKit 不要 / No WebKit |
-| リフローの特定画面 / Reflow screen | ``EPUBScreenAtlas/thumbnail(spineIndex:pageInItem:metrics:isDark:width:)`` | GUI セッション、main actor / GUI session, main actor |
+| リフローの特定画面 / Reflow screen | ``EPUBScreenAtlas/thumbnail(spineIndex:pageInItem:metrics:isDark:maxPixelSize:)`` | GUI セッション、main actor / GUI session, main actor |
 | 複雑な固定レイアウト / Complex fixed-layout page | ``EPUBPageRasterizer`` | GUI セッション、main actor / GUI session, main actor |
 
 表紙はレイアウトの計測を必要としない。存在しない場合の代替アイコンはホストが用意する。
@@ -73,6 +73,18 @@ nil は失敗やキャンセルなどでも返る。空画像と決めつけず�
 Generate screen thumbnails with the reader's viewportSize and settings. Nil may mean
 failure or cancellation; handle it with a placeholder rather than treating it as an empty page.
 
+`maxPixelSize:` は長辺のピクセル数(1...8192)で、表示倍率に依存しない。
+`EPUBReaderView.screenThumbnail(... maxPixelSize:)` も同じ単位を使う。
+既存の `width:` はリフローではポイント幅、FXL ではポイント長辺であり、
+描画先が 2x なら 256 pt は 512 px になる。256 px の長辺を要求するホストは、
+`width: 256` を `maxPixelSize: 256` に変更する。ホスト側で倍率を掛けたり割ったりする必要はない。
+
+`maxPixelSize:` specifies the long edge in pixels (1...8192), independently of display
+scale. `EPUBReaderView.screenThumbnail(... maxPixelSize:)` uses the same unit.
+The existing `width:` is a point width for reflowable content and a point long edge for
+FXL: 256 pt produces 512 px on a 2x rendering window. Hosts requesting a 256 px long
+edge should replace `width: 256` with `maxPixelSize: 256`, without applying a scale factor.
+
 ```swift
 import AppKit
 import Washi
@@ -85,7 +97,7 @@ func firstScreen(for publication: EPUBPublication,
         defer { atlas.invalidate() }
         let metrics = EPUBScreenMetrics(viewportSize: size, settings: settings)
         return await atlas.thumbnail(spineIndex: 0, pageInItem: 0, metrics: metrics,
-                                     isDark: false, width: 240)
+                                     isDark: false, maxPixelSize: 240)
     }
     return await withTaskCancellationHandler {
         await work.value

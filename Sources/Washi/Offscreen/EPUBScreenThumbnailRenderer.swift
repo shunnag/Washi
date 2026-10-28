@@ -1,6 +1,40 @@
 import AppKit
 import WebKit
 
+/// 旧 API のポイント幅と、表示倍率に依存しないピクセル長辺を区別する。
+enum ScreenThumbnailSize: Equatable {
+    case widthInPoints(CGFloat)
+    case maxPixelSize(Int)
+
+    @MainActor var isValid: Bool {
+        switch self {
+        case .widthInPoints(let width):
+            return EPUBReaderView.snapshotPixelDimensions(
+                size: CGSize(width: width, height: width), scale: 1) != nil
+        case .maxPixelSize(let size):
+            return (1...8192).contains(size)
+        }
+    }
+
+    func snapshotWidth(contentSize: CGSize, backingScale: CGFloat) -> CGFloat {
+        switch self {
+        case .widthInPoints(let width): return width
+        case .maxPixelSize(let size):
+            return CGFloat(size) * contentSize.width
+                / max(contentSize.width, contentSize.height) / backingScale
+        }
+    }
+
+    /// 旧 FXL 経路は幅指定を長辺として扱っていた。単位だけ実際の倍率で換算する。
+    func rasterizerMaxPixelSize(backingScale: CGFloat) -> Int? {
+        switch self {
+        case .widthInPoints(let width):
+            return Int(exactly: (width * backingScale).rounded(.towardZero))
+        case .maxPixelSize(let size): return size
+        }
+    }
+}
+
 /// リフロー EPUB の「画面」(単ページ/見開きの 1 面)のサムネイルを、
 /// 本番と同一メトリクスのページ割りで画面外に描くレンダラ。
 /// census と同じオフスクリーンウインドウ方式で、共有 WKWebView を
@@ -72,11 +106,15 @@ final class EPUBScreenThumbnailRenderer {
     /// 指定画面のサムネイル。失敗時は nil(一覧側は空セルのまま先へ進める)
     func thumbnail(spineIndex: Int, pageInItem: Int, optionsJSON: String,
                    contentSize: NSSize, snapshotWidth: CGFloat) async -> CGImage? {
-        // FXL は幅を 2 倍して Int に変換する。非有限値や変換不能な値を
-        // WebKit の構築前に拒否し、例外で捕捉できない変換トラップを防ぐ。
-        guard !isInvalidated, snapshotWidth.isFinite, snapshotWidth > 0,
-              snapshotWidth < CGFloat(Int.max) / 2,
-              EPUBReaderView.snapshotPixelDimensions(size: contentSize, scale: 2) != nil else { return nil }
+        await thumbnail(spineIndex: spineIndex, pageInItem: pageInItem,
+                        optionsJSON: optionsJSON, contentSize: contentSize,
+                        size: .widthInPoints(snapshotWidth))
+    }
+
+    func thumbnail(spineIndex: Int, pageInItem: Int, optionsJSON: String,
+                   contentSize: NSSize, size: ScreenThumbnailSize) async -> CGImage? {
+        guard !isInvalidated, size.isValid,
+              EPUBReaderView.snapshotPixelDimensions(size: contentSize, scale: 1) != nil else { return nil }
         // cooViewer-oxr.68: FIFO 待ちも要求中として数え、最後の呼び出しが
         // 完了するまで不可視 WebKit を解放しない。
         pendingRenderRequestCount += 1
@@ -97,10 +135,12 @@ final class EPUBScreenThumbnailRenderer {
                 return nil
             }
             guard !self.isInvalidated, !Task.isCancelled else { return nil }
-            return await self.render(
+            let image = await self.render(
                 spineIndex: spineIndex, pageInItem: pageInItem,
                 optionsJSON: optionsJSON, contentSize: contentSize,
-                snapshotWidth: snapshotWidth)
+                size: size)
+            guard let image, case .maxPixelSize(let pixels) = size else { return image }
+            return Self.resized(image, maxPixelSize: pixels)
         }
     }
 
@@ -119,7 +159,7 @@ final class EPUBScreenThumbnailRenderer {
 
     private func render(spineIndex: Int, pageInItem: Int, optionsJSON: String,
                         contentSize: NSSize,
-                        snapshotWidth: CGFloat) async -> CGImage? {
+                        size: ScreenThumbnailSize) async -> CGImage? {
         guard !isInvalidated,
               publication.readingOrder.indices.contains(spineIndex) else { return nil }
         let entry = publication.readingOrder[spineIndex]
@@ -154,7 +194,7 @@ final class EPUBScreenThumbnailRenderer {
             }
             guard let fxlRasterizer else { return nil }
             return try? await fxlRasterizer.renderPage(
-                atSpineIndex: spineIndex, maxPixelSize: Int(snapshotWidth * 2))
+                atSpineIndex: spineIndex, thumbnailSize: size)
         }
         prepareIfNeeded(contentSize: contentSize,
                         allowsScriptedContent: allowsScriptedContent)
@@ -217,6 +257,15 @@ final class EPUBScreenThumbnailRenderer {
         }
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = true
+        // WebKit の snapshotWidth はポイント。ピクセル指定だけ実ウインドウの
+        // 倍率で割り、本文の寸法・ページ割りはそのまま保つ。
+        guard let backingScale = host.window?.backingScaleFactor else { return nil }
+        let snapshotWidth = max(1, size.snapshotWidth(contentSize: contentSize,
+                                                     backingScale: backingScale))
+        guard EPUBReaderView.snapshotPixelDimensions(
+            size: CGSize(width: snapshotWidth,
+                         height: snapshotWidth * contentSize.height / contentSize.width),
+            scale: backingScale) != nil else { return nil }
         configuration.snapshotWidth = NSNumber(value: Double(snapshotWidth))
         var cgImage = try? await EPUBOffscreenWaiting.takeSnapshot(
             webView: webView, configuration: configuration)
@@ -239,6 +288,22 @@ final class EPUBScreenThumbnailRenderer {
             retries += 1
         }
         return cgImage
+    }
+
+    /// WebKit の端数丸め・拡縮上限を吸収し、ピクセル指定の長辺を正確にそろえる。
+    static func resized(_ image: CGImage, maxPixelSize: Int) -> CGImage? {
+        let longSide = max(image.width, image.height)
+        guard longSide != maxPixelSize else { return image }
+        let ratio = CGFloat(maxPixelSize) / CGFloat(longSide)
+        let width = max(1, Int((CGFloat(image.width) * ratio).rounded()))
+        let height = max(1, Int((CGFloat(image.height) * ratio).rounded()))
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()
     }
 
     /// ほぼ無地(1 色)のスナップショットか。16x16 へ縮小して各チャネルの

@@ -41,12 +41,14 @@ private final class FakeCensus: ScreenPageCensusing {
 private final class FakeThumbnailRenderer: ScreenThumbnailRendering {
     private(set) var optionsJSON: String?
     private(set) var contentSize: NSSize?
+    private(set) var size: ScreenThumbnailSize?
     private(set) var invalidateCount = 0
 
     func thumbnail(spineIndex: Int, pageInItem: Int, optionsJSON: String,
-                   contentSize: NSSize, snapshotWidth: CGFloat) async -> CGImage? {
+                   contentSize: NSSize, size: ScreenThumbnailSize) async -> CGImage? {
         self.optionsJSON = optionsJSON
         self.contentSize = contentSize
+        self.size = size
         return nil
     }
 
@@ -285,10 +287,18 @@ final class EPUBScreenAtlasTests: XCTestCase {
         XCTAssertEqual(fakeThumbnail.optionsJSON,
                        derived.themedOptionsJSON(isDark: false))
         XCTAssertEqual(fakeThumbnail.contentSize, derived.contentSize)
+        XCTAssertEqual(fakeThumbnail.size, .widthInPoints(100))
         let data = try XCTUnwrap(fakeThumbnail.optionsJSON?.data(using: .utf8))
         let options = try XCTUnwrap(
             JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(options["spread"] as? Bool, true)
+
+        _ = await atlas.thumbnail(
+            spineIndex: 0, pageInItem: 0, metrics: base,
+            isDark: false, maxPixelSize: 256)
+        XCTAssertEqual(fakeThumbnail.size, .maxPixelSize(256))
+        XCTAssertEqual(fakeThumbnail.optionsJSON, derived.themedOptionsJSON(isDark: false))
+        XCTAssertEqual(fakeThumbnail.contentSize, derived.contentSize)
     }
 
     /// 実 census でも both の論理ページ数が単ページ計画より増えることを比較する

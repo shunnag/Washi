@@ -476,6 +476,10 @@ public final class EPUBReaderView: NSView {
     struct CensusState {
         var engine: EPUBPaginationCensus?
         var task: Task<Void, Never>?
+        /// テストでは待機を差し替え、初回の即開始と再実測の合流を決定的に検証する。
+        var debounceSleep: @MainActor () async throws -> Void = {
+            try await Task.sleep(for: .milliseconds(300))
+        }
         /// 計測時のメトリクスキー(census 用オプション JSON。sortedKeys で決定的)
         var key: String?
         /// メトリクスキー → 実測結果(フォントを行き来したときの再計測を省く)。
