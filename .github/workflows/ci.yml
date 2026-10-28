@@ -2,11 +2,11 @@
 # 両方を回す。片方でしか出ない互換性問題や退行があるため、両方を維持する。
 # 2026-09、CRC32 の式は Swift 6.4 では通ったが、Swift 6.1.2 でのみ
 # 型チェックが時間切れとなり、公開済みタグ 1.18.0 がビルド不能になった。
-# 表示層の WebKit を使うテストも GitHub の macOS ランナーで実行する。
+# 表示層の WebKit を使うテストも macOS ランナーの GUI セッションで実行する。
 # 出荷構成 (release + library evolution + module interface) は debug のテストとは別物で、
 # debug のテストだけが緑でも配布物が壊れうる。cooViewer の
 # Scripts/build-washi-framework.sh はこの出荷構成で Washi.framework をビルドする。
-# xcode-27 は現時点ではプレビュー扱いの arm64 専用イメージ。
+# xcode-27 の表示名を保ち、fork PR だけ hosted、それ以外は自前の Xcode 27 を使う。
 # macos-26 の既定 Xcode が 27 になったら、重複する xcode-27 は畳んでよい。
 # タグの全検証が成功してから GitHub Release を作成する。
 # タグ自体は push 直後から利用できるため、作成前にも対象 commit の CI 成功を確認する。
@@ -182,10 +182,14 @@ jobs:
     name: Test (${{ matrix.os }})
     needs: plan
     # matrix は展開し、不要な macOS 検査は Ubuntu で成功を報告する。
-    runs-on: ${{ needs.plan.outputs[matrix.coverage] == 'true' && matrix.os || 'ubuntu-latest' }}
+    # 省略判定を先に行い、不要な matrix を自前ランナーへ送らない。
+    runs-on: >-
+      ${{ needs.plan.outputs[matrix.coverage] != 'true' && 'ubuntu-latest' ||
+          matrix.os == 'xcode-27' && fromJSON(
+            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository &&
+            '["xcode-27"]' || '["self-hosted", "shunnag-arm64"]'
+          ) || matrix.os }}
     timeout-minutes: 30
-    env:
-      DEVELOPER_DIR: ${{ matrix.developer_dir }}
     strategy:
       fail-fast: false
       matrix:
@@ -206,14 +210,25 @@ jobs:
       - name: Verify selected Xcode exists
         if: needs.plan.outputs[matrix.coverage] == 'true'
         shell: bash
+        env:
+          MATRIX_DEVELOPER_DIR: ${{ matrix.developer_dir }}
         run: |
-          if [ -n "$DEVELOPER_DIR" ] && [ ! -d "$DEVELOPER_DIR" ]; then
-            echo "::error::指定された DEVELOPER_DIR が存在しません: $DEVELOPER_DIR"
-            ls -d /Applications/Xcode*.app || true
-            exit 1
+          set -euo pipefail
+          # 指定のない行では runner の DEVELOPER_DIR (自前の Xcode 27.1) を維持する。
+          if [ -n "$MATRIX_DEVELOPER_DIR" ]; then
+            if [ ! -d "$MATRIX_DEVELOPER_DIR" ]; then
+              echo "::error::指定された DEVELOPER_DIR が存在しません: $MATRIX_DEVELOPER_DIR"
+              ls -d /Applications/Xcode*.app || true
+              exit 1
+            fi
+            printf 'DEVELOPER_DIR=%s\n' "$MATRIX_DEVELOPER_DIR" >> "$GITHUB_ENV"
           fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: needs.plan.outputs[matrix.coverage] == 'true'
+      - name: Prepare clean build workspace
+        if: needs.plan.outputs[matrix.coverage] == 'true'
+        # 前回の SwiftPM 生成物とサンプルのビルド状態を持ち越さない。
+        run: rm -rf .build Samples/.build
       - name: Test release scripts
         if: needs.plan.outputs[matrix.coverage] == 'true'
         run: python3 -m unittest discover -s Tests/Scripts -p 'test_*.py'
@@ -226,6 +241,9 @@ jobs:
       - name: Test standalone AppKit and SwiftUI samples
         if: needs.plan.outputs[matrix.coverage] == 'true'
         run: swift test --package-path Samples
+      - name: Clean build workspace
+        if: always() && needs.plan.outputs[matrix.coverage] == 'true'
+        run: rm -rf .build Samples/.build
   # 文書のみでも DocC と README の例を検証する。main では Pages の公開資産も毎回作る。
   documentation:
     name: Documentation and guide examples
@@ -263,10 +281,14 @@ jobs:
   release-artifact:
     name: Release artifact (${{ matrix.os }})
     needs: plan
-    runs-on: ${{ needs.plan.outputs[matrix.coverage] == 'true' && matrix.os || 'ubuntu-latest' }}
+    # Test と同じ分岐で、文書のみ・検査済み tree の Ubuntu 経路を維持する。
+    runs-on: >-
+      ${{ needs.plan.outputs[matrix.coverage] != 'true' && 'ubuntu-latest' ||
+          matrix.os == 'xcode-27' && fromJSON(
+            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository &&
+            '["xcode-27"]' || '["self-hosted", "shunnag-arm64"]'
+          ) || matrix.os }}
     timeout-minutes: 20
-    env:
-      DEVELOPER_DIR: ${{ matrix.developer_dir }}
     strategy:
       fail-fast: false
       matrix:
@@ -283,14 +305,25 @@ jobs:
       - name: Verify selected Xcode exists
         if: needs.plan.outputs[matrix.coverage] == 'true'
         shell: bash
+        env:
+          MATRIX_DEVELOPER_DIR: ${{ matrix.developer_dir }}
         run: |
-          if [ -n "$DEVELOPER_DIR" ] && [ ! -d "$DEVELOPER_DIR" ]; then
-            echo "::error::指定された DEVELOPER_DIR が存在しません: $DEVELOPER_DIR"
-            ls -d /Applications/Xcode*.app || true
-            exit 1
+          set -euo pipefail
+          # 古い Xcode の行だけを上書きし、runner の既定設定を空文字で消さない。
+          if [ -n "$MATRIX_DEVELOPER_DIR" ]; then
+            if [ ! -d "$MATRIX_DEVELOPER_DIR" ]; then
+              echo "::error::指定された DEVELOPER_DIR が存在しません: $MATRIX_DEVELOPER_DIR"
+              ls -d /Applications/Xcode*.app || true
+              exit 1
+            fi
+            printf 'DEVELOPER_DIR=%s\n' "$MATRIX_DEVELOPER_DIR" >> "$GITHUB_ENV"
           fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: needs.plan.outputs[matrix.coverage] == 'true'
+      - name: Prepare clean build workspace
+        if: needs.plan.outputs[matrix.coverage] == 'true'
+        # 古い .swiftinterface が今回の出荷構成の検査を通してしまわないようにする。
+        run: rm -rf .build Samples/.build
       - run: swift --version
         if: needs.plan.outputs[matrix.coverage] == 'true'
       - name: Build release artifact
@@ -316,6 +349,9 @@ jobs:
             fi
             printf '%s\n' "$interfaces"
           done
+      - name: Clean build workspace
+        if: always() && needs.plan.outputs[matrix.coverage] == 'true'
+        run: rm -rf .build Samples/.build
   corpus:
     name: Public EPUB corpus
     needs: plan
