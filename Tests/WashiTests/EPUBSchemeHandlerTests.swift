@@ -6,29 +6,41 @@ import XCTest
 
 @MainActor
 final class EPUBSchemeHandlerTests: XCTestCase {
-    /// Washi-1mg: 巨大 entry の展開開始後に止め、CRC まで完走せず取消しが届く。
+    /// Washi-1mg / Washi-yy2: 最初の展開チャンクで止め、次の反復で取消しが届くことを検証する。
     func testStopCancelsRunningInflationWithoutCallbacks() async throws {
         let path = "OEBPS/payload.bin"
-        let probe = SchemeReadProbe(paths: [path], blocks: false)
+        let probe = SchemeReadProbe(paths: [path], gate: .inflation)
+        defer { probe.releaseAll() }
         let publication = try Self.makeImageSpinePublication(
             path: "payload.bin", mediaType: "application/octet-stream",
-            data: Data(repeating: 0x61, count: 128 << 20), method: 8,
+            data: Data(repeating: 0x61, count: 128 << 10), method: 8,
             wrapReader: { ProbedSchemeReader(base: $0, probe: probe) })
         let handler = EPUBSchemeHandler(publication: publication)
+        handler.extractionLimit = 1
         let webView = WKWebView(frame: .zero)
-        let stopped = expectation(description: "停止済み要求には完了・失敗を通知しない")
-        stopped.isInverted = true
         let task = RecordingSchemeTask(request: URLRequest(
-            url: try XCTUnwrap(handler.url(forContainerPath: path)))) { stopped.fulfill() }
+            url: try XCTUnwrap(handler.url(forContainerPath: path)))) {
+                XCTFail("停止済み要求には完了・失敗を通知しない")
+            }
         handler.webView(webView, start: task)
-        try await waitUntil(invertedExpectation: stopped) { probe.started.count == 1 }
-        // 読取り入口だけでなく 64 KiB の展開ループに入る時間を取る。
-        try await Task.sleep(for: .milliseconds(10))
+        await fulfillment(of: [probe.inflationPaused], timeout: 5)
+        XCTAssertEqual(probe.inflatedByteCount, 64 << 10)
         XCTAssertEqual(probe.completedCount, 0)
+        // 次の要求の完了で、停止した要求の枠返却と応答抑止まで通過したことを確かめる。
+        let nextFinished = expectation(description: "停止後の要求が完了する")
+        let nextTask = RecordingSchemeTask(request: URLRequest(
+            url: try XCTUnwrap(handler.url(forContainerPath: "mimetype")))) {
+                nextFinished.fulfill()
+            }
+        handler.webView(webView, start: nextTask)
         handler.webView(webView, stop: task)
         handler.webView(webView, stop: task)
-        try await waitUntil(invertedExpectation: stopped) { probe.cancelledCount == 1 }
-        await fulfillment(of: [stopped], timeout: 0.05)
+        probe.release(path)
+        await fulfillment(of: [nextFinished], timeout: 5)
+        XCTAssertNil(nextTask.failure)
+        XCTAssertEqual(nextTask.receivedData, Data("application/epub+zip".utf8))
+        XCTAssertEqual(probe.cancelledCount, 1)
+        XCTAssertEqual(probe.inflatedByteCount, 64 << 10)
         XCTAssertEqual(probe.completedCount, 0)
         XCTAssertEqual(task.callbackCount, 0)
     }
@@ -36,7 +48,7 @@ final class EPUBSchemeHandlerTests: XCTestCase {
     /// Washi-1mg: 背景処理をゲートで止め、上限・FIFO・待機中の取消しを決定的に検証する。
     func testExtractionLimitFIFOAndQueuedStop() async throws {
         let paths = (0..<5).map { "budget/\($0).bin" }
-        let probe = SchemeReadProbe(paths: Set(paths), blocks: true)
+        let probe = SchemeReadProbe(paths: Set(paths), gate: .read)
         defer { probe.releaseAll() }
         let publication = try Self.makeImageSpinePublication(
             wrapReader: { ProbedSchemeReader(base: $0, probe: probe) })
@@ -133,15 +145,12 @@ final class EPUBSchemeHandlerTests: XCTestCase {
         }
     }
 
-    private func waitUntil(invertedExpectation: XCTestExpectation? = nil,
+    private func waitUntil(file: StaticString = #filePath, line: UInt = #line,
                            _ predicate: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(5)
         while !predicate() {
             guard ContinuousClock.now < deadline else {
-                if let invertedExpectation {
-                    await fulfillment(of: [invertedExpectation], timeout: 0.05)
-                }
-                XCTFail("背景処理が期限内に進まない")
+                XCTFail("背景処理が期限内に進まない", file: file, line: line)
                 throw URLError(.timedOut)
             }
             try await Task.sleep(for: .milliseconds(1))
@@ -601,8 +610,11 @@ private struct ProbedSchemeReader: ContainerReader {
 
 /// Washi-1mg: 可変状態は condition で保護し、ゲート待ちでも main actor を使わない。
 private final class SchemeReadProbe: @unchecked Sendable {
+    enum Gate { case read, inflation }
+
     let paths: Set<String>
-    private let blocks: Bool
+    let inflationPaused = XCTestExpectation(description: "最初の展開チャンクで待機する")
+    private let gate: Gate
     private let condition = NSCondition()
     private var released: Set<String> = []
     private var starts: [String] = []
@@ -610,16 +622,18 @@ private final class SchemeReadProbe: @unchecked Sendable {
     private var peak = 0
     private var completed = 0
     private var cancelled = 0
+    private var inflatedBytes = 0
 
-    init(paths: Set<String>, blocks: Bool) {
+    init(paths: Set<String>, gate: Gate) {
         self.paths = paths
-        self.blocks = blocks
+        self.gate = gate
     }
 
     var started: [String] { condition.withLock { starts } }
     var maximumActive: Int { condition.withLock { peak } }
     var completedCount: Int { condition.withLock { completed } }
     var cancelledCount: Int { condition.withLock { cancelled } }
+    var inflatedByteCount: Int { condition.withLock { inflatedBytes } }
 
     func release(_ path: String) {
         condition.withLock {
@@ -640,16 +654,33 @@ private final class SchemeReadProbe: @unchecked Sendable {
         starts.append(path)
         active += 1
         peak = max(peak, active)
-        while blocks && !released.contains(path) { condition.wait() }
+        while gate == .read && !released.contains(path) { condition.wait() }
         condition.unlock()
         defer { condition.withLock { active -= 1 } }
         do {
-            let data = path.hasPrefix("budget/") ? Data(path.utf8) : try base.read(path)
+            let data: Data
+            if path.hasPrefix("budget/") {
+                data = Data(path.utf8)
+            } else {
+                data = try ZipArchive.$inflationChunkObserver.withValue({ byteCount in
+                    self.pauseInflation(after: byteCount, for: path)
+                }) { try base.read(path) }
+            }
             condition.withLock { completed += 1 }
             return data
         } catch {
             if error is CancellationError { condition.withLock { cancelled += 1 } }
             throw error
         }
+    }
+
+    private func pauseInflation(after byteCount: Int, for path: String) {
+        guard gate == .inflation else { return }
+        condition.lock()
+        let firstChunk = inflatedBytes == 0
+        inflatedBytes = byteCount
+        if firstChunk { inflationPaused.fulfill() }
+        while !released.contains(path) { condition.wait() }
+        condition.unlock()
     }
 }
