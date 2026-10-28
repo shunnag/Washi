@@ -54,6 +54,9 @@ extension EPUBReaderView {
         webView?.stopLoading()
         webView?.removeFromSuperview()
         webView = nil
+        networkLockdownTask?.cancel()
+        networkLockdownTask = nil
+        networkLockdownReady = false
         schemeHandler = nil
         messageProxy?.owner = nil
         messageProxy = nil
@@ -132,6 +135,8 @@ extension EPUBReaderView {
     }
 
     private func rebuildWebView(for publication: EPUBPublication) {
+        networkLockdownTask?.cancel()
+        networkLockdownTask = nil
         spineLoad.resetRecovery()
         // cooViewer-t4e: ホストが追加したオーバーレイを再構築後の webView で
         // 覆わないよう、旧 webView が占めていた z 位置を保存する。
@@ -199,11 +204,7 @@ extension EPUBReaderView {
         }
         self.webView = webView
 
-        Task { [weak webView] in
-            if let ruleList = await Self.contentRuleList.value {
-                webView?.configuration.userContentController.add(ruleList)
-            }
-        }
+        networkLockdownReady = false
     }
 
     var isRollItem: Bool {
@@ -252,6 +253,39 @@ extension EPUBReaderView {
         guard let url else { return }  // URL が無い場合は上の失敗判定で処理済み。
         // 透明にするのは didCommit(それまでは前のページが見えている)
         let navigationPath = schemeHandler.containerPath(for: url) ?? entry.resolvedContainerPath
+        if !networkLockdownReady {
+            if networkLockdown.installIfReady(in: webView.configuration.userContentController) {
+                networkLockdownReady = true
+            } else {
+                let generation = spineLoadGeneration
+                let networkLockdown = networkLockdown
+                networkLockdownTask?.cancel()
+                networkLockdownTask = Task(priority: .userInitiated) { [weak self, weak webView] in
+                    await networkLockdown.prepare()
+                    // 本の差し替え・終了・別章の読み込み・中止を古い要求で覆さない。
+                    // 同じ章の移動先だけが変わったときは、その最新の行き先で読み込みを続ける。
+                    guard !Task.isCancelled,
+                          let self, let webView, webView === self.webView,
+                          generation == self.spineLoadGeneration,
+                          self.spineLoad.isLoadingSpineItem else { return }
+                    if !self.networkLockdownReady {
+                        self.networkLockdownReady = networkLockdown.installIfReady(
+                            in: webView.configuration.userContentController)
+                    }
+                    self.networkLockdownTask = nil
+                    self.issueSpineLoad(url: url, navigationPath: navigationPath,
+                                        resourcePath: entry.resolvedContainerPath, in: webView)
+                }
+                return
+            }
+        }
+        issueSpineLoad(url: url, navigationPath: navigationPath,
+                       resourcePath: entry.resolvedContainerPath, in: webView)
+    }
+
+    /// 通信ルールの準備を終えてから、テストフックも含めて実際の読み込みへ渡す。
+    private func issueSpineLoad(url: URL, navigationPath: String,
+                                resourcePath: String, in webView: WKWebView) {
         spineNavigationGate.expect(navigationPath, generation: spineLoadGeneration)
         let urlRequest = URLRequest(url: url)
         let navigation: WKNavigation?
@@ -263,7 +297,7 @@ extension EPUBReaderView {
         if navigation == nil {
             spineNavigationGate.cancelExpectation(for: navigationPath)
             reportNavigationFailure(EPUBError.malformed(
-                "Cannot load spine resource: \(entry.resolvedContainerPath)"))
+                "Cannot load spine resource: \(resourcePath)"))
             // 入れ子で始まった読み込み直しの navigation を nil で上書きしない。
             return
         }
