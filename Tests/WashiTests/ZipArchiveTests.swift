@@ -43,6 +43,53 @@ final class ZipArchiveTests: XCTestCase {
         }
     }
 
+    func testCRC32KnownVectorInNonZeroOffsetSlice() {
+        let input = Data("padding123456789tail".utf8)
+        let slice = input[7..<16]
+        XCTAssertEqual(slice.startIndex, 7)
+        XCTAssertEqual(CRC32.checksum(slice), 0xCBF4_3926)
+    }
+
+    /// 大容量の末尾の端数も含め、置き換え前の 8 分割テーブルによる計算と照合する。
+    func testCRC32LargeBufferMatchesPreviousSliceByEightImplementation() {
+        let input = Data((0..<((2 << 20) + 7)).map {
+            UInt8(truncatingIfNeeded: $0 * 73 + $0 / 251)
+        })
+        var tables = [UInt32](repeating: 0, count: 8 * 256)
+        for i in 0..<256 {
+            var crc = UInt32(i)
+            for _ in 0..<8 {
+                crc = crc & 1 == 0 ? crc >> 1 : (crc >> 1) ^ 0xEDB8_8320
+            }
+            tables[i] = crc
+        }
+        for slice in 1..<8 {
+            for i in 0..<256 {
+                let previous = tables[(slice - 1) * 256 + i]
+                tables[slice * 256 + i] = tables[Int(previous & 0xFF)] ^ (previous >> 8)
+            }
+        }
+        let expected = input.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> UInt32 in
+            var crc: UInt32 = 0xFFFF_FFFF
+            var offset = 0
+            while bytes.count - offset >= 8 {
+                let block = UInt64(littleEndian: bytes.loadUnaligned(
+                    fromByteOffset: offset, as: UInt64.self)) ^ UInt64(crc)
+                crc = 0
+                for byte in 0..<8 {
+                    crc ^= tables[(7 - byte) * 256 + Int((block >> (byte * 8)) & 0xFF)]
+                }
+                offset += 8
+            }
+            while offset < bytes.count {
+                crc = tables[Int((crc ^ UInt32(bytes[offset])) & 0xFF)] ^ (crc >> 8)
+                offset += 1
+            }
+            return crc ^ 0xFFFF_FFFF
+        }
+        XCTAssertEqual(CRC32.checksum(input), expected)
+    }
+
     private func bitwiseCRC32(_ data: Data) -> UInt32 {
         var crc: UInt32 = 0xFFFF_FFFF
         for byte in data {

@@ -1,59 +1,22 @@
 import Foundation
+import zlib
 
 /// ZIP エントリ検証用の CRC-32(IEEE 802.3 多項式 0xEDB88320)。
-/// 外部依存を増やさず、8 本のテーブルで 8 バイトずつ処理する。
+/// OS 標準の zlib を使い、外部パッケージへの依存を増やさない。
 enum CRC32 {
-    private static let tables: [UInt32] = {
-        var tables = [UInt32](repeating: 0, count: 8 * 256)
-        for i in 0..<256 {
-            var c = UInt32(i)
-            for _ in 0..<8 {
-                c = (c & 1) != 0 ? (0xEDB8_8320 ^ (c >> 1)) : (c >> 1)
-            }
-            tables[i] = c
-        }
-        // 先頭の表から、後続のゼロバイトを畳み込んだ表を導く。
-        for slice in 1..<8 {
-            for i in 0..<256 {
-                let previous = tables[(slice - 1) * 256 + i]
-                tables[slice * 256 + i] =
-                    tables[Int(previous & 0xFF)] ^ (previous >> 8)
-            }
-        }
-        return tables
-    }()
-
     static func checksum(_ data: Data) -> UInt32 {
-        var crc: UInt32 = 0xFFFF_FFFF
         data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
-            var offset = 0
-            while bytes.count - offset >= 8 {
-                // Data のスライスは整列を保証しないため非整列読み取りを使い、
-                // ホストのバイト順に依存せず下位バイトから畳み込む。
-                let first = UInt32(littleEndian: bytes.loadUnaligned(
-                    fromByteOffset: offset, as: UInt32.self)) ^ crc
-                let second = UInt32(littleEndian: bytes.loadUnaligned(
-                    fromByteOffset: offset + 4, as: UInt32.self))
-                // 古いツールチェーンで型チェックが時間切れになるため、式を分けておく。
-                let t0: UInt32 = tables[1792 + Int(first & 0xFF)]
-                let t1: UInt32 = tables[1536 + Int((first >> 8) & 0xFF)]
-                let t2: UInt32 = tables[1280 + Int((first >> 16) & 0xFF)]
-                let t3: UInt32 = tables[1024 + Int(first >> 24)]
-                let t4: UInt32 = tables[768 + Int(second & 0xFF)]
-                let t5: UInt32 = tables[512 + Int((second >> 8) & 0xFF)]
-                let t6: UInt32 = tables[256 + Int((second >> 16) & 0xFF)]
-                let t7: UInt32 = tables[Int(second >> 24)]
-                let firstCRC: UInt32 = t0 ^ t1 ^ t2 ^ t3
-                let secondCRC: UInt32 = t4 ^ t5 ^ t6 ^ t7
-                crc = firstCRC ^ secondCRC
-                offset += 8
+            var crc = zlib.crc32(0, nil, 0)
+            if let source = bytes.bindMemory(to: UInt8.self).baseAddress {
+                var offset = 0
+                while offset < bytes.count {
+                    // zlib の長さ引数は uInt なので、大きな入力は分割して累積する。
+                    let count = min(bytes.count - offset, Int(UInt32.max))
+                    crc = zlib.crc32(crc, source.advanced(by: offset), uInt(count))
+                    offset += count
+                }
             }
-            // 末尾の 0〜7 バイトは従来の 1 バイト処理で畳み込む。
-            while offset < bytes.count {
-                crc = tables[Int((crc ^ UInt32(bytes[offset])) & 0xFF)] ^ (crc >> 8)
-                offset += 1
-            }
+            return UInt32(crc)
         }
-        return crc ^ 0xFFFF_FFFF
     }
 }

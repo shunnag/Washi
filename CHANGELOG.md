@@ -6,6 +6,18 @@
 
 ## [Unreleased]
 
+### 変更
+
+- EPUB の ZIP エントリの raw deflate 展開と CRC-32 検証に、OS 標準の zlib(libz)を使う。
+  自前の改善案では速度が十分でなかったため採用し、第三者パッケージへの依存は増やさない。
+  M4 Max の release 計測では、2 MB JPEG / 8 MB テキスト / 200 KB XHTML の展開は
+  従来の libcompression ストリーミング + Data 追記が 354 / 601 / 860 MB/s、
+  最終バッファへの直接書き込みが 357 / 643 / 881 MB/s、
+  libcompression の一括展開が 380 / 705 / 981 MB/s に対し、zlib は 631 / 1260 / 2120 MB/s。
+  CRC-32 は従来の Swift 8 分割テーブルが約 2500 MB/s、Swift 16 分割が約 3600 MB/s、
+  自前 ARMv8 C 実装が約 10600 MB/s に対し、zlib の crc32 は約 40000 MB/s。
+  展開サイズ・終端・CRC の検証、段階的なバッファ拡張、64 KiB ごとの取消し確認を維持する。
+
 ### セキュリティ
 
 - 外部通信を遮断する `WKContentRuleList` を、画面上のリーダーと画面外の

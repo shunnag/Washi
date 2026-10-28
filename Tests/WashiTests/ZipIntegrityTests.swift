@@ -22,12 +22,36 @@ final class ZipIntegrityTests: XCTestCase {
         }
     }
 
+    /// 展開を開始してバッファを拡張した後にも、次の出力窓の前で取消しを伝える。
+    func testCancellationDuringLargeInflationPreservesCancellationError() async throws {
+        let zip = try ZipArchive(data: ZipBuilder.build([
+            ("payload.bin", Data(repeating: 0x61, count: 8 << 20))
+        ], method: 8))
+        let cancellationOffset = (4 << 20) + 64 * 1024
+        let task = Task.detached {
+            try ZipArchive.$inflationChunkObserver.withValue({ produced in
+                if produced >= cancellationOffset {
+                    XCTAssertEqual(produced, cancellationOffset)
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+            }) {
+                try ZipContainerReader(archive: zip).read("payload.bin")
+            }
+        }
+        do {
+            _ = try await task.value
+            XCTFail("展開途中の取消しが無視された")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "取消しが変換された: \(error)")
+        }
+    }
+
     private func archive(stream: Data, declared: Data) throws -> ZipArchive {
         let name = "payload.bin"
         var zip = ZipBuilder.build([(name, stream)])
         let central = 30 + name.utf8.count + stream.count
         for offset in [8, central + 10] {
-            zip[offset] = 8 // Keep the raw payload but declare deflate.
+            zip[offset] = 8 // 生のペイロードを保ち、圧縮方式だけ deflate と宣言する。
         }
         for offset in [14, central + 16] {
             for i in 0..<4 {
@@ -63,6 +87,14 @@ final class ZipIntegrityTests: XCTestCase {
         XCTAssertThrowsError(try zip.data(forEntry: "payload.bin"))
     }
 
+    func testRejectsTruncatedDeflatePayloadAsCorruptEntry() throws {
+        let payload = Data("truncated payload".utf8)
+        let zip = try archive(stream: Data(storedDeflate(payload).dropLast()), declared: payload)
+        XCTAssertThrowsError(try zip.data(forEntry: "payload.bin")) { error in
+            XCTAssertEqual(error as? ZipError, .corruptEntry("payload.bin"))
+        }
+    }
+
     func testRejectsPayloadDisguisedAsEmptyEntry() throws {
         let zip = try archive(stream: storedDeflate(Data("hidden".utf8)), declared: Data())
         XCTAssertThrowsError(try zip.data(forEntry: "payload.bin"))
@@ -84,7 +116,7 @@ final class ZipIntegrityTests: XCTestCase {
         let payload = Data("text".utf8)
         let zip = try archive(stream: storedDeflate(payload) + Data([0xff]), declared: payload)
         // zlib 系のリーダーと同じく、完結したストリームの後ろの詰め物は受け入れる。
-        // 圧縮側は先読みすることがあり、src_size ではストリームの正確な終端を特定できない。
+        // 従来の Compression 実装も終端時の src_size を検査せず返していた。
         XCTAssertEqual(try zip.data(forEntry: "payload.bin"), payload)
     }
 
