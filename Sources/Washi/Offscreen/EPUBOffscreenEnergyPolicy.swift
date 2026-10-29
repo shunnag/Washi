@@ -114,6 +114,11 @@ final class EPUBOffscreenEnergyPacer {
         self.sleep = sleep
     }
 
+    /// unrestricted は状態を読まない。並列 census の追加ホストも同じ省エネ判断に従う。
+    var isConserving: Bool {
+        policy.consultsSystemState && EPUBOffscreenEnergyPolicy.asksToConserve(state())
+    }
+
     /// WebKit を使う項目/ジョブの直前に呼ぶ。省エネが求められていなければ
     /// 何も待たず、unrestricted ならシステムの状態も読まない。キャンセルは投げる。
     func pauseBeforeJobIfNeeded() async throws {

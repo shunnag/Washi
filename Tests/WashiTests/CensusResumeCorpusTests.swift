@@ -28,7 +28,7 @@ final class CensusResumeCorpusTests: XCTestCase {
 
         for (publication, name) in books {
             let bookStart = ContinuousClock.now
-            let reference = EPUBPaginationCensus()
+            let reference = EPUBPaginationCensus(maximumWorkers: 1)
             let full = await reference.measure(
                 publication: publication, optionsJSON: key, contentSize: metrics.contentSize)
             reference.invalidate()
@@ -57,7 +57,13 @@ final class CensusResumeCorpusTests: XCTestCase {
             let elapsed = ContinuousClock.now - bookStart
             let prefixMatches = interrupted.counts == Array(full.prefix(interrupted.counts.count))
             let identical = resumed == EPUBPaginationCensus.Outcome(counts: full, isComplete: true)
-            let expectedResumeLoads = loaded - (trigger.triggerAtScheduleCount - 1)
+            // 並列計測では、setup を呼んだ回数と保存できる連続 prefix 長は一致しない。
+            let skippedLoads = publication.readingOrder.prefix(interrupted.counts.count).filter {
+                (publication.package.effectiveLayout(for: $0.itemRef) != .prePaginated
+                 || EPUBScreenMetrics.isScrolled(publication.renderingFlow(at: $0.spineIndex)))
+                    && publication.resourceExists(at: $0.resolvedContainerPath)
+            }.count
+            let expectedResumeLoads = loaded - skippedLoads
             XCTAssertFalse(interrupted.isComplete, "\(name): 中断が起きませんでした")
             XCTAssertTrue(prefixMatches,
                           "\(name): 中断時の先頭部分 \(interrupted.counts) が \(full) の先頭と一致しません")
