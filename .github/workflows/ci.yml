@@ -2,11 +2,11 @@
 # 両方を回す。片方でしか出ない互換性問題や退行があるため、両方を維持する。
 # 2026-09、CRC32 の式は Swift 6.4 では通ったが、Swift 6.1.2 でのみ
 # 型チェックが時間切れとなり、公開済みタグ 1.18.0 がビルド不能になった。
-# 表示層の WebKit を使うテストも GitHub の macOS ランナーで実行する。
+# 表示層の WebKit を使うテストも macOS ランナーの GUI セッションで実行する。
 # 出荷構成 (release + library evolution + module interface) は debug のテストとは別物で、
 # debug のテストだけが緑でも配布物が壊れうる。cooViewer の
 # Scripts/build-washi-framework.sh はこの出荷構成で Washi.framework をビルドする。
-# xcode-27 は現時点ではプレビュー扱いの arm64 専用イメージ。
+# xcode-27 の表示名を保ち、fork PR だけ hosted、それ以外は自前の Xcode 27 を使う。
 # macos-26 の既定 Xcode が 27 になったら、重複する xcode-27 は畳んでよい。
 # タグの全検証が成功してから GitHub Release を作成する。
 # タグ自体は push 直後から利用できるため、作成前にも対象 commit の CI 成功を確認する。
@@ -25,50 +25,231 @@ on:
     branches: [main]
     tags: ['*']
   pull_request:
+  workflow_dispatch:
+  # cooViewer の月曜 21:17 UTC と KaitoKit の毎日 15:17 UTC を避ける。
+  schedule:
+    - cron: '43 4 * * 4'
+
+# PR では新しい push が古い run を取り消す。push・手動・定期の run は取り消さない。
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 jobs:
+  # PR の merge checkout と同じ tree を検査済みの場合だけ、push の重複検査を省く。
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      full: ${{ steps.decide.outputs.full }}
+      legacy: ${{ steps.decide.outputs.legacy }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      # PR は merge-base から head、push は before から今回の commit までの全差分を見る。
+      # 取得失敗・空差分・新規ブランチでは文書のみと判定せず、全 CI に戻す。
+      - name: Classify changed paths
+        id: paths
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          docs_only=false
+          classify() {
+            local checked_sha diff_range path changed=false
+            case "$EVENT:$REF" in
+              pull_request:*) ;;
+              push:refs/heads/main) ;;
+              *) return ;;
+            esac
+            checked_sha="$(git rev-parse HEAD)" || return
+            [ "$checked_sha" = "$SHA" ] || return
+            if [ "$EVENT" = pull_request ]; then
+              [[ "$PR_BASE" =~ ^[0-9a-f]{40}$ && "$PR_HEAD" =~ ^[0-9a-f]{40}$ ]] || return
+              diff_range="$PR_BASE...$PR_HEAD"
+            else
+              [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && "$BEFORE" != 0000000000000000000000000000000000000000 ]] || return
+              diff_range="$BEFORE..$SHA"
+            fi
+            # rename の旧パスも検査し、コードから文書への移動で検査を省かない。
+            git diff --no-renames --name-only -z "$diff_range" -- > "$RUNNER_TEMP/ci-changed-paths" || return
+            while IFS= read -r -d '' path; do
+              changed=true
+              case "$path" in
+                .github/*|appcast.xml) return ;;
+                Documentation/*|Sources/*.docc/*|*.md|.beads/*|LICENSE*) ;;
+                *) return ;;
+              esac
+            done < "$RUNNER_TEMP/ci-changed-paths"
+            [ "$changed" = true ] || return
+            docs_only=true
+          }
+          classify || true
+          printf 'docs_only=%s\n' "$docs_only" >> "$GITHUB_OUTPUT"
+      - name: Look up a successful PR for the same tree
+        id: lookup
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          skip=false
+          reason="event=$EVENT: 全 CI"
+          lookup() {
+            if [ "$EVENT" != push ] || [ "$REF" != refs/heads/main ]; then
+              return
+            fi
+            reason="checkout の commit を確認できないため全 CI"
+            local checked_sha tree pulls pr head runs id url count
+            checked_sha="$(git rev-parse HEAD)" || return
+            [ "$checked_sha" = "$SHA" ] || return
+            tree="$(git rev-parse 'HEAD^{tree}')" || return
+            reason="PR の取得に失敗したため全 CI"
+            pulls="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" --jq "[.[] | select(.merged_at != null and .merge_commit_sha == \"$SHA\") | {number, head: .head.sha}]")" || return
+            reason="PR が一意でないため全 CI"
+            pr="$(jq -er 'if length == 1 then .[0].number else empty end | select(type == "number" and . > 0 and . == floor)' <<< "$pulls")" || return
+            head="$(jq -er '.[0].head | select(type == "string" and test("^[0-9a-f]{40}$"))' <<< "$pulls")" || return
+            reason="PR run の取得に失敗したため全 CI"
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$head&status=success&per_page=100" --jq '.workflow_runs[] | "\(.id) \(.html_url)"')" || return
+            reason="同じ tree の検査済み記録がないため全 CI"
+            while read -r id url; do
+              [ -n "$id" ] || continue
+              if [[ ! "$id" =~ ^[0-9]+$ ]] || [[ ! "$url" =~ ^https://github\.com/ ]]; then
+                reason="PR run の応答が不正なため全 CI"
+                return
+              fi
+              reason="検査済み記録の取得に失敗したため全 CI"
+              count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts?name=tested-tree-$tree" --jq '[.artifacts[] | select(.expired | not)] | length')" || return
+              if [[ ! "$count" =~ ^[0-9]+$ ]]; then
+                reason="検査済み記録の応答が不正なため全 CI"
+                return
+              fi
+              if [ "$count" -ge 1 ]; then
+                reason="tree $tree は PR #$pr の $url で PR 対象の CI 済み。旧 OS と文書の検査は維持する。"
+                skip=true
+                return
+              fi
+              reason="同じ tree の検査済み記録がないため全 CI"
+            done <<< "$runs"
+          }
+          lookup || true
+          printf 'skip=%s\n' "$skip" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$reason" >> "$GITHUB_STEP_SUMMARY"
+      # literal true と正常終了を確認してから省く。失敗・出力欠落では全 CI にする。
+      - name: Decide whether to run the full CI
+        id: decide
+        if: always()
+        env:
+          DOCS_ONLY: ${{ steps.paths.outputs.docs_only }}
+          PATHS_OUTCOME: ${{ steps.paths.outcome }}
+          SKIP: ${{ steps.lookup.outputs.skip }}
+          LOOKUP_OUTCOME: ${{ steps.lookup.outcome }}
+        run: |
+          set -uo pipefail
+          full=true
+          legacy=true
+          if [ "$PATHS_OUTCOME" = success ] && [ "$DOCS_ONLY" = true ]; then
+            full=false
+            legacy=false
+            printf '文書のみの変更のためビルド・テストを省略する。\n' >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$LOOKUP_OUTCOME" = success ] && [ "$SKIP" = true ]; then
+            full=false
+          elif [ "$PATHS_OUTCOME" != success ] || [ "$LOOKUP_OUTCOME" != success ]; then
+            printf 'gate の確認に失敗したため全 CI\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          printf 'full=%s\n' "$full" >> "$GITHUB_OUTPUT"
+          # PR に無い旧 OS は、同じ tree の検査済み記録があっても省かない。
+          printf 'legacy=%s\n' "$legacy" >> "$GITHUB_OUTPUT"
+
   test:
     name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    env:
-      DEVELOPER_DIR: ${{ matrix.developer_dir }}
+    needs: plan
+    # matrix は展開し、不要な macOS 検査は Ubuntu で成功を報告する。
+    # 省略判定を先に行い、不要な matrix を自前ランナーへ送らない。
+    runs-on: >-
+      ${{ needs.plan.outputs[matrix.coverage] != 'true' && 'ubuntu-latest' ||
+          matrix.os == 'xcode-27' && fromJSON(
+            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository &&
+            '["xcode-27"]' || '["self-hosted", "shunnag-arm64"]'
+          ) || matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-26
-            developer_dir: ''
-          - os: macos-26-intel
-            developer_dir: ''
-          - os: macos-15
-            developer_dir: /Applications/Xcode_16.4.app
-          - os: macos-15-intel
-            developer_dir: /Applications/Xcode_16.4.app
-          - os: macos-14
-            developer_dir: /Applications/Xcode_16.2.app
-          - os: xcode-27
-            developer_dir: ''
+        os: [macos-26, xcode-27]
+        coverage: [full]
+        # PR に無い OS は main push・タグ・定期・手動だけで追加する。
+        include: >-
+          ${{ fromJSON(github.event_name == 'pull_request' && '[]' || '[
+            {"os":"macos-26-intel","coverage":"legacy","developer_dir":""},
+            {"os":"macos-15","coverage":"legacy","developer_dir":"/Applications/Xcode_16.4.app"},
+            {"os":"macos-15-intel","coverage":"legacy","developer_dir":"/Applications/Xcode_16.4.app"},
+            {"os":"macos-14","coverage":"legacy","developer_dir":"/Applications/Xcode_16.2.app"}
+          ]') }}
     steps:
+      - name: Skip macOS work
+        if: needs.plan.outputs[matrix.coverage] != 'true'
+        run: echo 'plan の判定によりこの OS の検査を省略する。'
       - name: Verify selected Xcode exists
+        if: needs.plan.outputs[matrix.coverage] == 'true'
         shell: bash
+        env:
+          MATRIX_DEVELOPER_DIR: ${{ matrix.developer_dir }}
         run: |
-          if [ -n "$DEVELOPER_DIR" ] && [ ! -d "$DEVELOPER_DIR" ]; then
-            echo "::error::指定された DEVELOPER_DIR が存在しません: $DEVELOPER_DIR"
-            ls -d /Applications/Xcode*.app || true
-            exit 1
+          set -euo pipefail
+          # 指定のない行では runner の DEVELOPER_DIR (自前の Xcode 27.1) を維持する。
+          if [ -n "$MATRIX_DEVELOPER_DIR" ]; then
+            if [ ! -d "$MATRIX_DEVELOPER_DIR" ]; then
+              echo "::error::指定された DEVELOPER_DIR が存在しません: $MATRIX_DEVELOPER_DIR"
+              ls -d /Applications/Xcode*.app || true
+              exit 1
+            fi
+            printf 'DEVELOPER_DIR=%s\n' "$MATRIX_DEVELOPER_DIR" >> "$GITHUB_ENV"
           fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: needs.plan.outputs[matrix.coverage] == 'true'
+      - name: Prepare clean build workspace
+        if: needs.plan.outputs[matrix.coverage] == 'true'
+        # 前回の SwiftPM 生成物とサンプルのビルド状態を持ち越さない。
+        run: rm -rf .build Samples/.build
       - name: Test release scripts
+        if: needs.plan.outputs[matrix.coverage] == 'true'
         run: python3 -m unittest discover -s Tests/Scripts -p 'test_*.py'
       - run: swift --version
+        if: needs.plan.outputs[matrix.coverage] == 'true'
       - run: swift build
+        if: needs.plan.outputs[matrix.coverage] == 'true'
       - run: swift test
+        if: needs.plan.outputs[matrix.coverage] == 'true'
       - name: Test standalone AppKit and SwiftUI samples
+        if: needs.plan.outputs[matrix.coverage] == 'true'
         run: swift test --package-path Samples
+      - name: Clean build workspace
+        if: always() && needs.plan.outputs[matrix.coverage] == 'true'
+        run: rm -rf .build Samples/.build
+  # 文書のみでも DocC と README の例を検証する。main では Pages の公開資産も毎回作る。
   documentation:
     name: Documentation and guide examples
+    needs: plan
     runs-on: macos-26
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Build documentation and typecheck all guide examples
@@ -79,6 +260,7 @@ jobs:
           path: .build/documentation/site
   pages:
     name: Publish documentation
+    timeout-minutes: 10
     needs: [test, documentation]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -98,37 +280,61 @@ jobs:
         id: deployment
   release-artifact:
     name: Release artifact (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    env:
-      DEVELOPER_DIR: ${{ matrix.developer_dir }}
+    needs: plan
+    # Test と同じ分岐で、文書のみ・検査済み tree の Ubuntu 経路を維持する。
+    runs-on: >-
+      ${{ needs.plan.outputs[matrix.coverage] != 'true' && 'ubuntu-latest' ||
+          matrix.os == 'xcode-27' && fromJSON(
+            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository &&
+            '["xcode-27"]' || '["self-hosted", "shunnag-arm64"]'
+          ) || matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-26
-            developer_dir: ''
-          - os: xcode-27
-            developer_dir: ''
-          - os: macos-15
-            developer_dir: /Applications/Xcode_16.4.app
+        os: [macos-26, xcode-27]
+        coverage: [full]
+        include: >-
+          ${{ fromJSON(github.event_name == 'pull_request' && '[]' || '[
+            {"os":"macos-15","coverage":"legacy","developer_dir":"/Applications/Xcode_16.4.app"}
+          ]') }}
     steps:
+      - name: Skip macOS work
+        if: needs.plan.outputs[matrix.coverage] != 'true'
+        run: echo 'plan の判定によりこの OS の配布構成ビルドを省略する。'
       - name: Verify selected Xcode exists
+        if: needs.plan.outputs[matrix.coverage] == 'true'
         shell: bash
+        env:
+          MATRIX_DEVELOPER_DIR: ${{ matrix.developer_dir }}
         run: |
-          if [ -n "$DEVELOPER_DIR" ] && [ ! -d "$DEVELOPER_DIR" ]; then
-            echo "::error::指定された DEVELOPER_DIR が存在しません: $DEVELOPER_DIR"
-            ls -d /Applications/Xcode*.app || true
-            exit 1
+          set -euo pipefail
+          # 古い Xcode の行だけを上書きし、runner の既定設定を空文字で消さない。
+          if [ -n "$MATRIX_DEVELOPER_DIR" ]; then
+            if [ ! -d "$MATRIX_DEVELOPER_DIR" ]; then
+              echo "::error::指定された DEVELOPER_DIR が存在しません: $MATRIX_DEVELOPER_DIR"
+              ls -d /Applications/Xcode*.app || true
+              exit 1
+            fi
+            printf 'DEVELOPER_DIR=%s\n' "$MATRIX_DEVELOPER_DIR" >> "$GITHUB_ENV"
           fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: needs.plan.outputs[matrix.coverage] == 'true'
+      - name: Prepare clean build workspace
+        if: needs.plan.outputs[matrix.coverage] == 'true'
+        # 古い .swiftinterface が今回の出荷構成の検査を通してしまわないようにする。
+        run: rm -rf .build Samples/.build
       - run: swift --version
+        if: needs.plan.outputs[matrix.coverage] == 'true'
       - name: Build release artifact
+        if: needs.plan.outputs[matrix.coverage] == 'true'
         run: |
           swift build -c release --product WashiDynamic \
               -Xswiftc -enable-library-evolution \
               -Xswiftc -emit-module-interface \
               -Xswiftc -verify-emitted-module-interface
       - name: Verify module interfaces were emitted
+        if: needs.plan.outputs[matrix.coverage] == 'true'
         shell: bash
         run: |
           # 最近の SwiftPM は .swiftinterface を bin-path 直下ではなく中間ビルド生成物の
@@ -143,9 +349,15 @@ jobs:
             fi
             printf '%s\n' "$interfaces"
           done
+      - name: Clean build workspace
+        if: always() && needs.plan.outputs[matrix.coverage] == 'true'
+        run: rm -rf .build Samples/.build
   corpus:
     name: Public EPUB corpus
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Cache EPUB corpus
@@ -161,6 +373,7 @@ jobs:
         run: swift test --filter 'CorpusSmokeTests|CensusResumeCorpusTests'
   release:
     name: Publish GitHub Release
+    timeout-minutes: 10
     needs: [test, release-artifact, corpus, documentation]
     if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
@@ -174,3 +387,27 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: python3 Scripts/publish-github-release.py "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY"
+
+  # 文書のみの PR は記録せず、PR 対象の全検査が成功した merge tree だけを残す。旧 OS は含まない。
+  record-tested-tree:
+    needs: [plan, test, release-artifact, documentation, corpus]
+    if: github.event_name == 'pull_request' && needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: tree
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          printf 'tree=%s\n' "$tree" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/tested-tree"
+          printf 'tree %s\ncommit %s\nrun %s\n' "$tree" "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/tested-tree/tested-tree.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tested-tree-${{ steps.tree.outputs.tree }}
+          path: ${{ runner.temp }}/tested-tree/tested-tree.txt
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true

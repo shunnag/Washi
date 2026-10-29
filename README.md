@@ -459,6 +459,30 @@ requests are accepted. Tasks are tracked in Beads (`bd bootstrap --yes` on a new
 `bd ready` to find work; issues migrated from cooViewer keep their original IDs; see
 [.beads/README.md](.beads/README.md)). Working rules for AI agents are in [AGENTS.md](AGENTS.md).
 
+### CI
+
+PR は `Test` と `Release artifact` の `macos-26` / `xcode-27`、
+`Documentation and guide examples`、`Public EPUB corpus` を検査する。
+main の push・毎週木曜 04:43 UTC・手動実行・タグでは、Test の
+`macos-26-intel` / `macos-15` / `macos-15-intel` / `macos-14` と
+Release artifact の `macos-15` も検査する。古い実行の取り消しは PR だけに適用する。
+`Documentation/**`・`Sources/**/*.docc/**`・Markdown・`.beads/**`・`LICENSE*` のみの差分では
+ビルド・テストを省き、matrix の check 名は Ubuntu で成功を報告する。`.github/**` と
+`appcast.xml` は省略対象にしない。文書とコード例の検査は常に行い、main で Pages を公開する。
+PR の全対象が成功した merge checkout の `HEAD^{tree}` を 7 日間記録し、main の push は
+同じ tree の場合だけ PR 対象の Test・Release artifact・corpus を省く。この場合も旧 OS を検査し、
+照会失敗・定期・手動・タグは全検査する。
+
+PRs check Test and Release artifact on macos-26 / xcode-27, documentation and guide examples,
+and the public EPUB corpus. Main pushes, weekly Thursday runs at 04:43 UTC, manual runs, and tags
+also cover the older OS / Intel test matrix and the macos-15 release artifact. Only PR runs cancel
+older runs. Documentation-only diffs skip builds and tests while preserving matrix check names
+on Ubuntu; documentation validation and main's Pages publication still run. Changes under
+`.github/` or to `appcast.xml` require full CI. A successful PR records its merge checkout's
+`HEAD^{tree}` for seven days: an identical main tree skips only the PR-covered tests, release
+builds, and corpus. Older OS checks still run; lookup failures, scheduled runs, manual runs, and
+tags run the full matrix.
+
 ### 利用側 / Consumers
 
 ソースは macOS 14+ / Swift 6(strict concurrency)で Apple Silicon・Intel の両方に対応する。
