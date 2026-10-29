@@ -150,12 +150,14 @@ final class CensusWorkerPoolTests: XCTestCase {
     func testOutOfOrderFailureCancelsSiblingsAndResumesFromPrefix() async {
         let gate = ItemGate()
         var interrupted = 0
-        let task = Task {
+        // 親の優先度の継承だけでは通らないよう、低い基底優先度から呼ぶ。
+        let task = Task(priority: .background) {
             await CensusWorkerPool.run(
                 itemCount: 8, prefix: [10], workerCount: 4, workerLimit: { 4 },
                 isAborted: { false }, onInterrupt: { interrupted += 1; gate.finishAll() },
                 measure: { worker, index in
-                    XCTAssertGreaterThanOrEqual(Task.currentPriority, .userInitiated)
+                    // CI の QoS clamp は実効優先度を変えるため、要求した基底優先度を確かめる。
+                    XCTAssertEqual(withUnsafeCurrentTask { $0?.basePriority }, TaskPriority.userInitiated)
                     return await gate.measure(worker: worker, index: index)
                 })
         }

@@ -62,10 +62,11 @@ final class CensusPoolWebKitTests: XCTestCase {
         let publication = try makePublication()
         let metrics = makeMetrics()
         var task: Task<EPUBPaginationCensus.Outcome, Never>?
-        var priorities: [TaskPriority] = []
+        var basePriorities: [TaskPriority?] = []
         let pool = EPUBPaginationCensus(javaScriptTimeoutScheduler: { delay, action in
-            priorities.append(Task.currentPriority)
-            if priorities.count == 7 { task?.cancel() }
+            // プロセスの QoS clamp に左右されない、要求した基底優先度を記録する。
+            basePriorities.append(withUnsafeCurrentTask { $0?.basePriority })
+            if basePriorities.count == 7 { task?.cancel() }
             return EPUBOffscreenIdleReleaseTimer.continuousScheduler(delay, action)
         }, resourceBudget: Self.budget, poolExpansionThreshold: .zero)
         defer { pool.invalidate(); task = nil }
@@ -75,8 +76,8 @@ final class CensusPoolWebKitTests: XCTestCase {
         }
         let outcome = await task!.value
         XCTAssertFalse(outcome.isComplete)
-        XCTAssertGreaterThanOrEqual(priorities.count, 7)
-        XCTAssertTrue(priorities.allSatisfy { $0 >= .userInitiated })
+        XCTAssertGreaterThanOrEqual(basePriorities.count, 7)
+        XCTAssertTrue(basePriorities.allSatisfy { $0 == TaskPriority.userInitiated })
         XCTAssertEqual(pool.liveWebViewCount, 0)
     }
 
