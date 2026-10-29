@@ -23,6 +23,15 @@ func makeOffscreenWindow(containing view: NSView,
     return window
 }
 
+/// WKNavigation は直接初期化せず、独立した WebView の公開ロード API から得る。
+/// 読み込みは即座に止め、検証対象の delegate や policy の状態に影響させない。
+@MainActor
+func makeNavigationTokenForTest() throws -> WKNavigation {
+    let source = WKWebView()
+    defer { source.stopLoading() }
+    return try XCTUnwrap(source.loadHTMLString("<html><body></body></html>", baseURL: nil))
+}
+
 /// 条件が満たされるまで MainActor を回して待つ(期限つき)。
 /// 期限を過ぎたら最後にもう一度だけ条件を見て、その結果を返す。
 @MainActor

@@ -42,6 +42,12 @@ final class SingleImageItemCache: @unchecked Sendable {
     private let lock = NSLock()
     private var perItem: [Int: Bool] = [:]
 
+    func value(for index: Int) -> Bool? {
+        lock.lock()
+        defer { lock.unlock() }
+        return perItem[index]
+    }
+
     func item(_ index: Int, computing loader: () -> Bool) -> Bool {
         lock.lock()
         if let cached = perItem[index] { lock.unlock(); return cached }
@@ -82,6 +88,11 @@ final class FixedLayoutInfoCache: @unchecked Sendable {
 }
 
 extension EPUBPublication {
+    /// 展開や解析をせず、既に判定済みの値だけを返す。
+    package func cachedSingleImageItem(atSpineIndex index: Int) -> Bool? {
+        singleImageItemCache.value(for: index)
+    }
+
     /// その spine 項目が「画像 1 枚だけの項目」か(表紙・挿絵・漫画のページ)。
     /// 表示・census・画面サムネイルが同じ答えを共有するよう、項目ごとに一度だけ
     /// 判定してキャッシュする。パッケージ内部の API(公開面は増やさない)。
@@ -98,6 +109,7 @@ extension EPUBPublication {
             // 解析せずに済ませる(文字だけの大きな章を丸ごと解析しない)
             guard let data = try? resource(at: entry.resolvedContainerPath).data,
                   Self.mayContainImageElement(data),
+                  (try? WashiXML.rejectsSingleImageDocument(data)) == false,
                   let root = (try? WashiXML.document(from: data))?.rootElement(),
                   let href = Self.simpleImageHref(in: root) else { return false }
             return ContainerPath.resolve(base: entry.resolvedContainerPath, href: href) != nil

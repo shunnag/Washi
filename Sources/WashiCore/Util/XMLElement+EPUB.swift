@@ -98,16 +98,22 @@ extension XMLElement {
         wsChildren(localName, ns: uri).first
     }
 
-    /// 属性値(接頭辞なし属性は名前空間を持たないため名前だけで引く)
+    /// 属性値(接頭辞なし属性は名前空間を持たないため名前だけで引く)。
+    /// 解析結果をモデルへ取り出すときにネイティブ化し、後続の走査・ハッシュで
+    /// NSString の文字単位アクセスを繰り返さない。
     func attr(_ name: String) -> String? {
-        attribute(forName: name)?.stringValue
+        guard var value = attribute(forName: name)?.stringValue else { return nil }
+        value.makeContiguousUTF8()
+        return value
     }
 
     /// 名前空間付き属性(epub:type 等)。宣言漏れファイルの救済として
     /// 接頭辞付きの素の名前でも引いてみる
     func attr(_ localName: String, ns uri: String, prefix: String) -> String? {
-        attribute(forLocalName: localName, uri: uri)?.stringValue
-            ?? attribute(forName: "\(prefix):\(localName)")?.stringValue
+        guard var value = attribute(forLocalName: localName, uri: uri)?.stringValue
+            ?? attribute(forName: "\(prefix):\(localName)")?.stringValue else { return nil }
+        value.makeContiguousUTF8()
+        return value
     }
 
     /// cooViewer-oxr.7: XML 空白と NBSP の連続だけを畳み、U+3000 は保持する。

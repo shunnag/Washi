@@ -148,6 +148,10 @@ extension EPUBReaderView: WKNavigationDelegate, WKUIDelegate {
 
     /// cooViewer-oxr.47: 時刻注入可能な本体を分け、60 秒窓を sleep なしで検証する。
     func handleWebContentProcessTermination(at now: Date = Date()) {
+        // 終了前の準備を、その後の同じ WebView・同じ世代へ遅配しない。
+        networkLockdownTask?.cancel()
+        networkLockdownTask = nil
+        spineLoad.imageClassificationTask?.cancel()
         spineNavigationGate.abandonForProcessTermination()
         // プロセスと一緒に前の文書も失われるため、通常の読み込み失敗の復旧先にしない。
         spineLoad.resetRecovery()

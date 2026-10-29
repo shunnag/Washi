@@ -10,10 +10,16 @@ import XCTest
 /// 出力ファイルへ書く(開始時に空にする)。本は NAS 上の本を開くホストと同じ
 /// `.alwaysCopy` で開く。比較側(基準ブランチ)へそのまま写せるよう、この
 /// ファイル以外の新しい記号には依存しない。
+/// 全冊や大きな本の比較は WASHI_BENCH_BOOKS / WASHI_BENCH_SPINE、倍率は
+/// WASHI_BENCH_SCALE、名前の絞り込みは WASHI_BENCH_FILTER(カンマ区切り)で指定する。
 @MainActor
 final class CensusTimingHarnessTests: XCTestCase {
-    private static let maximumBooks = 25
-    private static let maximumSpineItems = 60
+    private static var maximumBooks: Int {
+        Int(ProcessInfo.processInfo.environment["WASHI_BENCH_BOOKS"] ?? "") ?? 25
+    }
+    private static var maximumSpineItems: Int {
+        Int(ProcessInfo.processInfo.environment["WASHI_BENCH_SPINE"] ?? "") ?? 60
+    }
 
     func testCensusTimingOverCorpus() async throws {
         let environment = ProcessInfo.processInfo.environment
@@ -31,14 +37,17 @@ final class CensusTimingHarnessTests: XCTestCase {
 
         var settings = EPUBReaderSettings()
         settings.insets = .zero
+        settings.fontScale = Double(environment["WASHI_BENCH_SCALE"] ?? "1") ?? 1
         let metrics = EPUBScreenMetrics(
             viewportSize: CGSize(width: 800, height: 600), settings: settings)
         let key = metrics.censusOptionsJSON
 
         // ウォームアップ: WebContent プロセスの起動と初回 JIT を計測から外す
         let warmup = EPUBPaginationCensus()
-        let warmed = await warmup.measure(
-            publication: try Self.tinyBook(), optionsJSON: key, contentSize: metrics.contentSize)
+        let tiny = try Self.tinyBook()
+        let warmed = await Task(priority: .userInitiated) {
+            await warmup.measure(publication: tiny, optionsJSON: key, contentSize: metrics.contentSize)
+        }.value
         warmup.invalidate()
         guard warmed != nil else { return try failOrSkipIfWebKitUnavailable() }
 
@@ -53,8 +62,9 @@ final class CensusTimingHarnessTests: XCTestCase {
             else { continue }
             let census = EPUBPaginationCensus()
             let start = ContinuousClock.now
-            let counts = await census.measure(
-                publication: publication, optionsJSON: key, contentSize: metrics.contentSize)
+            let counts = await Task(priority: .userInitiated) {
+                await census.measure(publication: publication, optionsJSON: key, contentSize: metrics.contentSize)
+            }.value
             let elapsed = ContinuousClock.now - start
             census.invalidate()
             total += elapsed
@@ -97,6 +107,8 @@ final class CensusTimingHarnessTests: XCTestCase {
             else { continue }
             let name = url.path.hasPrefix(prefix)
                 ? String(url.path.dropFirst(prefix.count)) : url.lastPathComponent
+            if let filter = ProcessInfo.processInfo.environment["WASHI_BENCH_FILTER"],
+               !filter.split(separator: ",").contains(where: { name.contains($0) }) { continue }
             books.append((url, name))
         }
         return books

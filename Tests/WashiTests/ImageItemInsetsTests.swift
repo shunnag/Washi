@@ -80,11 +80,27 @@ final class ImageItemInsetsTests: XCTestCase {
         view.subviews.compactMap { $0 as? NSTextField }
     }
 
+    /// 実 WebContent に依存せず、コミット後に初回ページ割り前の合流を行う。
+    private func prepareImageLayout(_ view: EPUBReaderView) async throws {
+        let web = try view.firstWebView()
+        let navigation = try XCTUnwrap(view.currentNavigation)
+        view.webView(web, didCommit: navigation)
+        let ready = await view.prepareImageOnlyItemForSetup(
+            in: web, generation: view.spineLoadGeneration)
+        XCTAssertTrue(ready)
+    }
+
     /// 文字主体の本でも、画像 1 枚だけの項目は枠いっぱい。
-    func testImageOnlyItemFillsTheViewEvenInATextBook() throws {
+    func testImageOnlyItemFillsTheViewEvenInATextBook() async throws {
         let view = makeView()
+        view.networkLockdown = NetworkLockdownRuleList(compile: { throw URLError(.unknown) })
+        await view.networkLockdown.prepare()
+        let token = try makeNavigationTokenForTest()
+        view.spineLoadHandler = { _ in token }
         view.load(publication: try makePublication(),
                   at: EPUBLocator(spineIndex: 0, progression: 0))
+        // ナビゲーションは発行済み。コミット後・初回 setup 前の版面を検証する。
+        try await prepareImageLayout(view)
         XCTAssertEqual(try view.firstWebView().frame, view.bounds)
         XCTAssertEqual(view.contentFrame,
                        NSRect(origin: .zero, size: view.bounds.size))
@@ -117,27 +133,41 @@ final class ImageItemInsetsTests: XCTestCase {
     }
 
     /// 画像だけの項目ではノンブルも(JS のページ割り結果を待たず)読み込み時に隠れる。
-    func testImageOnlyItemHidesPageFurniture() throws {
+    func testImageOnlyItemHidesPageFurniture() async throws {
         // 先頭 27 項目が挿絵、その後ろが文字の章(makeBook の並び)
         let publication = try makePublication()
         let view = makeView()
+        view.networkLockdown = NetworkLockdownRuleList(compile: { throw URLError(.unknown) })
+        await view.networkLockdown.prepare()
+        let token = try makeNavigationTokenForTest()
+        view.spineLoadHandler = { _ in token }
         view.load(publication: publication,
                   at: EPUBLocator(spineIndex: 27, progression: 0))
+        // ナビゲーションは発行済み。コミット後・初回 setup 前の版面を検証する。
+        try await prepareImageLayout(view)
         XCTAssertTrue(pageNumberLabels(of: view).contains { !$0.isHidden },
                      "文字の項目ではノンブルが見えている前提")
 
         view.load(publication: publication,
                   at: EPUBLocator(spineIndex: 0, progression: 0))
+        // ナビゲーションは発行済み。コミット後・初回 setup 前の版面を検証する。
+        try await prepareImageLayout(view)
         XCTAssertTrue(pageNumberLabels(of: view).allSatisfy(\.isHidden))
     }
 
     /// census・画面サムネイルの全面判断が、表示中の contentFrame と項目ごとに一致する。
-    func testOffscreenFullViewportMatchesTheLiveViewPerItem() throws {
+    func testOffscreenFullViewportMatchesTheLiveViewPerItem() async throws {
         let publication = try makePublication()
         for index in [0, 26, 27, 39] {
             let view = makeView()
+            view.networkLockdown = NetworkLockdownRuleList(compile: { throw URLError(.unknown) })
+            await view.networkLockdown.prepare()
+            let token = try makeNavigationTokenForTest()
+            view.spineLoadHandler = { _ in token }
             view.load(publication: publication,
                       at: EPUBLocator(spineIndex: index, progression: 0))
+            // ナビゲーションは発行済み。コミット後・初回 setup 前の版面を検証する。
+            try await prepareImageLayout(view)
             let liveFills = view.contentFrame == NSRect(origin: .zero, size: view.bounds.size)
             XCTAssertEqual(EPUBScreenMetrics.fillsViewport(publication, spineIndex: index),
                            liveFills, "spine \(index)")
