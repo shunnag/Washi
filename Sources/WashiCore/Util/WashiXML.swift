@@ -23,6 +23,73 @@ enum XMLNamespace {
 /// ときだけの救済)。あわせて、深い木や大量のノードなど攻撃的な XML は
 /// DOM を作る前に拒否する。
 enum WashiXML {
+    /// 可視本文か異なる img 参照があれば、DOM を作らず画像だけの文書を除外する。
+    /// 肯定には文書全体の検証と SVG 名前空間の解決が必要なので従来の解析へ戻す。
+    static func rejectsSingleImageDocument(_ data: Data) throws -> Bool {
+        // 符号化を判別できないデータは解析せず DOM 経路へ戻す。
+        // 走査で XMLParser を使う場合は必ず生データの prolog 検査を先に行う。
+        let head = data.prefix(4)
+        guard !head.contains(0), !head.starts(with: [0xFE, 0xFF]),
+              !head.starts(with: [0xFF, 0xFE]) else { return false }
+        try validateProlog(data)
+        guard try !containsNamedEntity(data) else { return false }
+        let scanner = SingleImageRejectionScanner()
+        let parser = XMLParser(data: data)
+        parser.delegate = scanner
+        _ = parser.parse()
+        return scanner.rejected
+    }
+
+    private final class SingleImageRejectionScanner: NSObject, XMLParserDelegate {
+        private var stack: [(hidden: Bool, svg: Bool)] = []
+        private var bodyDepth: Int?
+        private var finishedBody = false
+        private var firstSource: String?
+        private(set) var rejected = false
+
+        func parser(_ parser: XMLParser, didStartElement elementName: String,
+                    namespaceURI: String?, qualifiedName qName: String?,
+                    attributes attributeDict: [String: String]) {
+            let name = elementName.split(separator: ":").last.map(String.init) ?? elementName
+            if name == "body", bodyDepth == nil, !finishedBody { bodyDepth = stack.count }
+            let svg = stack.last?.svg == true || name.lowercased() == "svg"
+            let hidden = stack.last?.hidden == true || attributeDict["hidden"] != nil
+                || ["script", "style"].contains(name.lowercased())
+                || (svg && ["title", "desc"].contains(name.lowercased()))
+                || attributeDict["style"]?.range(
+                    of: #"(?:^|;)\s*display\s*:\s*none\s*(?:!important\s*)?(?:;|$)"#,
+                    options: [.regularExpression, .caseInsensitive]) != nil
+            stack.append((hidden, svg))
+            // 深い木は従来の構造検証に任せ、走査の状態を無制限に増やさない。
+            if stack.count > maxElementDepth { parser.abortParsing(); return }
+            guard let bodyDepth, stack.count > bodyDepth + 1, name == "img" else { return }
+            guard let source = attributeDict["src"],
+                  !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  firstSource == nil || firstSource == source else {
+                reject(parser)
+                return
+            }
+            firstSource = source
+        }
+
+        func parser(_ parser: XMLParser, foundCharacters string: String) {
+            guard bodyDepth != nil, stack.last?.hidden == false,
+                  !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            reject(parser)
+        }
+
+        func parser(_ parser: XMLParser, didEndElement elementName: String,
+                    namespaceURI: String?, qualifiedName qName: String?) {
+            stack.removeLast()
+            if stack.count == bodyDepth { bodyDepth = nil; finishedBody = true }
+        }
+
+        private func reject(_ parser: XMLParser) {
+            rejected = true
+            parser.abortParsing()
+        }
+    }
+
     /// 外部実体は決して読み込まない(EPUB RS 3.3 §3.6 の要件 + XXE 対策)
     private static let options: XMLNode.Options = [
         .nodePreserveWhitespace, .nodeLoadExternalEntitiesNever,

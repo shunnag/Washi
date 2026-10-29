@@ -77,13 +77,15 @@ extension EPUBReaderView {
     /// 現在のネイティブ余白の内側にある本文ページ領域。
     /// リーダービューの座標系で表す。FXL・roll・画像 1 枚だけの項目(表紙・挿絵)では
     /// 余白を使わず、ビューの全面を返す。spine 項目の読み込み中は、新しい項目の
-    /// 領域を返す(WebView には新しい文書のコミット時に当てる)。
+    /// 領域を返す(WebView には新しい文書のコミット時に当てる)。未キャッシュの
+    /// 画像判定は主スレッド外で行い、初回ページ割りの前に領域を確定する。
     ///
     /// The content page area inside the active native margins, expressed in
     /// reader-view coordinates. For FXL, roll, and single-image items (cover,
     /// illustration), this returns the full view with no margins. While a spine
     /// item is loading, this returns the new item's area; the web view adopts it
-    /// when the new document commits.
+    /// when the new document commits. Uncached image classification runs off
+    /// the main thread and finalizes the area before the first pagination.
     public var contentFrame: CGRect {
         // census・サムネイルは EPUBScreenMetrics.fillsViewport で同じ判断をする
         if isFixedLayoutItem || isRollItem || isImageOnlyItem {
@@ -326,6 +328,11 @@ extension EPUBReaderView {
     /// 移っていたら、その文書の状態を消費・破壊してはならない)
     func runSetup(preserveProgression: Bool, generation: Int) async {
         guard let webView, generation == spineLoadGeneration else { return }
+        // 読み込み完了までは通常どおりナビゲーションを進め、版面が必要なここで合流する。
+        // 古い待機は、新しい setup の isSettingUp や再ページ割り予約にも触れない。
+        guard await prepareImageOnlyItemForSetup(in: webView, generation: generation),
+              !Task.isCancelled, generation == spineLoadGeneration,
+              webView === self.webView else { return }
         spineLoad.isSettingUp = true
         defer {
             spineLoad.isSettingUp = false

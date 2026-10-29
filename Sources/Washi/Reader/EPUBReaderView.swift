@@ -234,6 +234,9 @@ public final class EPUBReaderView: NSView {
             var isRecoveryLoad = false
         }
 
+        /// 未キャッシュの画像判定。ロード発行と並走し、初回 setup の前にだけ待つ。
+        /// 中断時は取消済みの Task を残し、同じ世代の遅い setup も止める。
+        var imageClassificationTask: Task<Bool, Never>?
         var isSettingUp = false
         /// spine 項目の読み込み中(旧文書から届く境界イベントを捨てて
         /// 章の飛び越しを防ぐ)

@@ -106,6 +106,7 @@ extension EPUBReaderView {
         guard request == navigationRequestGeneration else { return nil }
         mediaOverlayController = nil
         pendingMediaOverlayHighlight = nil
+        spineLoad.imageClassificationTask?.cancel()
         self.publication = publication
         // 前の本の控えを次の本に貼らない
         discardPageCovers()
@@ -135,6 +136,7 @@ extension EPUBReaderView {
     }
 
     private func rebuildWebView(for publication: EPUBPublication) {
+        spineLoad.imageClassificationTask?.cancel()
         networkLockdownTask?.cancel()
         networkLockdownTask = nil
         spineLoad.resetRecovery()
@@ -242,6 +244,8 @@ extension EPUBReaderView {
         guard request == navigationRequestGeneration,
               previousGeneration == spineLoadGeneration,
               webView === self.webView else { return }
+        networkLockdownTask?.cancel()
+        networkLockdownTask = nil
         resetItemState(for: index, target: target, isRecovery: isRecovery,
                        preservingTurnCover: preservingTurnCover,
                        publication: publication, webView: webView)
@@ -310,6 +314,8 @@ extension EPUBReaderView {
                                 preservingTurnCover: Bool,
                                 publication: EPUBPublication, webView: WKWebView) {
         let entry = publication.readingOrder[index]
+        spineLoad.imageClassificationTask?.cancel()
+        spineLoad.imageClassificationTask = nil
         spineNavigationGate.dropTerminatedProcessExpectations()
         if spineLoad.recovery.isShowingSetUpDocument {
             spineLoad.recovery.settledLocator = currentLocator
@@ -373,8 +379,34 @@ extension EPUBReaderView {
         if isFixedLayoutItem || EPUBScreenMetrics.isScrolled(effectiveFlow) {
             isImageOnlyItem = false
         } else {
-            isImageOnlyItem = publication.isSingleImageItem(atSpineIndex: index)
+            if let cached = publication.cachedSingleImageItem(atSpineIndex: index) {
+                isImageOnlyItem = cached
+            } else {
+                // 判定はロード発行を待たせず、初回 setup の前にだけ合流する。
+                spineLoad.imageClassificationTask = Task.detached(priority: .userInitiated) {
+                    publication.isSingleImageItem(atSpineIndex: index)
+                }
+            }
         }
+    }
+
+    /// 新文書のコミット後、最初のページ割りより前に画像判定と版面を確定する。
+    /// この待機はナビゲーションを発行せず、古い世代や終了したプロセスへ結果を戻さない。
+    func prepareImageOnlyItemForSetup(in webView: WKWebView, generation: Int) async -> Bool {
+        guard !Task.isCancelled, generation == spineLoadGeneration,
+              webView === self.webView else { return false }
+        guard let classification = spineLoad.imageClassificationTask else { return true }
+        let imageOnly = await classification.value
+        guard !Task.isCancelled, !classification.isCancelled,
+              generation == spineLoadGeneration, webView === self.webView else { return false }
+        spineLoad.imageClassificationTask = nil
+        isImageOnlyItem = imageOnly
+        // didCommit で当てた暫定の矩形を、setup の引数を作る前に置き換える。
+        spineLoad.pendingWebViewLayout = nil
+        applyWebViewLayout(contentFrame, zoom: 1)
+        webView.layoutSubtreeIfNeeded()
+        updateFurniture()
+        return true
     }
 
     /// 新しい項目の矩形と倍率は読み込み前に決め、当てるのは didCommit にする。
@@ -449,6 +481,9 @@ extension EPUBReaderView {
     /// 控えと貼付済みの静止カバーを次の loadSpineItem へ引き継ぐ(Washi-k0x)。
     func abandonSpineLoad(preservingPageCover: Bool = false) {
         cancelPendingTextRangeRequest()
+        networkLockdownTask?.cancel()
+        networkLockdownTask = nil
+        spineLoad.imageClassificationTask?.cancel()
         spineLoad.isLoadingSpineItem = false
         pendingMediaOverlayHighlight = nil
         currentNavigation = nil

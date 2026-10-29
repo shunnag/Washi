@@ -259,6 +259,36 @@ final class EPUBReaderViewNetworkLockdownTests: XCTestCase {
         }
     }
 
+    func testAbandonOrTerminationDuringCompilationDoesNotStartOldNavigation() async throws {
+        for terminatesProcess in [false, true] {
+            let probe = RuleCompilationProbe()
+            let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 480, height: 320))
+            view.networkLockdown = NetworkLockdownRuleList(compile: { try await probe.compile() })
+            defer { view.unload() }
+            var loads = 0
+            view.spineLoadHandler = { _ in loads += 1; return nil }
+            let book = try EPUBFixtures.singleSpine(bodyHTML: "<p>pending</p>")
+            view.load(publication: book)
+            let pending = try XCTUnwrap(view.networkLockdownTask)
+            await fulfillment(of: [probe.started], timeout: 3)
+            if terminatesProcess {
+                // ウインドウに載せていないため、再構築は表示復帰まで延期される。
+                view.handleWebContentProcessTermination()
+                XCTAssertTrue(view.hasPendingWebContentReload)
+            } else {
+                view.abandonSpineLoad()
+            }
+            XCTAssertTrue(pending.isCancelled)
+            probe.finish(.failure(RuleCompilationProbe.Failure()))
+            await pending.value
+            XCTAssertEqual(loads, 0)
+            XCTAssertNil(view.currentNavigation)
+            view.loadSpineItem(at: 0, target: .start)
+            XCTAssertEqual(loads, 1, "準備済みの次の発行は待機しない")
+            XCTAssertFalse(view.hasPendingWebContentReload)
+        }
+    }
+
     func testSameSpineTargetChangeDuringCompilationStillStartsNavigation() async throws {
         let probe = RuleCompilationProbe()
         let rules = NetworkLockdownRuleList(compile: { try await probe.compile() })
