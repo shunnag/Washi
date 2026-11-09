@@ -184,17 +184,20 @@ final class EPUBSchemeHandlerTests: XCTestCase {
         }
     }
 
-    /// Washi-v5d: メディアだけで全枠を占有せず、文書が 4 枠目で先に始まる。
+    /// Washi-v5d: メディアだけで全枠を占有せず、待ち行列のメディアより先に文書が
+    /// 残りの枠で始まる。読み取りを止める probe は協調スレッドプールを占有するため、
+    /// 3 コアの hosted runner でも進めるよう、同時に止めるのは 2 本(枠 2)にする。
     func testDocumentStartsBeforeQueuedMediaCompletes() async throws {
-        let media = ["budget/a.mp4", "budget/b.mp4", "budget/c.mp4"]
+        let media = ["budget/a.mp4", "budget/b.mp4"]
         let document = "budget/chapter.xhtml"
         let probe = SchemeReadProbe(paths: Set(media + [document]), gate: .read)
         defer { probe.releaseAll() }
         let publication = try Self.makeImageSpinePublication(
             wrapReader: { ProbedSchemeReader(base: $0, probe: probe) })
         let handler = EPUBSchemeHandler(publication: publication)
-        let finished = expectation(description: "文書を含む全 4 要求が完了する")
-        finished.expectedFulfillmentCount = 4
+        handler.extractionLimit = 2
+        let finished = expectation(description: "文書を含む全 3 要求が完了する")
+        finished.expectedFulfillmentCount = 3
         let webView = WKWebView(frame: .zero)
         for path in media {
             let task = RecordingSchemeTask(request: URLRequest(
@@ -203,19 +206,23 @@ final class EPUBSchemeHandlerTests: XCTestCase {
                 }
             handler.webView(webView, start: task)
         }
-        try await waitUntil { probe.started.count == 3 }
+        // 枠 2 ではメディアは 1 本まで。2 本目は文書のための枠を使わずに待つ。
+        try await waitUntil { probe.started.count == 1 }
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(probe.started, [media[0]])
 
         let documentTask = RecordingSchemeTask(request: URLRequest(
             url: try XCTUnwrap(handler.url(forContainerPath: document)))) {
                 finished.fulfill()
             }
         handler.webView(webView, start: documentTask)
-        try await waitUntil { probe.started.count == 4 }
-        XCTAssertEqual(probe.started.last, document)
-        XCTAssertEqual(probe.maximumActive, 4)
+        try await waitUntil { probe.started.count == 2 }
+        XCTAssertEqual(probe.started, [media[0], document])
+        XCTAssertEqual(probe.maximumActive, 2)
 
         probe.releaseAll()
         await fulfillment(of: [finished], timeout: 5)
+        XCTAssertEqual(probe.started.last, media[1])
     }
 
     /// Washi-v5d: 戻らない展開は timedOut で失敗する。Washi-s76: 枠は取消しに
