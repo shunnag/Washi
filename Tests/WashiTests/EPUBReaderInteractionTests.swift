@@ -118,8 +118,49 @@ final class EPUBReaderInteractionTests: XCTestCase {
         XCTAssertTrue(didPublishClearedSelection)
     }
 
-    /// Washi-94p: 選択範囲は本文の実長で clamp し、完全に外なら解除する。
-    func testScriptSelectionClampsUTF16RangeToTextLength() async throws {
+    /// Washi-api: 実際の WebKit で章の途中を選択しても、選択は nil にならず、
+    /// 範囲は章全体の本文上の位置になる(選択文字列の長さより後ろから始まる)。
+    func testRealMidChapterSelectionIsPublishedWithChapterOffsets() async throws {
+        let body = (1...30).map {
+            "<p id=\"p\($0)\">段落\($0) の選択対象本文です。</p>"
+        }.joined()
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+        var settings = view.settings
+        settings.columnMode = .single
+        view.settings = settings
+        let delegate = ReaderInteractionDelegate()
+        view.delegate = delegate
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus, clearsDelegate: true) }
+        view.load(publication: try makePublication(body: body))
+        guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), { delegate.moves > 0 }) else {
+            return try failOrSkipIfWebKitUnavailable()
+        }
+        let webView = try view.firstWebView()
+        let selected = try await Task(priority: .userInitiated) { @MainActor in
+            let result = try await webView.callAsyncJavaScript(
+                """
+                const node = document.getElementById('p20').firstChild;
+                window.getSelection().setBaseAndExtent(node, 0, node, 4);
+                return node.data.slice(0, 4);
+                """,
+                arguments: [:], in: nil, contentWorld: WashiContentWorld.world)
+            return result as? String
+        }.value
+        let expected = try XCTUnwrap(selected)
+        let didPublishSelection = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) {
+            view.currentSelection != nil
+        }
+        XCTAssertTrue(didPublishSelection)
+        let selection = try XCTUnwrap(view.currentSelection)
+        XCTAssertEqual(selection.text, expected)
+        XCTAssertEqual(selection.utf16Range.count, expected.utf16.count)
+        XCTAssertGreaterThan(selection.utf16Range.lowerBound, expected.utf16.count)
+    }
+
+    /// Washi-api: start/end は章全体の本文上の位置。章の途中の選択もそのまま届き、
+    /// 区間の長さと選択文字列の長さが食い違う通知だけを捨てる。
+    func testScriptSelectionKeepsMidChapterRangeAndRejectsLengthMismatch() async throws {
         let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         view.load(publication: try makePublication(body: "<p>本文</p>"))
         let window = makeOffscreenWindow(containing: view)
@@ -130,13 +171,14 @@ final class EPUBReaderInteractionTests: XCTestCase {
         let rect: [String: Any] = ["x": 10, "y": 10, "w": 20, "h": 10]
 
         view.handleScriptMessage([
-            "type": "selection", "text": "本文", "start": 1, "end": 99,
+            "type": "selection", "text": "本文", "start": 1_000, "end": 1_002,
             "rects": [rect],
         ])
-        XCTAssertEqual(view.currentSelection?.utf16Range, 1..<2)
+        XCTAssertEqual(view.currentSelection?.text, "本文")
+        XCTAssertEqual(view.currentSelection?.utf16Range, 1_000..<1_002)
 
         view.handleScriptMessage([
-            "type": "selection", "text": "本文", "start": 3, "end": 99,
+            "type": "selection", "text": "本文", "start": 1, "end": 99,
             "rects": [rect],
         ])
         XCTAssertNil(view.currentSelection)

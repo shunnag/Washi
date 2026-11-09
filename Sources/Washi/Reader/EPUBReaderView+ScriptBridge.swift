@@ -208,9 +208,10 @@ extension EPUBReaderView {
             setCurrentSelection(nil)
             return
         }
-        let lower = min(start, text.utf16.count)
-        let upper = min(end, text.utf16.count)
-        guard upper > lower else {
+        // Washi-api: start/end は章全体の本文(テキストマップ)上の UTF-16 位置で、
+        // text はその区間の切り出し。選択文字列の長さで clamp すると章の途中の
+        // 選択がすべて消えるので、区間の長さと text の長さの一致だけを検査する。
+        guard text.utf16.count == end - start else {
             setCurrentSelection(nil)
             return
         }
@@ -223,7 +224,7 @@ extension EPUBReaderView {
         }
         setCurrentSelection(EPUBTextSelection(
             spineIndex: currentSpineIndex, text: text,
-            utf16Range: lower..<upper, rects: rects))
+            utf16Range: start..<end, rects: rects))
     }
 
     private func handleKey(_ dict: [String: Any]) {

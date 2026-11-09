@@ -382,6 +382,54 @@ final class PublicationTests: XCTestCase {
         }
     }
 
+    /// Washi-bgz: 全エントリが "./" や "/" で始まる梱包ミスの EPUB も、1.26 と同じく
+    /// 開いて本文と資源を読める。列挙するのは剥がした安全な名前だけ。
+    func testEntriesWithLeadingRootMarkersStillOpen() throws {
+        for prefix in ["./", "/", "/./"] {
+            let entries = EPUBFixtures.verticalNovelEntries().map {
+                (name: prefix + $0.name, data: $0.data)
+            }
+            let publication = try EPUBPublication(
+                data: ZipBuilder.build(entries),
+                displayURL: URL(fileURLWithPath: "/tmp/washi-prefixed-entries.epub"))
+            XCTAssertFalse(publication.readingOrder.isEmpty, prefix)
+            XCTAssertNoThrow(try publication.extractText(forSpineIndex: 0), prefix)
+            XCTAssertTrue(publication.resourcePaths.contains("META-INF/container.xml"), prefix)
+            for path in publication.resourcePaths {
+                XCTAssertTrue(ContainerPath.isSafeContainerPath(path), path)
+                XCTAssertNoThrow(try publication.resource(at: path), path)
+            }
+        }
+    }
+
+    /// Washi-bgz: 別名は安全な名前にだけ作り、既存のエントリと衝突する名前や、
+    /// 複数の生の名前が同じ別名になる場合は作らない。".." を含む名前は救済しない。
+    func testLeadingRootMarkerAliasesAvoidCollisionsAndEscapes() throws {
+        var entries = EPUBFixtures.verticalNovelEntries()
+        entries.append(("safe.txt", Data("raw".utf8)))
+        entries.append(("./safe.txt", Data("alias".utf8)))
+        entries.append(("./twice.txt", Data("dot".utf8)))
+        entries.append(("/twice.txt", Data("slash".utf8)))
+        entries.append(("./../escape.txt", Data("escape".utf8)))
+        entries.append(("./single.txt", Data("single".utf8)))
+        entries.append(("OEBPS/Case.txt", Data("real".utf8)))
+        entries.append(("./OEBPS/case.txt", Data("stray".utf8)))
+        let publication = try EPUBPublication(
+            data: ZipBuilder.build(entries),
+            displayURL: URL(fileURLWithPath: "/tmp/washi-prefixed-collisions.epub"))
+
+        XCTAssertEqual(try publication.resource(at: "safe.txt").data, Data("raw".utf8))
+        XCTAssertEqual(try publication.resource(at: "single.txt").data, Data("single".utf8))
+        XCTAssertFalse(publication.resourcePaths.contains("twice.txt"))
+        XCTAssertThrowsError(try publication.resource(at: "twice.txt"))
+        XCTAssertFalse(publication.resourcePaths.contains { $0.contains("escape") })
+        XCTAssertThrowsError(try publication.resource(at: "../escape.txt"))
+        XCTAssertEqual(publication.resourcePaths.filter { $0 == "safe.txt" }.count, 1)
+        // 大小文字の違いだけの実在エントリがある別名は作らず、救済は実在のものへ届く。
+        XCTAssertFalse(publication.resourcePaths.contains("OEBPS/case.txt"))
+        XCTAssertEqual(try publication.resource(at: "OEBPS/case.txt").data, Data("real".utf8))
+    }
+
     /// Washi-gc0: ZWNJ・ZWJ を含む正当なエントリ名は列挙され、読み取れる。
     func testResourcePathsKeepEntryNamesWithFormatCharacters() throws {
         let names = [
