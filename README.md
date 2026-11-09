@@ -471,8 +471,9 @@ requests are accepted. Tasks are tracked in Beads (`bd bootstrap --yes` on a new
 PR は `Test` と `Release artifact` の `macos-26` / `xcode-27`、
 `Documentation and guide examples`、`Public EPUB corpus` を検査する。
 main の push・毎週木曜 04:43 UTC・手動実行・タグでは、Test の
-`macos-26-intel` / `macos-15` / `macos-15-intel` / `macos-14` と
-Release artifact の `macos-15` も検査する。古い実行の取り消しは PR だけに適用する。
+`macos-26-intel` / `macos-15` / `macos-15-intel` / `macos-15-swift-6.0`(Xcode 16.2 で
+Swift 6.0 の下限を検査。macos-14 イメージは 2026-11 に廃止)と Release artifact の
+`macos-15` も検査する。古い実行の取り消しは PR だけに適用する。
 `Documentation/**`・`Sources/**/*.docc/**`・Markdown・`.beads/**`・`LICENSE*` のみの差分では
 ビルド・テストを省き、matrix の check 名は Ubuntu で成功を報告する。`.github/**` と
 `appcast.xml` は省略対象にしない。文書とコード例の検査は常に行い、main で Pages を公開する。
@@ -482,7 +483,9 @@ PR の全対象が成功した merge checkout の `HEAD^{tree}` を 7 日間記�
 
 PRs check Test and Release artifact on macos-26 / xcode-27, documentation and guide examples,
 and the public EPUB corpus. Main pushes, weekly Thursday runs at 04:43 UTC, manual runs, and tags
-also cover the older OS / Intel test matrix and the macos-15 release artifact. Only PR runs cancel
+also cover the older OS / Intel test matrix (including `macos-15-swift-6.0`, which checks
+the Swift 6.0 lower bound with Xcode 16.2 after GitHub retired the macos-14 image in
+2026-11) and the macos-15 release artifact. Only PR runs cancel
 older runs. Documentation-only diffs skip builds and tests while preserving matrix check names
 on Ubuntu; documentation validation and main's Pages publication still run. Changes under
 `.github/` or to `appcast.xml` require full CI. A successful PR records its merge checkout's

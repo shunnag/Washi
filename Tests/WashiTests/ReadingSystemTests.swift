@@ -72,7 +72,7 @@ final class ReadingSystemTests: XCTestCase {
                 """, arguments: [:], in: nil, contentWorld: .page)
             return (result as? [String]) ?? ["not-an-array"]
         }.value
-        XCTAssertEqual(report, ["Washi", "paginated", "true", "false", "false", "1.27.0"],
+        XCTAssertEqual(report, ["Washi", "paginated", "true", "false", "false", "1.27.1"],
                        "epubReadingSystem の内容が期待と違う: \(report)")
     }
 
