@@ -23,18 +23,28 @@ struct ZipContainerReader: ContainerReader {
 
     init(archive: ZipArchive) {
         self.archive = archive
+        // Washi-3r1: 先に候補だけを集め、候補が無い通常の本では全エントリ名の
+        // 小文字集合を作らない(open ごとの余分な小文字化を避ける)。
+        var candidates: [(stripped: String, name: String)] = []
+        for entry in archive.entries
+        where !entry.isDirectory && !ContainerPath.isSafeContainerPath(entry.name) {
+            guard let stripped = Self.strippingLeadingRootMarkers(entry.name),
+                  ContainerPath.isSafeContainerPath(stripped) else { continue }
+            candidates.append((stripped: stripped, name: entry.name))
+        }
+        guard !candidates.isEmpty else {
+            self.prefixedAliases = [:]
+            return
+        }
         var aliases: [String: String] = [:]
         var ambiguous: Set<String> = []
         let safeLowercasedNames = Set(archive.entries.lazy
             .filter { ContainerPath.isSafeContainerPath($0.name) }
             .map { $0.name.lowercased() })
-        for entry in archive.entries
-        where !entry.isDirectory && !ContainerPath.isSafeContainerPath(entry.name) {
-            guard let stripped = Self.strippingLeadingRootMarkers(entry.name),
-                  ContainerPath.isSafeContainerPath(stripped),
-                  !safeLowercasedNames.contains(stripped.lowercased()) else { continue }
-            if aliases.updateValue(entry.name, forKey: stripped) != nil {
-                ambiguous.insert(stripped)
+        for candidate in candidates
+        where !safeLowercasedNames.contains(candidate.stripped.lowercased()) {
+            if aliases.updateValue(candidate.name, forKey: candidate.stripped) != nil {
+                ambiguous.insert(candidate.stripped)
             }
         }
         for name in ambiguous { aliases[name] = nil }
