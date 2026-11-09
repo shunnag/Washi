@@ -92,4 +92,28 @@ final class ContainerPathTests: XCTestCase {
             ContainerPath.resolve(base: "OEBPS/package.opf", href: "/images/a.png"),
             "images/a.png")
     }
+
+    func testSafeContainerPathRejectsAliasesAndControlCharacters() {
+        for path in ["mimetype", "OEBPS/日本語/章.xhtml", "images/12:34.png"] {
+            XCTAssertTrue(ContainerPath.isSafeContainerPath(path), path)
+        }
+        for path in [
+            "", "/absolute.txt", "../escape.txt", "a/../escape.txt", "./dot.txt",
+            "a/./dot.txt", "a//slash.txt", "a/", "nul\u{0}name", "line\nbreak.txt",
+            "del\u{7F}name", "c1\u{85}name", "bell\u{7}.txt",
+        ] {
+            XCTAssertFalse(ContainerPath.isSafeContainerPath(path), path)
+        }
+    }
+
+    /// Washi-gc0: 書式文字(Cf)は正当なファイル名に現れるので拒否しない。
+    func testSafeContainerPathAcceptsFormatCharacters() {
+        for path in [
+            "OEBPS/\u{0645}\u{06CC}\u{200C}\u{062E}\u{0648}\u{0627}\u{0647}\u{0645}.xhtml",
+            "img/\u{1F469}\u{200D}\u{1F4BB}.png", "text/soft\u{AD}hyphen.xhtml",
+            "\u{FEFF}bom.css", "text/\u{200B}zwsp.xhtml",
+        ] {
+            XCTAssertTrue(ContainerPath.isSafeContainerPath(path), path)
+        }
+    }
 }

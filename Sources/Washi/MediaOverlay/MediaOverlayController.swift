@@ -35,6 +35,9 @@ final class MediaOverlayController {
     private(set) var parIndex = 0
     private var player: (any MediaOverlayAudioPlayer)?
     private var loadedAudioPath: String?
+    private var audioPlayers: [String: any MediaOverlayAudioPlayer] = [:]
+    private var audioPlayerOrder: [String] = []
+    private let audioResourceByteLimit: Int
     private var ticker: Timer?
     private(set) var isPlaying = false
     private var playbackGeneration: UInt = 0
@@ -55,11 +58,13 @@ final class MediaOverlayController {
          activeClass: String,
          makeAudioPlayer: @escaping (Data) throws -> any MediaOverlayAudioPlayer = {
              try AVAudioPlayer(data: $0)
-         }) {
+         },
+         audioResourceByteLimit: Int = 64 * 1_024 * 1_024) {
         self.reader = reader
         self.publication = publication
         self.activeClass = activeClass
         self.makeAudioPlayer = makeAudioPlayer
+        self.audioResourceByteLimit = audioResourceByteLimit
     }
 
     /// 指定 spine 項目のオーバーレイを先頭から再生する(既に再生中なら停止して開始)
@@ -294,13 +299,33 @@ final class MediaOverlayController {
     }
 
     private func loadAudio(path: String) {
-        guard let (data, _) = try? publication.resource(at: path),
+        // 前の音声を止めてから差し替える。キャッシュした player も鳴らしっぱなしにしない。
+        player?.stop()
+        if let cached = audioPlayers[path] {
+            player = cached
+            loadedAudioPath = path
+            audioPlayerOrder.removeAll { $0 == path }
+            audioPlayerOrder.append(path)
+            return
+        }
+        // Washi-2go: ZIP の宣言サイズで上限超過が分かる音声は、展開もしない。
+        // 宣言サイズの無いフォルダ等は、展開後の data.count で同じ上限を適用する。
+        let declaredSize = publication.declaredResourceSize(at: path)
+        guard declaredSize.map({ $0 <= UInt64(max(0, audioResourceByteLimit)) }) ?? true,
+              let (data, _) = try? publication.resource(at: path),
+              data.count <= audioResourceByteLimit,
               let newPlayer = try? makeAudioPlayer(data) else {
             player = nil
             loadedAudioPath = nil
             return
         }
         newPlayer.prepareToPlay()
+        if audioPlayers.count >= 2, let oldest = audioPlayerOrder.first {
+            audioPlayers.removeValue(forKey: oldest)?.stop()
+            audioPlayerOrder.removeFirst()
+        }
+        audioPlayers[path] = newPlayer
+        audioPlayerOrder.append(path)
         player = newPlayer
         loadedAudioPath = path
     }

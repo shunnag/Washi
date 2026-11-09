@@ -41,4 +41,21 @@ final class SMILParserTests: XCTestCase {
         XCTAssertEqual(overlay.parallels[0].clipEnd, 2.5)
         XCTAssertEqual(overlay.parallels[1].epubType, "footnote")
     }
+
+    func testNonPositiveClipDurationUsesMediaEnd() throws {
+        let smil = """
+        <smil xmlns="http://www.w3.org/ns/SMIL"><body><seq>
+          <par id="negative"><text src="ch1.xhtml#a"/>
+            <audio src="a.m4a" clipBegin="2s" clipEnd="1s"/></par>
+          <par id="zero"><text src="ch1.xhtml#b"/>
+            <audio src="a.m4a" clipBegin="1s" clipEnd="1s"/></par>
+          <par id="positive"><text src="ch1.xhtml#c"/>
+            <audio src="a.m4a" clipBegin="1s" clipEnd="2s"/></par>
+        </seq></body></smil>
+        """
+        let overlay = try SMILParser.parse(data: Data(smil.utf8), at: "ch1.smil")
+        XCTAssertNil(overlay.parallels[0].clipEnd)
+        XCTAssertNil(overlay.parallels[1].clipEnd)
+        XCTAssertEqual(overlay.parallels[2].clipEnd, 2)
+    }
 }

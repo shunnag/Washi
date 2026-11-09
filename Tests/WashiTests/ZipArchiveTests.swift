@@ -254,6 +254,26 @@ final class ZipArchiveTests: XCTestCase {
         }
     }
 
+    func testErrorMessagesSanitizeAndTruncateEntryNames() throws {
+        let hostile = String(repeating: "x", count: 200) + "\n\u{0}\u{2028}"
+        for error in [
+            ZipError.entryNotFound(hostile),
+            ZipError.corruptEntry(hostile),
+            ZipError.encryptedEntryUnsupported(hostile),
+            ZipError.truncated("duplicate entry: \(hostile)"),
+        ] {
+            let description = try XCTUnwrap(error.errorDescription)
+            XCTAssertFalse(description.contains("\n"))
+            XCTAssertFalse(description.contains("\u{0}"))
+            XCTAssertFalse(description.contains("\u{2028}"))
+            XCTAssertLessThanOrEqual(description.count, 192)
+        }
+        // Washi-gc0: 正当な名前の書式文字(ZWNJ・ZWJ)は表示から削らない。
+        let formatted = "\u{0645}\u{06CC}\u{200C}\u{062E}\u{1F469}\u{200D}\u{1F4BB}.png"
+        let description = try XCTUnwrap(ZipError.entryNotFound(formatted).errorDescription)
+        XCTAssertTrue(description.hasSuffix(formatted), description)
+    }
+
     /// ZIP コメント内に偽 EOCD シグネチャがあっても正しい EOCD を選ぶ
     func testEOCDWithTrailingComment() throws {
         var zip = ZipBuilder.build(sample)

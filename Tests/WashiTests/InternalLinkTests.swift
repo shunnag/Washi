@@ -142,6 +142,33 @@ final class InternalLinkTests: XCTestCase {
         XCTAssertFalse(view.canGoBack)
     }
 
+    /// Washi-94p: 合成・未申告の link では外部アプリを開かず、実入力だけを許可する。
+    func testExternalScriptMessagesRequireTrustedEvent() throws {
+        final class Delegate: EPUBReaderViewDelegate {
+            var urls: [URL] = []
+            func readerView(_ view: EPUBReaderView,
+                            shouldOpenExternalURL url: URL) -> Bool {
+                urls.append(url)
+                return false
+            }
+        }
+        let view = EPUBReaderView(frame: .zero)
+        let delegate = Delegate()
+        view.delegate = delegate
+        view.load(publication: try EPUBFixtures.singleSpine(bodyHTML: "<p>本文</p>"))
+        defer { view.cancelPageCensus() }
+        var message: [String: Any] = ["type": "link", "href": "https://example.com/book"]
+
+        view.handleScriptMessage(message)
+        message["trusted"] = false
+        view.handleScriptMessage(message)
+        XCTAssertTrue(delegate.urls.isEmpty)
+
+        message["trusted"] = true
+        view.handleScriptMessage(message)
+        XCTAssertEqual(delegate.urls.map(\.absoluteString), ["https://example.com/book"])
+    }
+
     /// cooViewer-oxr.32: Explicitly following a vetoed note link uses the
     /// default navigation path, lands on its target, and records Back history.
     func testFollowBypassesDelegateVetoAndRecordsHistoryOffscreen() async throws {

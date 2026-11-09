@@ -1,0 +1,23 @@
+[
+  {
+    "path": "zh-hant-dream-red-chamber.epub",
+    "language": "zh-Hant",
+    "query": "紅樓",
+    "source": "https://www.gutenberg.org/ebooks/24264",
+    "license": "Project Gutenberg"
+  },
+  {
+    "path": "en-art-of-war.epub",
+    "language": "en",
+    "query": "war",
+    "source": "https://standardebooks.org/ebooks/sun-tzu/the-art-of-war/lionel-giles",
+    "license": "Standard Ebooks"
+  },
+  {
+    "path": "ko-seonjo-letter.epub",
+    "language": "ko",
+    "query": "만력",
+    "source": "https://ko.wikisource.org/wiki/선조국문유서",
+    "license": "Public domain"
+  }
+]

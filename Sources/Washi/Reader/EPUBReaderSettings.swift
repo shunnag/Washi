@@ -122,9 +122,11 @@ public struct EPUBReaderSettings: Sendable, Equatable {
     /// Typed page background color. When set, this takes precedence over
     /// ``backgroundColorCSS`` for both web content and native margins.
     public var backgroundColor: EPUBRGBAColor?
-    /// 本文文字の CSS 色(nil はテーマの既定色)。
+    /// 本文文字の CSS 色(nil はテーマの既定色)。信頼できる入力だけを渡す。
+    /// 信頼できない EPUB や文字列をそのまま渡さない。
     ///
-    /// Body text CSS color (nil = theme default).
+    /// Body text CSS color (nil = theme default). Supply trusted input only; do not
+    /// pass an untrusted EPUB or string verbatim.
     public var textColorCSS: String?
     /// 専用の型で指定する本文文字色。設定すると ``textColorCSS`` より優先される。
     ///
@@ -171,9 +173,11 @@ public struct EPUBReaderSettings: Sendable, Equatable {
     /// to false when a publication needs its original image colors. Default
     /// is true.
     public var invertsGlyphImagesInDark = true
-    /// 追加のユーザー CSS(最後に注入する)。
+    /// 追加のユーザー CSS(最後に注入する)。信頼できる入力だけを渡す。
+    /// 信頼できない EPUB や文字列をそのまま渡さない。
     ///
-    /// Additional user CSS (injected last).
+    /// Additional user CSS (injected last). Supply trusted input only; do not pass
+    /// an untrusted EPUB or string verbatim.
     public var userCSS: String?
     /// true なら、矢印やスペースなどの既定のキー操作をビュー内で処理する。
     /// false ならキーをデリゲートへ転送し、ホストのキーバインドを優先する。
@@ -219,10 +223,21 @@ public struct EPUBReaderSettings: Sendable, Equatable {
     /// which plays everything.
     public var mediaOverlaySkippedTypes: Set<String> = []
     /// スクリプト付きコンテンツ(本の JavaScript)を許可するか。既定は false。
+    /// 有効にすると著者スクリプトが DOM イベントを生成できる。外部 URL・キー・
+    /// タップは `event.isTrusted` が true の実入力だけを中継する。
     ///
     /// Whether to allow scripted content (the book's JavaScript). Default
-    /// false.
+    /// false. Author scripts can synthesize DOM events; only trusted input opens
+    /// external URLs or forwards keys and taps.
     public var allowsScriptedContent = false
+    /// 本の音声・動画の自動再生を許可するか。既定は false で、利用者の操作を要求する。
+    /// 信頼できる本にだけ true を設定する。切替時は読書位置を保って WebView を再構成する。
+    /// メディアオーバーレイの朗読には影響しない。
+    ///
+    /// Whether authored audio and video may autoplay. Default false, requiring user
+    /// interaction. Enable only for trusted books. Changing this rebuilds the web view
+    /// while preserving the reading position; media-overlay narration is unaffected.
+    public var allowsMediaAutoplay = false
     /// コンテキストメニューの方針。system 以外の方針と従来の
     /// ``suppressesContextMenu`` スイッチを両方設定した場合は、
     /// この方針を優先する。

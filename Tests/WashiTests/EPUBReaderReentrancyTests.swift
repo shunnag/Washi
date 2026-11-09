@@ -207,7 +207,8 @@ final class EPUBReaderReentrancyTests: XCTestCase {
             return false
         }
 
-        view.handleScriptMessage(["type": "tap", "x": 0.9, "y": 0.5, "button": 0])
+        view.handleScriptMessage(["type": "tap", "trusted": true,
+                                  "x": 0.9, "y": 0.5, "button": 0])
 
         XCTAssertTrue(view.publication === replacement)
         XCTAssertEqual(view.currentSpineIndex, 0)

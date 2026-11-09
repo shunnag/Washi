@@ -72,16 +72,16 @@ until the view and all outstanding work finish using the publication.
 `<audio autoplay>` / `<video autoplay>` は本を開いただけでは再生されない。
 利用者が `<audio controls>` を押す再生は引き続き利用できる。
 朗読(media overlay)は AVAudioPlayer を使うため、この制限では変わらない。
-現状の制限として、正規の本の `<video autoplay muted loop>` のような装飾も
-画面上で自動再生されず、ホストが opt-in する手段はない。
+信頼できる本では ``EPUBReaderSettings/allowsMediaAutoplay`` を true に設定して、
+`<video autoplay muted loop>` などの自動再生をホストが opt-in できる。
 
 Pass display preferences such as fonts and colors through ``EPUBReaderSettings``.
 Onscreen media playback also requires user interaction, so malicious EPUBs cannot play
 `<audio autoplay>` / `<video autoplay>` merely by being opened. Playback initiated by
 pressing `<audio controls>` remains available. Media overlay narration uses AVAudioPlayer
-and is unchanged by this restriction. As a current limitation, decorative media in
-legitimate books, such as `<video autoplay muted loop>`, also cannot autoplay onscreen,
-and hosts have no way to opt in.
+and is unchanged by this restriction. For trusted books, set
+``EPUBReaderSettings/allowsMediaAutoplay`` to true to opt into decorative playback such as
+`<video autoplay muted loop>`.
 
 ## ファイル選択・状態管理を含める / Include file selection and state
 

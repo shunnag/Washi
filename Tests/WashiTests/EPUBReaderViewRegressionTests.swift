@@ -319,18 +319,13 @@ final class EPUBReaderViewRegressionTests: XCTestCase {
         updated.handlesKeyboardNavigation = false
         view.settings = updated
         let webView = try view.firstWebView()
-        let dispatched = try await Task(priority: .userInitiated) { @MainActor in
-            let result = try await webView.callAsyncJavaScript(
-                """
-                document.dispatchEvent(new KeyboardEvent('keydown', {
-                    key:'x', code:'KeyX', bubbles:true
-                }));
-                return true;
-                """,
-                in: nil, contentWorld: WashiContentWorld.world)
-            return result as? Bool ?? false
-        }.value
-        XCTAssertTrue(dispatched)
+        _ = window.makeFirstResponder(webView)
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 1, windowNumber: window.windowNumber, context: nil,
+            characters: "x", charactersIgnoringModifiers: "x",
+            isARepeat: false, keyCode: 7))
+        window.sendEvent(event)
 
         let didForward = await waitUntil(timeout: .seconds(5), poll: .milliseconds(20)) { delegate.keys.count == 1 }
         XCTAssertTrue(didForward)

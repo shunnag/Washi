@@ -172,10 +172,10 @@ extension EPUBPublication {
         if let cached = fixedLayoutInfoCache.value(for: index) { return cached }
         guard remainingByteCount > 0 else { return nil }
         let path = readingOrder[index].resolvedContainerPath
-        let declaredSize = declaredFixedLayoutResourceSize(at: path)
+        let declaredSize = declaredResourceSize(at: path)
         if let size = declaredSize {
             guard size <= UInt64(remainingByteCount) else {
-                remainingByteCount = 0
+                // この項目を飛ばしても、残りの小さな項目は同じ予算で実測できる。
                 return nil
             }
             // 破損 ZIP で展開が失敗しても予算は消費し、同じ失敗を大量に繰り返さない。
@@ -198,7 +198,9 @@ extension EPUBPublication {
 
     /// ContainerReader の公開面を増やさず、ZIP は展開前に中央ディレクトリを参照する。
     /// 救済パスも read と同じ優先順(完全一致・ルート接頭辞・大小文字違い)で調べる。
-    private func declaredFixedLayoutResourceSize(at path: String) -> UInt64? {
+    /// フォルダや独自 ContainerReader では宣言サイズが無いため nil を返す
+    /// (固定レイアウトの寸法予算と、朗読音声の展開前の上限検査で共有する)。
+    package func declaredResourceSize(at path: String) -> UInt64? {
         guard let reader = container.reader as? RescuingContainerReader,
               let zip = reader.base as? ZipContainerReader else { return nil }
         let candidates: [String?] = [
@@ -373,7 +375,7 @@ extension EPUBPublication {
     }
 
     /// cooViewer-oxr.15: 完全デコードせず ImageIO のプロパティから画素寸法を得る。
-    private static func imagePixelSize(_ data: Data) -> CGSize? {
+    static func imagePixelSize(_ data: Data) -> CGSize? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(
                 source, 0, nil) as? [CFString: Any],

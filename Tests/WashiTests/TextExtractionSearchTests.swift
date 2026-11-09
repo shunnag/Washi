@@ -1,3 +1,4 @@
+@preconcurrency import Darwin
 import Foundation
 import XCTest
 @testable import WashiCore
@@ -237,6 +238,41 @@ final class TextExtractionSearchTests: XCTestCase {
             body: "", mediaType: "application/json", resourceData: xmlShapedJSON)
 
         XCTAssertEqual(try publication.extractText(forSpineIndex: 0), "")
+    }
+
+    func testSearchAtMaximumTextLengthStillMatches() throws {
+        let publication = try makePublication(
+            body: "<p>\(String(repeating: "あ", count: 999_998))末尾</p>")
+        XCTAssertEqual(publication.search("末尾").count, 1)
+        XCTAssertEqual(EPUBPublication.maximumSearchTextLength, 1_000_000)
+    }
+
+    /// Washi-9eu: 巨大な日本語 1 章の検索メモリを実測する。
+    func testSearchMemoryMeasurement() throws {
+        let count = 1_000_001
+        let publication = try makePublication(
+            body: "<p>\(String(repeating: "あ", count: count - 1))末尾</p>")
+        let before = residentByteCount()
+        let hits = publication.search("末尾")
+        let after = residentByteCount()
+        XCTAssertEqual(hits.count, 0)
+        if let before, let after {
+            let growth = after > before ? after - before : 0
+            print("[Washi search memory] characters=\(count) before=\(before) after=\(after) growth=\(growth) ratio=\(Double(growth) / Double(count))")
+        }
+        withExtendedLifetime(hits) {}
+    }
+
+    private func residentByteCount() -> UInt64? {
+        var info = mach_task_basic_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<mach_task_basic_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? info.resident_size : nil
     }
 
     /// 期待する原文から位置を独立に求め、文字単位と UTF-16 単位の両方で切り出す。

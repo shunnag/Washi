@@ -55,4 +55,47 @@ final class CensusKeyedStoreTests: XCTestCase {
         store.insert([3], forKey: "c", protecting: nil)
         XCTAssertEqual(store.keys, ["b", "c"])
     }
+
+    func testByteBudgetEvictsOldRecordsAndRejectsOversizedRecord() {
+        var store = CensusKeyedStore<[Int]>(limit: 3, byteLimit: 24)
+        XCTAssertTrue(store.insert([1, 1], forKey: "a", protecting: nil))
+        XCTAssertEqual(store.estimatedByteCount, 17)
+
+        XCTAssertTrue(store.insert([2], forKey: "b", protecting: nil))
+        XCTAssertEqual(store.keys, ["b"])
+        XCTAssertEqual(store.estimatedByteCount, 9)
+
+        let hugeKey = String(repeating: "x", count: 1_024)
+        XCTAssertFalse(store.insert([3], forKey: hugeKey, protecting: nil))
+        XCTAssertEqual(store.keys, ["b"])
+        XCTAssertEqual(store["b"], [2])
+        XCTAssertEqual(store.estimatedByteCount, 9)
+    }
+
+    func testRejectedInsertionDoesNotPartiallyEvictExistingRecords() {
+        var store = CensusKeyedStore<[Int]>(limit: 3, byteLimit: 36)
+        store.insert([1, 1], forKey: "current", protecting: nil)
+        store.insert([2], forKey: "other", protecting: nil)
+        XCTAssertEqual(store.estimatedByteCount, 36)
+
+        XCTAssertFalse(store.insert([3, 3, 3], forKey: "new", protecting: "current"))
+        XCTAssertEqual(store.keys, ["current", "other"])
+        XCTAssertEqual(store["other"], [2])
+        XCTAssertEqual(store.estimatedByteCount, 36)
+    }
+
+    func testReplacementAndRemovalKeepByteAccountingExact() {
+        var store = CensusKeyedStore<[Int]>(limit: 2, byteLimit: 40)
+        store.insert([1], forKey: "a", protecting: nil)
+        store.insert([2, 2], forKey: "b", protecting: nil)
+        XCTAssertEqual(store.estimatedByteCount, 26)
+
+        XCTAssertTrue(store.insert([1, 1, 1], forKey: "a", protecting: nil))
+        XCTAssertEqual(store.estimatedByteCount, 25)
+        XCTAssertEqual(store.keys, ["a"])
+        store.removeValue(forKey: "a")
+        XCTAssertEqual(store.estimatedByteCount, 0)
+        store.removeAll()
+        XCTAssertEqual(store.count, 0)
+    }
 }

@@ -6,6 +6,44 @@ import XCTest
 
 @MainActor
 final class EPUBSchemeHandlerTests: XCTestCase {
+    /// Washi-0kt: 展開枠の確保直後の停止でも、読み取り・応答をせず枠を返す。
+    func testStopImmediatelyAfterExtractionSlotAcquisition() async throws {
+        let path = "OEBPS/payload.bin"
+        let probe = SchemeReadProbe(paths: [path], gate: .read)
+        defer { probe.releaseAll() }
+        let publication = try Self.makeImageSpinePublication(
+            path: "payload.bin", mediaType: "application/octet-stream",
+            data: Data("stopped".utf8), wrapReader: { ProbedSchemeReader(base: $0, probe: probe) })
+        let handler = EPUBSchemeHandler(publication: publication)
+        let webView = WKWebView(frame: .zero)
+        let task = RecordingSchemeTask(request: URLRequest(
+            url: try XCTUnwrap(handler.url(forContainerPath: path)))) {
+                XCTFail("停止済み要求には完了・失敗を通知しない")
+            }
+        let acquired = expectation(description: "展開枠を確保した直後に停止する")
+        handler.extractionWillStartForTest = {
+            handler.extractionWillStartForTest = nil
+            acquired.fulfill()
+            handler.webView(webView, stop: task)
+        }
+        handler.webView(webView, start: task)
+        await fulfillment(of: [acquired], timeout: 2)
+        XCTAssertTrue(probe.started.isEmpty)
+        XCTAssertEqual(task.callbackCount, 0)
+
+        let nextFinished = expectation(description: "停止後の要求が完了する")
+        let nextTask = RecordingSchemeTask(request: URLRequest(
+            url: try XCTUnwrap(handler.url(forContainerPath: "mimetype")))) {
+                nextFinished.fulfill()
+            }
+        handler.webView(webView, start: nextTask)
+        await fulfillment(of: [nextFinished], timeout: 2)
+        XCTAssertNil(nextTask.failure)
+        XCTAssertEqual(nextTask.receivedData, Data("application/epub+zip".utf8))
+        XCTAssertTrue(probe.started.isEmpty)
+        XCTAssertEqual(task.callbackCount, 0)
+    }
+
     /// Washi-1mg / Washi-yy2: 最初の展開チャンクで止め、次の反復で取消しが届くことを検証する。
     func testStopCancelsRunningInflationWithoutCallbacks() async throws {
         let path = "OEBPS/payload.bin"
@@ -45,7 +83,7 @@ final class EPUBSchemeHandlerTests: XCTestCase {
         XCTAssertEqual(task.callbackCount, 0)
     }
 
-    /// Washi-1mg: 背景処理をゲートで止め、上限・FIFO・待機中の取消しを決定的に検証する。
+    /// Washi-1mg / Washi-v5d: 上限 2 ではメディア同時数 1 とし、FIFO と停止を確認する。
     func testExtractionLimitFIFOAndQueuedStop() async throws {
         let paths = (0..<5).map { "budget/\($0).bin" }
         let probe = SchemeReadProbe(paths: Set(paths), gate: .read)
@@ -54,7 +92,6 @@ final class EPUBSchemeHandlerTests: XCTestCase {
             wrapReader: { ProbedSchemeReader(base: $0, probe: probe) })
         let handler = EPUBSchemeHandler(publication: publication)
         XCTAssertEqual(handler.extractionLimit, 4)
-        // Washi-1mg: 少数コアでもゲート待ちが協調プールを使い切らないようにする。
         handler.extractionLimit = 2
         let webView = WKWebView(frame: .zero)
         let finished = expectation(description: "停止していない 3 要求が完了する")
@@ -66,24 +103,26 @@ final class EPUBSchemeHandlerTests: XCTestCase {
                 }
         }
         for task in tasks { handler.webView(webView, start: task) }
-        try await waitUntil { probe.started.count >= 2 }
+        try await waitUntil { probe.started.count >= 1 }
         try await Task.sleep(for: .milliseconds(30))
-        XCTAssertEqual(probe.started.count, 2)
-        XCTAssertEqual(Set(probe.started), Set(paths.prefix(2)))
+        XCTAssertEqual(probe.started, Array(paths.prefix(1)))
         handler.webView(webView, stop: tasks[2])
         handler.webView(webView, stop: tasks[0])
         // 取消しを無視する reader でも、実際に終了するまでは枠を返さない。
         try await Task.sleep(for: .milliseconds(30))
-        XCTAssertEqual(probe.started.count, 2)
+        XCTAssertEqual(probe.started.count, 1)
         probe.release(paths[0])
+        try await waitUntil { probe.started.count >= 2 }
+        XCTAssertEqual(probe.started[1], paths[1])
+        probe.release(paths[1])
         try await waitUntil { probe.started.count >= 3 }
         XCTAssertEqual(probe.started[2], paths[3])
-        probe.release(paths[1])
+        probe.release(paths[3])
         try await waitUntil { probe.started.count >= 4 }
         XCTAssertEqual(probe.started[3], paths[4])
         probe.releaseAll()
         await fulfillment(of: [finished], timeout: 5)
-        XCTAssertEqual(probe.maximumActive, 2)
+        XCTAssertEqual(probe.maximumActive, 1)
         XCTAssertFalse(probe.started.contains(paths[2]))
         XCTAssertEqual(tasks[0].callbackCount, 0)
         XCTAssertEqual(tasks[2].callbackCount, 0)
@@ -145,6 +184,85 @@ final class EPUBSchemeHandlerTests: XCTestCase {
         }
     }
 
+    /// Washi-v5d: メディアだけで全枠を占有せず、待ち行列のメディアより先に文書が
+    /// 残りの枠で始まる。読み取りを止める probe は協調スレッドプールを占有するため、
+    /// 3 コアの hosted runner でも進めるよう、同時に止めるのは 2 本(枠 2)にする。
+    func testDocumentStartsBeforeQueuedMediaCompletes() async throws {
+        let media = ["budget/a.mp4", "budget/b.mp4"]
+        let document = "budget/chapter.xhtml"
+        let probe = SchemeReadProbe(paths: Set(media + [document]), gate: .read)
+        defer { probe.releaseAll() }
+        let publication = try Self.makeImageSpinePublication(
+            wrapReader: { ProbedSchemeReader(base: $0, probe: probe) })
+        let handler = EPUBSchemeHandler(publication: publication)
+        handler.extractionLimit = 2
+        let finished = expectation(description: "文書を含む全 3 要求が完了する")
+        finished.expectedFulfillmentCount = 3
+        let webView = WKWebView(frame: .zero)
+        for path in media {
+            let task = RecordingSchemeTask(request: URLRequest(
+                url: try XCTUnwrap(handler.url(forContainerPath: path)))) {
+                    finished.fulfill()
+                }
+            handler.webView(webView, start: task)
+        }
+        // 枠 2 ではメディアは 1 本まで。2 本目は文書のための枠を使わずに待つ。
+        try await waitUntil { probe.started.count == 1 }
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(probe.started, [media[0]])
+
+        let documentTask = RecordingSchemeTask(request: URLRequest(
+            url: try XCTUnwrap(handler.url(forContainerPath: document)))) {
+                finished.fulfill()
+            }
+        handler.webView(webView, start: documentTask)
+        try await waitUntil { probe.started.count == 2 }
+        XCTAssertEqual(probe.started, [media[0], document])
+        XCTAssertEqual(probe.maximumActive, 2)
+
+        probe.releaseAll()
+        await fulfillment(of: [finished], timeout: 5)
+        XCTAssertEqual(probe.started.last, media[1])
+    }
+
+    /// Washi-v5d: 戻らない展開は timedOut で失敗する。Washi-s76: 枠は取消しに
+    /// 応じない背景処理が実際に終わるまで保持し、同時展開の上限を崩さない。
+    func testExtractionTimeoutFailsButHoldsSlotUntilBackgroundWorkEnds() async throws {
+        let stalled = "budget/stalled.bin"
+        let next = "budget/next.bin"
+        let probe = SchemeReadProbe(paths: [stalled, next], gate: .read)
+        defer { probe.releaseAll() }
+        let publication = try Self.makeImageSpinePublication(
+            wrapReader: { ProbedSchemeReader(base: $0, probe: probe) })
+        let handler = EPUBSchemeHandler(publication: publication)
+        handler.extractionLimit = 1
+        handler.extractionTimeout = .milliseconds(20)
+        let webView = WKWebView(frame: .zero)
+        let failed = expectation(description: "展開が期限で失敗する")
+        let task = RecordingSchemeTask(request: URLRequest(
+            url: try XCTUnwrap(handler.url(forContainerPath: stalled)))) {
+                failed.fulfill()
+            }
+        handler.webView(webView, start: task)
+        await fulfillment(of: [failed], timeout: 2)
+        XCTAssertEqual((task.failure as? URLError)?.code, .timedOut)
+
+        // 停滞した読み取りがまだ戻らない間は、次の要求に展開を始めさせない。
+        let nextFinished = expectation(description: "期限後の要求が完了する")
+        let nextTask = RecordingSchemeTask(request: URLRequest(
+            url: try XCTUnwrap(handler.url(forContainerPath: next)))) {
+                nextFinished.fulfill()
+            }
+        handler.webView(webView, start: nextTask)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(probe.started, [stalled])
+
+        probe.releaseAll()
+        await fulfillment(of: [nextFinished], timeout: 2)
+        XCTAssertNil(nextTask.failure)
+        XCTAssertEqual(probe.started, [stalled, next])
+    }
+
     private func waitUntil(file: StaticString = #filePath, line: UInt = #line,
                            _ predicate: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(5)
@@ -154,38 +272,6 @@ final class EPUBSchemeHandlerTests: XCTestCase {
                 throw URLError(.timedOut)
             }
             try await Task.sleep(for: .milliseconds(1))
-        }
-    }
-
-    /// Washi-hgd: 表示・非表示とも autoplay を抑止し、本の状態は WebView ごとに分離する。
-    func testReaderAndOffscreenConfigurationsShareHardening() throws {
-        let publication = try Self.makeImageSpinePublication()
-        for allowsScripts in [false, true] {
-            let reader = EPUBReaderView(frame: .zero)
-            defer { reader.unload() }
-            reader.settings.allowsScriptedContent = allowsScripts
-            reader.load(publication: publication)
-            let visible = try XCTUnwrap(reader.webView).configuration
-            let offscreen = EPUBOffscreenWebViewConfiguration.make(
-                allowsScriptedContent: allowsScripts)
-            let secondOffscreen = EPUBOffscreenWebViewConfiguration.make(
-                allowsScriptedContent: allowsScripts)
-
-            for configuration in [visible, offscreen, secondOffscreen] {
-                XCTAssertEqual(configuration.mediaTypesRequiringUserActionForPlayback, .all)
-                XCTAssertEqual(configuration.defaultWebpagePreferences.allowsContentJavaScript,
-                               allowsScripts)
-                XCTAssertFalse(configuration.websiteDataStore.isPersistent)
-            }
-            XCTAssertFalse(visible.websiteDataStore === offscreen.websiteDataStore)
-            XCTAssertFalse(offscreen.websiteDataStore === secondOffscreen.websiteDataStore)
-            XCTAssertFalse(visible.suppressesIncrementalRendering)
-            XCTAssertTrue(offscreen.suppressesIncrementalRendering)
-
-            reader.load(publication: publication)
-            let rebuilt = try XCTUnwrap(reader.webView).configuration
-            XCTAssertFalse(visible.websiteDataStore === rebuilt.websiteDataStore)
-            XCTAssertEqual(rebuilt.mediaTypesRequiringUserActionForPlayback, .all)
         }
     }
 

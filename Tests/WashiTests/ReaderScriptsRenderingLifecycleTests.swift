@@ -72,27 +72,17 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
         try await harness.setupLifecycle(keysEnabled: true)
         harness.messages.reset()
 
-        let disabled: Bool = try await harness.evaluate("""
-            const value = __washi.setKeysEnabled(false);
-            document.dispatchEvent(new KeyboardEvent('keydown', {
-                key:'x', code:'KeyX', bubbles:true, cancelable:true
-            }));
-            return value;
-            """)
+        let disabled: Bool = try await harness.evaluate("return __washi.setKeysEnabled(false);")
         XCTAssertFalse(disabled)
+        try harness.sendKey("x", keyCode: 7)
         let receivedKey = try await harness.waitForMessage(type: "key")
         XCTAssertTrue(receivedKey)
         XCTAssertEqual(harness.messages.count(type: "key"), 1)
 
         harness.messages.reset()
-        let enabled: Bool = try await harness.evaluate("""
-            const value = __washi.setKeysEnabled(true);
-            document.dispatchEvent(new KeyboardEvent('keydown', {
-                key:'x', code:'KeyX', bubbles:true, cancelable:true
-            }));
-            return value;
-            """)
+        let enabled: Bool = try await harness.evaluate("return __washi.setKeysEnabled(true);")
         XCTAssertTrue(enabled)
+        try harness.sendKey("x", keyCode: 7)
         try await harness.settleMessages()
         XCTAssertEqual(harness.messages.count(type: "key"), 0)
     }
@@ -105,25 +95,16 @@ final class ReaderScriptsRenderingLifecycleTests: XCTestCase {
         try await harness.setupLifecycle(keysEnabled: true, fixedLayout: true)
         harness.messages.reset()
 
-        let prevented: String = try await harness.evaluate("""
-            const inputs = [
-                {key:'ArrowLeft'}, {key:'ArrowRight'},
-                {key:'ArrowUp'}, {key:'ArrowDown'},
-                {key:'PageUp'}, {key:'PageDown'},
-                {key:' '}, {key:' ', shiftKey:true},
-                {key:'Home'}, {key:'End'}
-            ];
-            return inputs.map(input => {
-                const event = new KeyboardEvent('keydown', {
-                    key:input.key, bubbles:true, cancelable:true,
-                    shiftKey:!!input.shiftKey
-                });
-                document.dispatchEvent(event);
-                return event.defaultPrevented;
-            }).join('|');
-            """)
-        XCTAssertEqual(prevented,
-                       "true|true|true|true|true|true|true|true|true|true")
+        let inputs: [(String, UInt16, NSEvent.ModifierFlags)] = [
+            ("\u{F702}", 123, []), ("\u{F703}", 124, []),
+            ("\u{F700}", 126, []), ("\u{F701}", 125, []),
+            ("\u{F72C}", 116, []), ("\u{F72D}", 121, []),
+            (" ", 49, []), (" ", 49, [.shift]),
+            ("\u{F729}", 115, []), ("\u{F72B}", 119, []),
+        ]
+        for (characters, keyCode, modifiers) in inputs {
+            try harness.sendKey(characters, keyCode: keyCode, modifiers: modifiers)
+        }
         try await harness.settleMessages()
         let directions = harness.messages.messages.compactMap { message -> Bool? in
             guard message["type"] as? String == "boundary" else { return nil }

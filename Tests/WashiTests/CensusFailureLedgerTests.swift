@@ -36,4 +36,32 @@ final class CensusFailureLedgerTests: XCTestCase {
         ledger.clear()
         XCTAssertFalse(ledger.shouldSkip("k", now: t0))
     }
+
+    func testRecordCountIsBoundedInInsertionOrder() {
+        var ledger = CensusFailureLedger(limit: 3)
+        let t0 = ContinuousClock.now
+        for index in 0..<5 {
+            ledger.recordFailure("k\(index)", now: t0)
+            ledger.recordFailure("k\(index)", now: t0)
+        }
+        XCTAssertEqual(ledger.count, 3)
+        XCTAssertFalse(ledger.shouldSkip("k0", now: t0))
+        XCTAssertFalse(ledger.shouldSkip("k1", now: t0))
+        XCTAssertTrue(ledger.shouldSkip("k2", now: t0))
+        XCTAssertTrue(ledger.shouldSkip("k4", now: t0))
+    }
+
+    func testHugeCSSKeysRemainDistinctWithoutRetainingRawKeys() {
+        var ledger = CensusFailureLedger(limit: 3)
+        let t0 = ContinuousClock.now
+        let prefix = String(repeating: "body { font-family: x; }", count: 10_000)
+        for suffix in ["a", "b"] {
+            ledger.recordFailure(prefix + suffix, now: t0)
+            ledger.recordFailure(prefix + suffix, now: t0)
+        }
+        XCTAssertTrue(ledger.shouldSkip(prefix + "a", now: t0))
+        XCTAssertTrue(ledger.shouldSkip(prefix + "b", now: t0))
+        XCTAssertEqual(ledger.count, 2)
+        XCTAssertLessThanOrEqual(ledger.retainedKeyByteCount, 2 * 64)
+    }
 }

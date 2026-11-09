@@ -43,11 +43,9 @@ public final class EPUBScreenAtlas {
     public let publication: EPUBPublication
     private let census: any ScreenPageCensusing
     private var renderer: (any ScreenThumbnailRendering)?
-    /// メトリクスキー → 項目別ページ数
-    private var countsCache: [String: [Int]] = [:]
-    /// 大きな CSS を含むキーの蓄積を防ぐ。小さな上限なので挿入順で追い出す。
-    private static let countsCacheLimit = 16
-    private var countsCacheKeys: [String] = []
+    /// メトリクスキー → 項目別ページ数。大きな CSS を含むキーと配列の
+    /// 蓄積を防ぐため、reader と同じ件数・概算バイト予算で挿入順に追い出す。
+    private var countsCache = CensusKeyedStore<[Int]>()
     /// 実測中の合流(同一メトリクスの並行要求で census を二重に走らせない)
     private var measuring: [String: Task<[Int]?, Never>] = [:]
     /// 異なるメトリクスキー間の FIFO 直列化(census は共有 WKWebView を使う
@@ -121,7 +119,6 @@ public final class EPUBScreenAtlas {
         for task in measuring.values { task.cancel() }
         measuring.removeAll()
         countsCache.removeAll()
-        countsCacheKeys.removeAll()
         newestRequestedKey = nil
         census.invalidate()
         renderer?.invalidate()
@@ -131,11 +128,15 @@ public final class EPUBScreenAtlas {
     /// 項目ごとのページ数と、その出版物で 1 画面に表示するページ数を返す。
     /// 出版物全体の `rendition:spread` と flow を両方の値へ適用する。
     /// 項目ごとの上書きを持つ本では ``pagesPerScreen(forSpineIndex:metrics:)`` を使う。
+    /// spine が 8,192 項目を超える本は自動実測せず、その場合と実測の中断・失敗・
+    /// 無効化後は nil を返す。
     ///
     /// Returns per-item page counts together with the publication-specific
     /// number of pages shown on each screen. The publication-wide
     /// spread and flow preferences are applied to both values. For per-item
-    /// overrides, use ``pagesPerScreen(forSpineIndex:metrics:)``.
+    /// overrides, use ``pagesPerScreen(forSpineIndex:metrics:)``. Books with
+    /// more than 8,192 spine items are not measured automatically. Returns nil
+    /// for such books, interrupted or failed measurements, and after invalidation.
     public func screenPlan(
         metrics: EPUBScreenMetrics
     ) async -> (counts: [Int], pagesPerScreen: Int)? {
@@ -185,13 +186,7 @@ public final class EPUBScreenAtlas {
         // キャンセルに応じない実測が遅れて完了しても、解放済みキャッシュを
         // 復活させない。失敗した実測はキャッシュの追い出しにも影響させない。
         guard !isInvalidated, let counts else { return nil }
-        if countsCache[key] == nil {
-            if countsCacheKeys.count == Self.countsCacheLimit {
-                countsCache.removeValue(forKey: countsCacheKeys.removeFirst())
-            }
-            countsCacheKeys.append(key)
-        }
-        countsCache[key] = counts
+        countsCache.insert(counts, forKey: key, protecting: newestRequestedKey)
         return (counts, m.pagesPerScreen)
     }
 

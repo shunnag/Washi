@@ -140,6 +140,17 @@ final class ReaderScriptContractTests: XCTestCase {
         }
     }
 
+    // MARK: - 入力の信頼性
+
+    func testInputMessagesCarryTrustAndDoNotUseDetailAsSyntheticMarker() {
+        let source = ReaderScripts.pageScript
+        XCTAssertTrue(source.contains("type: 'link', href: href, trusted: trusted"))
+        XCTAssertTrue(source.contains("type: 'tap', trusted: event.isTrusted"))
+        XCTAssertTrue(source.contains("type: 'key', key: event.key, code: event.code,"))
+        XCTAssertTrue(source.contains("internalLinkMessage(anchor, href, event.isTrusted)"))
+        XCTAssertFalse(source.contains("event.detail === 0"))
+    }
+
     // MARK: - 既存テストが頼る足場
 
     /// ReaderScriptsRenderingLifecycleTests はこの 1 行を置換して非公開関数へ入る。

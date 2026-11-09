@@ -80,6 +80,60 @@ final class ContainerIORecoveryTests: XCTestCase {
         let corrupt = FaultingContainerReader(entries: ["bad": Data()], failingPath: "bad", code: nil)
         XCTAssertNil(try optionalContainerData(corrupt, at: "bad"))
     }
+
+    func testFolderReadMapsCommonIOFailuresWithoutHidingThemFromOptionalReads() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let protected = root.appendingPathComponent("protected")
+        try Data("secret".utf8).write(to: protected)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: protected.path)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("directory"), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            atPath: root.appendingPathComponent("loop").path, withDestinationPath: "loop")
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o600], ofItemAtPath: protected.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let reader = FolderContainerReader(rootURL: root, readStrategy: .alwaysCopy)
+
+        for (path, code) in [("protected", EACCES), ("directory", EISDIR), ("loop", ELOOP)] {
+            XCTAssertThrowsError(try reader.read(path), path) { error in
+                guard case EPUBError.containerReadFailed(
+                    path: let failedPath, reason: let reason) = error,
+                    let epubError = error as? EPUBError
+                else { return XCTFail("containerReadFailed ではない: \(error)") }
+                XCTAssertEqual(failedPath, path)
+                XCTAssertTrue(reason.hasPrefix(ContainerIOFailure.reasonPrefix), reason)
+                XCTAssertTrue(ContainerIOFailure.isIOFailure(epubError))
+                XCTAssertTrue(reason.contains(String(code)), reason)
+            }
+            XCTAssertThrowsError(try optionalContainerData(reader, at: path), path) { error in
+                XCTAssertTrue(error is EPUBError, "I/O 失敗を任意メタデータの欠落にしてはいけない")
+            }
+        }
+    }
+
+    /// Washi-gc0: 展開済みフォルダでも、列挙するパスはすべて読み取れる。
+    /// Cc を含む名前は列挙せず、書式文字(ZWNJ)を含む名前は列挙して読める。
+    func testFolderListingMatchesReadablePaths() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let control = "bad\u{1}name.txt"
+        let formatted = "\u{0645}\u{06CC}\u{200C}\u{062E}.txt"
+        try Data("control".utf8).write(to: root.appendingPathComponent(control))
+        try Data("formatted".utf8).write(to: root.appendingPathComponent(formatted))
+        let reader = FolderContainerReader(rootURL: root, readStrategy: .alwaysCopy)
+
+        XCTAssertFalse(reader.allPaths.contains(control))
+        XCTAssertTrue(reader.allPaths.contains(formatted))
+        for path in reader.allPaths {
+            XCTAssertNoThrow(try reader.read(path), path)
+        }
+        XCTAssertEqual(try reader.read(formatted), Data("formatted".utf8))
+    }
 }
 
 private struct FaultingContainerReader: ContainerReader {

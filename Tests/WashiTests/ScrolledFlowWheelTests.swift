@@ -68,6 +68,29 @@ final class ScrolledFlowWheelTests: XCTestCase {
         XCTAssertEqual(metrics["domWheels"] as? Int, 0)
     }
 
+    func testOversizedContinuousGroupDelegatesHorizontalWheelToWebKit() async throws {
+        let count = EPUBPublication.maximumEagerScrollItems + 1
+        let book = try scrollPublication(
+            flow: "scrolled-continuous",
+            modes: Array(repeating: "vertical-rl", count: count))
+        let harness = ScrolledFlowWheelHarness()
+        defer { harness.close() }
+        try await harness.load(book)
+        XCTAssertEqual(book.renderingFlow(at: 0), .scrolledContinuous)
+        XCTAssertEqual(harness.reader.effectiveFlow, .scrolledDoc)
+        XCTAssertEqual(book.scrollConfiguration(containing: 0).range, 0..<1)
+        XCTAssertEqual(harness.reader.loadedScrollGroup, 0..<1)
+
+        let initial = try await harness.offset()
+        try harness.send(dx: 12)
+        await harness.drain()
+        let moved = try await harness.waitForMovement(from: initial)
+        XCTAssertGreaterThan(moved, initial)
+        let metrics = try await harness.metrics()
+        XCTAssertEqual(metrics["nativeCalls"] as? Int, 0)
+        XCTAssertEqual(harness.consumedEvents, [false])
+    }
+
     func testContinuousWheelCrossesChapterBoundaryAndReturnsWithoutReloading() async throws {
         let book = try scrollPublication(flow: "scrolled-continuous", modes: ["vertical-rl", "vertical-rl"])
         let harness = ScrolledFlowWheelHarness()

@@ -174,6 +174,7 @@ extension EPUBReaderView {
     }
 
     private func handleTap(_ dict: [String: Any]) {
+        guard dict["trusted"] as? Bool == true else { return }
         // DOM のボタン番号(0=左,1=中,2=右,3/4=サイド)→ NSEvent 流
         // (0=左,1=右,2=中,3/4=サイド)へ写像。右は JS 側で除外済み
         let domButton = dict["button"] as? Int ?? 0
@@ -207,6 +208,12 @@ extension EPUBReaderView {
             setCurrentSelection(nil)
             return
         }
+        let lower = min(start, text.utf16.count)
+        let upper = min(end, text.utf16.count)
+        guard upper > lower else {
+            setCurrentSelection(nil)
+            return
+        }
         let rects = rawRects.compactMap {
             readerViewRect(from: $0, in: webView)
         }
@@ -216,10 +223,11 @@ extension EPUBReaderView {
         }
         setCurrentSelection(EPUBTextSelection(
             spineIndex: currentSpineIndex, text: text,
-            utf16Range: start..<end, rects: rects))
+            utf16Range: lower..<upper, rects: rects))
     }
 
     private func handleKey(_ dict: [String: Any]) {
+        guard dict["trusted"] as? Bool == true else { return }
         let event = EPUBKeyEvent(
             key: dict["key"] as? String ?? "",
             code: dict["code"] as? String ?? "",

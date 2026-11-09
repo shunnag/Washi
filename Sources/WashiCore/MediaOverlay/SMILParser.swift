@@ -25,12 +25,18 @@ enum SMILParser {
                 let audio = child.wsFirst("audio", ns: XMLNamespace.smil)
                 let parTypes = types + [child.attr("type", ns: XMLNamespace.epubOps,
                                                  prefix: "epub")].compactMap { $0 }
+                let clipBegin = audio?.attr("clipBegin")
+                    .flatMap(parseClockValue) ?? 0
+                // 長さゼロ・負のクリップは即時 advance の空回りを招くため、
+                // メディア終端の指定(nil)へ落とす。実時間の前後関係だけを見る。
+                let clipEnd = audio?.attr("clipEnd").flatMap(parseClockValue).flatMap {
+                    $0 > clipBegin ? $0 : nil
+                }
                 result.append(MediaOverlay.Parallel(
                     textHref: text,
                     audioHref: audio?.attr("src"),
-                    clipBegin: audio?.attr("clipBegin")
-                        .flatMap(parseClockValue) ?? 0,
-                    clipEnd: audio?.attr("clipEnd").flatMap(parseClockValue),
+                    clipBegin: clipBegin,
+                    clipEnd: clipEnd,
                     epubType: parTypes.isEmpty ? nil : parTypes.joined(separator: " ")))
             } else {
                 // seq(と body)は再帰的に順序どおり平坦化する

@@ -118,6 +118,47 @@ final class EPUBReaderInteractionTests: XCTestCase {
         XCTAssertTrue(didPublishClearedSelection)
     }
 
+    /// Washi-94p: 選択範囲は本文の実長で clamp し、完全に外なら解除する。
+    func testScriptSelectionClampsUTF16RangeToTextLength() async throws {
+        let view = EPUBReaderView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        view.load(publication: try makePublication(body: "<p>本文</p>"))
+        let window = makeOffscreenWindow(containing: view)
+        defer { closeReader(view, in: window, teardown: .cancelPageCensus) }
+        guard await waitUntil(timeout: .seconds(5), poll: .milliseconds(20), {
+            !view.spineLoad.isLoadingSpineItem
+        }) else { return try failOrSkipIfWebKitUnavailable() }
+        let rect: [String: Any] = ["x": 10, "y": 10, "w": 20, "h": 10]
+
+        view.handleScriptMessage([
+            "type": "selection", "text": "本文", "start": 1, "end": 99,
+            "rects": [rect],
+        ])
+        XCTAssertEqual(view.currentSelection?.utf16Range, 1..<2)
+
+        view.handleScriptMessage([
+            "type": "selection", "text": "本文", "start": 3, "end": 99,
+            "rects": [rect],
+        ])
+        XCTAssertNil(view.currentSelection)
+    }
+
+    /// Washi-94p: 合成タップは delegate へ届けず、実入力だけを中継する。
+    func testScriptTapsRequireTrustedEvent() throws {
+        let view = EPUBReaderView(frame: .zero)
+        let delegate = ReaderInteractionDelegate()
+        view.delegate = delegate
+        var message: [String: Any] = ["type": "tap", "x": 0.5, "y": 0.5, "button": 0]
+
+        view.handleScriptMessage(message)
+        message["trusted"] = false
+        view.handleScriptMessage(message)
+        XCTAssertTrue(delegate.clicks.isEmpty)
+
+        message["trusted"] = true
+        view.handleScriptMessage(message)
+        XCTAssertEqual(delegate.clicks.count, 1)
+    }
+
     /// cooViewer-oxr.35: 本文と余白の経路が同じ合成点を reader 座標で表し、
     /// context-menu delegate の nil が menu を空にして抑止することを検証する。
     func testClickLocationsAndContextMenuDelegateIntervention() throws {
@@ -138,7 +179,7 @@ final class EPUBReaderInteractionTests: XCTestCase {
         let normalizedY = Double(1 - (point.y - webView.frame.minY)
                                  / webView.frame.height)
         view.handleScriptMessage([
-            "type": "tap", "x": normalizedX, "y": normalizedY,
+            "type": "tap", "trusted": true, "x": normalizedX, "y": normalizedY,
             "button": 0, "shift": false, "alt": false,
             "ctrl": false, "meta": false,
         ])

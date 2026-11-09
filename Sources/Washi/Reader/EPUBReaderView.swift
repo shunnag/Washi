@@ -176,11 +176,12 @@ public final class EPUBReaderView: NSView {
     /// スクロール表示の進行率(0...1。JS の pageChanged が付ける)。ページ表示では nil で、
     /// currentLocator はページ番号から進行率を出す
     var scrollProgression: Double?
-    /// 連続スクロール文書がつないでいる章の spine 範囲(ページ表示・scrolled-doc では nil)。
+    /// スクロールコンテナ文書が保持する章の spine 範囲(通常の文書では nil)。
+    /// 大きな連続表示 group の縮退後もコンテナを使うので、表示 flow とは別に管理する。
     /// spineIndex 付きの JS 通知はこの範囲の章からだけ受け入れる
     var loadedScrollGroup: Range<Int>?
     var effectiveFlow: RenditionFlow {
-        publication?.renderingFlow(at: currentSpineIndex) ?? .auto
+        publication?.scrollConfiguration(containing: currentSpineIndex).flow ?? .auto
     }
 
     /// 過去に記録した移動位置へ戻れるかどうか。

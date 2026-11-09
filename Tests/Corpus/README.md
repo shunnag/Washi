@@ -6,6 +6,10 @@ ZIP content digest (`contentSHA256`).
 The EPUB contents are not redistributed with Washi. Their original notices and
 licenses remain inside the downloaded publications.
 
+Additional multilingual fixtures for Traditional Chinese, English, and Korean
+are documented in [Additional/README.md](Additional/README.md). They use a
+separate manifest and directory, so the base corpus remains unchanged.
+
 ```sh
 python3 Scripts/fetch-epub-corpus.py
 WASHI_CORPUS_DIR="$PWD/.build/epub-corpus" swift test --filter CorpusSmokeTests
