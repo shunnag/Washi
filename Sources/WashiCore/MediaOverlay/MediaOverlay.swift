@@ -23,10 +23,10 @@ public struct MediaOverlay: Sendable {
         /// Clip start in seconds (0 when omitted).
         public let clipBegin: Double
         /// クリップの終了位置(秒単位、省略時はメディアの終端)。
-        /// `clipBegin` 以下の値もメディアの終端として扱う。
+        /// `clipBegin` 以下の値は長さのないクリップで、再生では読み飛ばす。
         ///
-        /// Clip end in seconds (end of media when omitted). Values less than or
-        /// equal to `clipBegin` are also treated as the end of the media.
+        /// Clip end in seconds (end of media when omitted). A value less than or
+        /// equal to `clipBegin` denotes an empty clip, which playback skips.
         public let clipEnd: Double?
         /// この par とその祖先の epub:type トークン(footnote / pagebreak など、
         /// スキップ可否の判定に使う)。

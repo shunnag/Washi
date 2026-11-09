@@ -209,7 +209,8 @@ extension EPUBPublication {
             reader.caseInsensitiveIndex[(reader.rootPrefix + path).lowercased()]
         ]
         for candidate in candidates.compactMap({ $0 }) {
-            if let info = zip.archive.info(for: candidate) { return info.uncompressedSize }
+            if let entry = zip.entryName(for: candidate),
+               let info = zip.archive.info(for: entry) { return info.uncompressedSize }
         }
         return nil
     }

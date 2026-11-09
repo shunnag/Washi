@@ -42,7 +42,8 @@ final class SMILParserTests: XCTestCase {
         XCTAssertEqual(overlay.parallels[1].epubType, "footnote")
     }
 
-    func testNonPositiveClipDurationUsesMediaEnd() throws {
+    /// Washi-dwr: 長さのないクリップも宣言どおりの値を保ち、終端(nil)へ読み替えない。
+    func testNonPositiveClipDurationKeepsDeclaredEnd() throws {
         let smil = """
         <smil xmlns="http://www.w3.org/ns/SMIL"><body><seq>
           <par id="negative"><text src="ch1.xhtml#a"/>
@@ -54,8 +55,11 @@ final class SMILParserTests: XCTestCase {
         </seq></body></smil>
         """
         let overlay = try SMILParser.parse(data: Data(smil.utf8), at: "ch1.smil")
-        XCTAssertNil(overlay.parallels[0].clipEnd)
-        XCTAssertNil(overlay.parallels[1].clipEnd)
+        XCTAssertEqual(overlay.parallels[0].clipEnd, 1)
+        XCTAssertEqual(overlay.parallels[1].clipEnd, 1)
         XCTAssertEqual(overlay.parallels[2].clipEnd, 2)
+        XCTAssertTrue(MediaOverlayController.hasEmptyClip(overlay.parallels[0]))
+        XCTAssertTrue(MediaOverlayController.hasEmptyClip(overlay.parallels[1]))
+        XCTAssertFalse(MediaOverlayController.hasEmptyClip(overlay.parallels[2]))
     }
 }

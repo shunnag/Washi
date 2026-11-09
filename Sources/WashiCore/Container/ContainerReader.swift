@@ -14,15 +14,55 @@ protocol ContainerReader: Sendable {
 /// ZIP(.epub ファイル)のコンテナ
 struct ZipContainerReader: ContainerReader {
     let archive: ZipArchive
+    /// Washi-bgz: 先頭の "/" と "./" だけが余分な梱包ミスのエントリ名を、剥がした
+    /// 安全な名前で列挙・読み取りするための別名(剥がした名前 → 実際の名前)。
+    /// 1.26 まではルート接頭辞の救済で開けていた。".." を含む名前や、同じ名前の
+    /// エントリが既にある・別名が衝突する場合は作らない。
+    private let prefixedAliases: [String: String]
+
+    init(archive: ZipArchive) {
+        self.archive = archive
+        var aliases: [String: String] = [:]
+        var ambiguous: Set<String> = []
+        for entry in archive.entries
+        where !entry.isDirectory && !ContainerPath.isSafeContainerPath(entry.name) {
+            guard let stripped = Self.strippingLeadingRootMarkers(entry.name),
+                  ContainerPath.isSafeContainerPath(stripped),
+                  !archive.contains(stripped) else { continue }
+            if aliases.updateValue(entry.name, forKey: stripped) != nil {
+                ambiguous.insert(stripped)
+            }
+        }
+        for name in ambiguous { aliases[name] = nil }
+        self.prefixedAliases = aliases
+    }
+
+    /// 先頭に続く "/" と "./" を剥がす。何も剥がせない・空になる場合は nil。
+    static func strippingLeadingRootMarkers(_ name: String) -> String? {
+        var rest = Substring(name)
+        while true {
+            if rest.hasPrefix("/") { rest = rest.dropFirst() }
+            else if rest.hasPrefix("./") { rest = rest.dropFirst(2) }
+            else { break }
+        }
+        guard rest.count < name.count, !rest.isEmpty else { return nil }
+        return String(rest)
+    }
 
     var allPaths: [String] {
         archive.entries.filter {
             !$0.isDirectory && ContainerPath.isSafeContainerPath($0.name)
-        }.map(\.name)
+        }.map(\.name) + prefixedAliases.keys
     }
 
     func exists(_ path: String) -> Bool {
-        ContainerPath.isSafeContainerPath(path) && archive.contains(path)
+        ContainerPath.isSafeContainerPath(path) && entryName(for: path) != nil
+    }
+
+    /// 安全なコンテナパスに対応する実際のエントリ名(別名を含む)
+    func entryName(for path: String) -> String? {
+        if archive.contains(path) { return path }
+        return prefixedAliases[path]
     }
 
     func read(_ path: String) throws -> Data {
@@ -30,7 +70,7 @@ struct ZipContainerReader: ContainerReader {
             throw EPUBError.resourceNotFound(path)
         }
         do {
-            return try archive.data(forEntry: path)
+            return try archive.data(forEntry: entryName(for: path) ?? path)
         } catch ZipError.entryNotFound {
             throw EPUBError.resourceNotFound(path)
         } catch let error as ZipError {
