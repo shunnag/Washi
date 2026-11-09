@@ -347,7 +347,10 @@ extension EPUBReaderView {
     /// 完走した census をキャッシュへ入れる(表示中のキーは追い出さない)。
     /// 同じキーの中断控えは用済みなので捨て、控えの枠を空ける
     private func storeCompletedCensus(_ counts: [Int], forKey key: String) {
-        census.cache.insert(counts, forKey: key, protecting: protectedCensusKey)
+        if !census.cache.insert(counts, forKey: key, protecting: protectedCensusKey) {
+            // 保存できなかった新しい値の代わりに、古い完走値を後で表示へ戻さない。
+            census.cache.removeValue(forKey: key)
+        }
         census.partialCounts.removeValue(forKey: key)
     }
 

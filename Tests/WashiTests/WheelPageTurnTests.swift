@@ -32,6 +32,7 @@ final class WheelPageTurnTests: XCTestCase {
 
     // MARK: テスト 2 — 今まで正常だった条件の回帰
 
+    /// Washi-j61: 実行環境の遅延でジェスチャを分割せず、1 回の送りを検証する。
     func testOtherLayoutsKeepOneGesturePerPage() async throws {
         let htbSpread = try await WheelHarness.make(
             try WheelFixtures.publication(body: WheelFixtures.horizontalBody(), name: "htb-spread"),

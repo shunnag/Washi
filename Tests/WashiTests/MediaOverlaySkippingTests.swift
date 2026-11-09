@@ -341,6 +341,72 @@ final class MediaOverlaySkippingTests: XCTestCase {
         XCTAssertNil(reader.mediaOverlayPosition)
     }
 
+    private func audioBook(paths: [String]) throws -> EPUBPublication {
+        var entries = EPUBFixtures.silentMediaOverlayEntries(parCount: paths.count)
+        let smilIndex = try XCTUnwrap(entries.firstIndex { $0.name.hasSuffix(".smil") })
+        let pars = paths.enumerated().map { index, path in
+            """
+            <par><text src="c.xhtml#s\(index)"/>
+              <audio src="\(path)" clipBegin="0s" clipEnd="1s"/></par>
+            """
+        }.joined()
+        entries[smilIndex].data = Data(
+            "<smil xmlns=\"http://www.w3.org/ns/SMIL\"><body><seq>\(pars)</seq></body></smil>".utf8)
+        for path in paths {
+            entries.append(("OEBPS/text/\(path)", Data(path.utf8)))
+        }
+        return try EPUBFixtures.publication(entries, name: "washi-audio-lru")
+    }
+
+    func testAudioPlayersUseTwoEntryLRUInsteadOfReinflatingEverySwitch() throws {
+        let book = try audioBook(paths: ["a.wav", "b.wav", "c.wav"])
+        let reader = EPUBReaderView(frame: .zero)
+        reader.load(publication: book)
+        var created: [String] = []
+        let controller = MediaOverlayController(
+            reader: reader, publication: book, activeClass: "x",
+            makeAudioPlayer: { data in
+                created.append(String(decoding: data, as: UTF8.self))
+                return FakeMediaOverlayAudioPlayer()
+            })
+        reader.mediaOverlayController = controller
+        defer { controller.stop() }
+
+        for parIndex in [0, 1, 0, 2, 0, 1, 2] {
+            controller.play(fromSpineIndex: 0, parIndex: parIndex)
+        }
+
+        XCTAssertEqual(created, ["a.wav", "b.wav", "c.wav", "b.wav", "c.wav"])
+    }
+
+    func testAudioResourceByteLimitSkipsDecoder() throws {
+        let book = try audioBook(paths: ["a.wav"])
+        let reader = EPUBReaderView(frame: .zero)
+        reader.load(publication: book)
+        var decoderCalls = 0
+        let controller = MediaOverlayController(
+            reader: reader, publication: book, activeClass: "x",
+            makeAudioPlayer: { _ in
+                decoderCalls += 1
+                return FakeMediaOverlayAudioPlayer()
+            },
+            audioResourceByteLimit: 2)
+        reader.mediaOverlayController = controller
+        defer { controller.stop() }
+
+        controller.play(fromSpineIndex: 0)
+
+        XCTAssertEqual(decoderCalls, 0)
+        XCTAssertTrue(controller.isPlaying)
+    }
+
+    /// Washi-2go: 朗読音声の上限検査に使う ZIP の宣言サイズを、展開せずに得る。
+    func testDeclaredAudioSizeIsAvailableBeforeExtraction() throws {
+        let book = try audioBook(paths: ["a.wav"])
+        XCTAssertEqual(book.declaredResourceSize(at: "OEBPS/text/a.wav"), 5)
+        XCTAssertNil(book.declaredResourceSize(at: "OEBPS/text/missing.wav"))
+    }
+
     func testSkippingRecognizesAllXMLWhitespace() {
         let par = MediaOverlay.Parallel(textHref: nil, audioHref: nil, clipBegin: 0,
                                        clipEnd: nil, epubType: "bodymatter\tpagebreak\nfootnote")

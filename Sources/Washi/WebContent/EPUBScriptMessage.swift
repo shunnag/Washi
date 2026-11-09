@@ -20,14 +20,18 @@ import Foundation
 // - boundary: forward(Bool)。文書の端でこれ以上めくれないときに送る。
 // - link: href、epubType(String?)、role(String?)、anchorId(String?)、
 //   anchorRect({ x, y, w, h }、viewport 座標)、backlink(Bool)、
-//   targetTag(String?)、targetEpubType(String?)。同一文書内の行き先が
-//   見つかったときだけ target* と backlink が埋まる。
+//   targetTag(String?)、targetEpubType(String?)、trusted(event.isTrusted)。
+//   同一文書内の行き先が見つかったときだけ target* と backlink が埋まる。
+//   外部スキームを開くのは trusted == true の実入力だけで、内部リンクは合成
+//   click(キーボード・支援技術のものを含む)でも従来どおり解決する。
 // - tap: x・y(0...1 の正規化座標)、button(DOM のボタン番号)、
-//   shift・alt・ctrl・meta(Bool)。リンク以外のクリックと auxclick。
+//   shift・alt・ctrl・meta(Bool)、trusted(event.isTrusted)。リンク以外の
+//   クリックと auxclick。trusted == true だけをホストへ中継する。
 // - selection: text(String。'' は選択解除)。非空なら start・end(抽出本文の
 //   UTF-16 位置、end は排他)と rects([{ x, y, w, h }])が付く。
-// - key: key・code(String)、shift・alt・ctrl・meta(Bool)。keysEnabled が
-//   false のときだけ keydown を転送する。
+// - key: key・code(String)、shift・alt・ctrl・meta(Bool)、
+//   trusted(event.isTrusted)。keysEnabled が false のときだけ keydown を転送し、
+//   trusted == true だけをホストへ中継する。
 // - scrollFailure: reason(String)。連続スクロール文書が準備後の遅延読み込みに
 //   失敗したときだけ送る。
 //

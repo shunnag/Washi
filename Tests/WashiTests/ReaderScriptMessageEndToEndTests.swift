@@ -107,12 +107,10 @@ private final class ContinuousScrollHarness {
 
 @MainActor
 final class ReaderScriptMessageEndToEndTests: XCTestCase {
-    /// `key` を固定する: keysEnabled が false(ホストがキーを扱う)のとき、
-    /// 矢印キーの keydown を key・code(String)と shift・alt・ctrl・meta(Bool)
-    /// とともに通知して既定動作を止め、native は EPUBKeyEvent
-    /// (alt→option、ctrl→control、meta→command)へ写す。keysEnabled が true なら
-    /// JS 自身がめくりを扱い、key は通知しない。
-    func testArrowKeydownPostsKeyOnlyWhenKeysDisabled() async throws {
+    /// Washi-94p: 合成 KeyboardEvent は keysEnabled の真偽に関わらず native の
+    /// 入力として扱わない。実入力を表す trusted な body だけを EPUBKeyEvent
+    /// (alt→option、ctrl→control、meta→command)へ写す。
+    func testSyntheticArrowKeydownIsNotForwardedToHost() async throws {
         let key = EPUBScriptMessage.key.rawValue
         let reader = EPUBReaderView(frame: .zero)
         let spy = KeyEventSpy()
@@ -120,7 +118,6 @@ final class ReaderScriptMessageEndToEndTests: XCTestCase {
         let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: "<p>矢印キー</p>")
         defer { harness.close() }
         try await harness.loadForLifecycleTest()
-        // 表示中の文書からの通知として受理されるよう、リーダーの印を setup に渡す
         try await harness.setupLifecycle(keysEnabled: false,
                                          documentToken: reader.currentDocumentToken)
         harness.messages.reset()
@@ -133,23 +130,18 @@ final class ReaderScriptMessageEndToEndTests: XCTestCase {
             document.dispatchEvent(event);
             return event.defaultPrevented;
             """
-        let forwarded: Bool = try await harness.evaluate(dispatchArrowRight)
-        XCTAssertTrue(forwarded, "転送した矢印キーは既定動作を止める")
-        let received = try await harness.waitForMessage(type: key)
-        XCTAssertTrue(received)
+        let prevented: Bool = try await harness.evaluate(dispatchArrowRight)
+        XCTAssertFalse(prevented)
         try await harness.settleMessages()
-        XCTAssertEqual(harness.messages.count(type: key), 1)
-        let message = try XCTUnwrap(harness.messages.first(type: key))
-        XCTAssertEqual(message["key"] as? String, "ArrowRight")
-        XCTAssertEqual(message["code"] as? String, "ArrowRight")
-        XCTAssertEqual(message["shift"] as? Bool, true)
-        XCTAssertEqual(message["alt"] as? Bool, false)
-        XCTAssertEqual(message["ctrl"] as? Bool, false)
-        XCTAssertEqual(message["meta"] as? Bool, true)
-        XCTAssertEqual(message["token"] as? String, reader.currentDocumentToken)
+        XCTAssertEqual(harness.messages.count(type: key), 0)
+        XCTAssertTrue(spy.keys.isEmpty)
 
-        // 記録した body をそのまま Swift 側の橋渡しへ流す
-        reader.handleScriptMessage(message)
+        // 実入力と同じ body は native の橋渡しで従来どおり扱う。
+        reader.handleScriptMessage([
+            "type": "key", "key": "ArrowRight", "code": "ArrowRight",
+            "shift": true, "alt": false, "ctrl": false, "meta": true,
+            "trusted": true, "token": reader.currentDocumentToken,
+        ])
         XCTAssertEqual(spy.keys, [EPUBKeyEvent(key: "ArrowRight", code: "ArrowRight",
                                                shift: true, option: false,
                                                control: false, command: true)])
@@ -158,7 +150,7 @@ final class ReaderScriptMessageEndToEndTests: XCTestCase {
                                          documentToken: reader.currentDocumentToken)
         harness.messages.reset()
         let handledByScript: Bool = try await harness.evaluate(dispatchArrowRight)
-        XCTAssertTrue(handledByScript, "JS がめくりとして処理し既定動作を止める")
+        XCTAssertFalse(handledByScript)
         try await harness.settleMessages()
         XCTAssertEqual(harness.messages.count(type: key), 0)
         XCTAssertEqual(spy.keys.count, 1)

@@ -449,18 +449,55 @@ final class EPUBScrollDocumentTests: XCTestCase {
         }
     }
 
-    func testOversizedZIPDimensionIsSkippedBeforeInflation() throws {
+    func testOversizedZIPDimensionSkipsWithoutBlockingNextItem() throws {
+        let oversized = dimensionChapter(
+            bodyBytes: EPUBScrollDocument.maximumDimensionBytes + 1)
         let book = try budgetPublication(
-            count: 2, chapter: dimensionChapter(
-                bodyBytes: EPUBScrollDocument.maximumDimensionBytes + 1))
+            count: 0, chapters: [oversized, dimensionChapter()])
         var remaining = EPUBScrollDocument.maximumDimensionBytes
         XCTAssertNil(try book.fixedLayoutInfo(forSpineIndex: 0, remainingByteCount: &remaining))
-        XCTAssertEqual(remaining, 0)
+        XCTAssertEqual(remaining, EPUBScrollDocument.maximumDimensionBytes)
         XCTAssertNil(book.cachedFixedLayoutInfo(forSpineIndex: 0))
-        // 後続 setup も通常の既定寸法を出せる。
         let items = try continuousItems(in: EPUBScrollDocument.options(
             "{}", publication: book, index: 0, handler: EPUBSchemeHandler(publication: book)))
-        XCTAssertEqual(items.map { $0["width"] as? Int }, [1200, 1200])
+        XCTAssertEqual(items.map { $0["width"] as? Int }, [1200, 600])
+    }
+
+    func testDimensionBudgetPrioritizesVisibleItem() throws {
+        let oversized = dimensionChapter(
+            bodyBytes: EPUBScrollDocument.maximumDimensionBytes + 1)
+        let book = try budgetPublication(
+            count: 0, chapters: [oversized, dimensionChapter(), dimensionChapter()])
+        let items = try continuousItems(in: EPUBScrollDocument.options(
+            "{}", publication: book, index: 2, handler: EPUBSchemeHandler(publication: book)))
+        XCTAssertEqual(items.map { $0["index"] as? Int }, [0, 1, 2])
+        XCTAssertEqual(items.map { $0["width"] as? Int }, [1200, 600, 600])
+    }
+
+    func testPublicRollCorpusObtainsAllDimensionsInOneSetup() throws {
+        guard let root = ProcessInfo.processInfo.environment["WASHI_CORPUS_DIR"] else {
+            throw XCTSkip("WASHI_CORPUS_DIR が未設定です")
+        }
+        for name in [
+            "lay-roll-embedded-images-svg", "lay-roll-embedded-images",
+            "lay-roll-images-in-spine", "lay-roll-images-mixed",
+        ] {
+            let url = URL(fileURLWithPath: root, isDirectory: true)
+                .appendingPathComponent("w3c/\(name).epub")
+            let book = try EPUBPublication(url: url)
+            let items = try continuousItems(in: EPUBScrollDocument.options(
+                "{\"width\":800,\"height\":600}", publication: book, index: 0,
+                handler: EPUBSchemeHandler(publication: book)))
+            XCTAssertEqual(items.count, book.readingOrder.count, name)
+            for (index, item) in items.enumerated() where item["roll"] as? Bool == true {
+                let info = try book.fixedLayoutInfo(forSpineIndex: index)
+                let expected = info.viewportIsDeviceSized
+                    ? CGSize(width: 800, height: 600)
+                    : (info.viewportSize ?? CGSize(width: 1200, height: 1600))
+                XCTAssertEqual(item["width"] as? Int, Int(expected.width), "\(name): \(index)")
+                XCTAssertEqual(item["height"] as? Int, Int(expected.height), "\(name): \(index)")
+            }
+        }
     }
 
     func testRollImageSpineDimensionsStayExactWithinBudget() throws {
@@ -590,27 +627,41 @@ final class EPUBScrollDocumentTests: XCTestCase {
     }
 
     private func budgetPublication(count: Int, layout: String = "roll",
-                                   chapter: Data? = nil, mixed: Bool = false,
+                                   chapter: Data? = nil, chapters: [Data]? = nil,
+                                   mixed: Bool = false,
                                    mediaType: String = "application/xhtml+xml") throws -> EPUBPublication {
+        let count = chapters?.count ?? count
         let spine = (0..<count).map { index in
             let properties = mixed && index < count - 1 ? "rendition:layout-pre-paginated" : ""
-            return "<itemref idref=\"page\" properties=\"\(properties)\"/>"
+            let id = chapters == nil ? "page" : "page\(index)"
+            return "<itemref idref=\"\(id)\" properties=\"\(properties)\"/>"
         }.joined()
+        let manifest = chapters == nil
+            ? "<item id=\"page\" href=\"page.xhtml\" media-type=\"\(mediaType)\"/>"
+            : (0..<count).map {
+                "<item id=\"page\($0)\" href=\"page\($0).xhtml\" media-type=\"\(mediaType)\"/>"
+            }.joined()
         let opf = """
         <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
         <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
         <dc:identifier id="uid">scroll-budget</dc:identifier><dc:title>予算</dc:title><dc:language>ja</dc:language>
         <meta property="rendition:layout">\(layout)</meta>
         <meta property="rendition:flow">scrolled-continuous</meta></metadata>
-        <manifest><item id="page" href="page.xhtml" media-type="\(mediaType)"/></manifest>
-        <spine>\(spine)</spine></package>
+        <manifest>\(manifest)</manifest><spine>\(spine)</spine></package>
         """
-        return try EPUBFixtures.publication([
+        var entries: [(name: String, data: Data)] = [
             ("mimetype", Data("application/epub+zip".utf8)),
             ("META-INF/container.xml", Data(EPUBFixtures.containerXML.utf8)),
-            ("OEBPS/package.opf", Data(opf.utf8)),
-            ("OEBPS/page.xhtml", chapter ?? dimensionChapter())
-        ], name: "scroll-budget", method: 8)
+            ("OEBPS/package.opf", Data(opf.utf8))
+        ]
+        if let chapters {
+            entries.append(contentsOf: chapters.enumerated().map {
+                ("OEBPS/page\($0.offset).xhtml", $0.element)
+            })
+        } else {
+            entries.append(("OEBPS/page.xhtml", chapter ?? dimensionChapter()))
+        }
+        return try EPUBFixtures.publication(entries, name: "scroll-budget", method: 8)
     }
 }
 

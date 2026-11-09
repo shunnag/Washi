@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// OCF 抽象コンテナ(仕様 EPUB 3.3 OCF §3)。
@@ -15,12 +16,19 @@ struct ZipContainerReader: ContainerReader {
     let archive: ZipArchive
 
     var allPaths: [String] {
-        archive.entries.filter { !$0.isDirectory }.map(\.name)
+        archive.entries.filter {
+            !$0.isDirectory && ContainerPath.isSafeContainerPath($0.name)
+        }.map(\.name)
     }
 
-    func exists(_ path: String) -> Bool { archive.contains(path) }
+    func exists(_ path: String) -> Bool {
+        ContainerPath.isSafeContainerPath(path) && archive.contains(path)
+    }
 
     func read(_ path: String) throws -> Data {
+        guard ContainerPath.isSafeContainerPath(path) else {
+            throw EPUBError.resourceNotFound(path)
+        }
         do {
             return try archive.data(forEntry: path)
         } catch ZipError.entryNotFound {
@@ -57,20 +65,12 @@ struct FolderContainerReader: ContainerReader {
             let full = url.standardizedFileURL.path
             let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
             if full.hasPrefix(prefix) {
-                paths.append(String(full.dropFirst(prefix.count)))
+                // Washi-gc0: read 側で拒否する名前は列挙しない(列挙 = 読み取り可能)。
+                let path = String(full.dropFirst(prefix.count))
+                if ContainerPath.isSafeContainerPath(path) { paths.append(path) }
             }
         }
         return paths.sorted()
-    }
-
-    /// コンテナ外への脱出参照でないことの検証(フォルダ実装だけが実 FS に
-    /// 触れるため、".." 成分・絶対パス・空を明示的に拒否する。
-    /// normalize の同値比較では ".." が残った脱出パスを見逃す)
-    private func isSafeContainerPath(_ path: String) -> Bool {
-        guard !path.isEmpty, !path.hasPrefix("/") else { return false }
-        let components = path.split(separator: "/")
-        return !components.isEmpty
-            && !components.contains("..") && !components.contains(".")
     }
 
     /// パス成分は安全でも、途中のシンボリックリンクが実体をコンテナ外へ
@@ -86,7 +86,7 @@ struct FolderContainerReader: ContainerReader {
     }
 
     func exists(_ path: String) -> Bool {
-        guard isSafeContainerPath(path) else { return false }
+        guard ContainerPath.isSafeContainerPath(path) else { return false }
         var isDirectory: ObjCBool = false
         let url = rootURL.appendingPathComponent(path)
         return isInsideContainer(url)
@@ -95,7 +95,7 @@ struct FolderContainerReader: ContainerReader {
     }
 
     func read(_ path: String) throws -> Data {
-        guard isSafeContainerPath(path) else {
+        guard ContainerPath.isSafeContainerPath(path) else {
             throw EPUBError.resourceNotFound(path)
         }
         let url = rootURL.appendingPathComponent(path)
@@ -104,17 +104,48 @@ struct FolderContainerReader: ContainerReader {
         }
         do {
             return try Data(contentsOf: url, options: readStrategy.dataOptions)
-        } catch let error as NSError where error.domain == NSCocoaErrorDomain
-            && (error.code == NSFileReadNoSuchFileError || error.code == NSFileNoSuchFileError) {
-            throw EPUBError.resourceNotFound(path)
+        } catch let error as NSError {
+            if error.domain == NSCocoaErrorDomain,
+               error.code == NSFileReadNoSuchFileError || error.code == NSFileNoSuchFileError {
+                throw EPUBError.resourceNotFound(path)
+            }
+            if let code = ContainerIOFailure.posixErrorCode(from: error),
+               [EACCES, EISDIR, ELOOP].contains(code) {
+                throw ContainerIOFailure.error(path: path, code: code)
+            }
+            throw error
         }
     }
 }
 
+/// 任意メタデータの破損と、再 open で回復できる OS の I/O 失敗を区別する。
+enum ContainerIOFailure {
+    static let reasonPrefix = "I/O error "
+
+    static func error(path: String, code: Int32) -> EPUBError {
+        .containerReadFailed(
+            path: path,
+            reason: "\(reasonPrefix)\(code): \(String(cString: strerror(code)))")
+    }
+
+    static func isIOFailure(_ error: EPUBError) -> Bool {
+        guard case .containerReadFailed(_, let reason) = error else { return false }
+        return reason.hasPrefix(reasonPrefix)
+    }
+
+    static func posixErrorCode(from error: NSError) -> Int32? {
+        if error.domain == NSPOSIXErrorDomain { return Int32(error.code) }
+        guard let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError else { return nil }
+        return posixErrorCode(from: underlying)
+    }
+}
+
 /// 任意メタデータの欠落・破損には寛容でも、OS の I/O 失敗は空の成功結果にしない。
-/// 再 open で回復できるよう、Foundation/POSIX の元の error を呼出側へ渡す。
+/// 再 open で回復できるよう、Foundation/POSIX の元の error、または識別可能な
+/// EPUBError の I/O 失敗を呼出側へ渡す。
 func optionalContainerData(_ reader: any ContainerReader, at path: String) throws -> Data? {
     do { return try reader.read(path) }
+    catch let error as EPUBError where ContainerIOFailure.isIOFailure(error) { throw error }
     catch is EPUBError { return nil }
 }
 

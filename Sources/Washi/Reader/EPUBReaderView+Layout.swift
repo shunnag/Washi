@@ -33,8 +33,9 @@ extension EPUBReaderView {
             // cooViewer-oxr.27: ページ割りを伴わない入力設定も現在文書へ即時反映する。
             updateTapDeferral()
         }
-        if oldValue.allowsScriptedContent != settings.allowsScriptedContent {
-            // JS 許可はビュー構成ごと作り直す(WKWebViewConfiguration は不変)
+        if oldValue.allowsScriptedContent != settings.allowsScriptedContent
+            || oldValue.allowsMediaAutoplay != settings.allowsMediaAutoplay {
+            // JS・自動再生の許可はビュー構成ごと作り直す(WKWebViewConfiguration は不変)
             reloadCurrentPublication()
         } else if layoutChanged {
             // cooViewer-oxr.24: 個別フィールド列挙ではなく census と同じ

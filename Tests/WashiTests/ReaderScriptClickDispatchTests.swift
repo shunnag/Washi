@@ -35,6 +35,7 @@ final class ReaderScriptClickDispatchTests: XCTestCase {
         try await harness.settleMessages()
         XCTAssertEqual(harness.messages.count(type: "link"), 1)
         XCTAssertEqual(harness.messages.first(type: "link")?["href"] as? String, "#chapter")
+        XCTAssertEqual(harness.messages.first(type: "link")?["trusted"] as? Bool, false)
         XCTAssertEqual(harness.messages.count(type: "tap"), 0)
     }
 
@@ -167,14 +168,12 @@ final class ReaderScriptClickDispatchTests: XCTestCase {
             }));
             return true;
             """)
-        let receivedPlainTap = try await harness.waitForMessageCount(
-            type: "tap", count: 1)
-        XCTAssertTrue(receivedPlainTap)
-        XCTAssertEqual(harness.messages.count(type: "tap"), 1)
+        try await harness.settleMessages()
+        XCTAssertEqual(harness.messages.count(type: "tap"), 0)
     }
 
-    /// cooViewer-oxr.27: 既定は detail にかかわらず各 click を遅延なしで通知する。
-    func testRapidClicksPostOneTapEachImmediately() async throws {
+    /// cooViewer-oxr.27: 合成 click は遅延なしでもタップへ送らず、タイマーも作らない。
+    func testSyntheticRapidClicksDoNotPostTaps() async throws {
         let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: "<p id=\"text\">本文</p>")
         defer { harness.close() }
         try await harness.load()
@@ -209,11 +208,8 @@ final class ReaderScriptClickDispatchTests: XCTestCase {
             return scheduledTimers;
             """)
         XCTAssertEqual(scheduledTimers, 0)
-        let receivedRapidTaps = try await harness.waitForMessageCount(
-            type: "tap", count: 2)
-        XCTAssertTrue(receivedRapidTaps)
         try await harness.settleMessages()
-        XCTAssertEqual(harness.messages.count(type: "tap"), 2)
+        XCTAssertEqual(harness.messages.count(type: "tap"), 0)
     }
 
     func testOptInDoubleClickEventDoesNotPostTap() async throws {
@@ -268,7 +264,7 @@ final class ReaderScriptClickDispatchTests: XCTestCase {
         XCTAssertEqual(harness.messages.count(type: "tap"), 0)
     }
 
-    func testOptInPlainSingleClickPostsTapAfterDoubleClickWindow() async throws {
+    func testOptInSyntheticSingleClickDoesNotPostTap() async throws {
         let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: "<p id=\"text\">本文</p>")
         defer { harness.close() }
         try await harness.load()
@@ -283,10 +279,10 @@ final class ReaderScriptClickDispatchTests: XCTestCase {
             return true;
             """)
         try await harness.settleMessages()
-        XCTAssertEqual(harness.messages.count(type: "tap"), 1)
+        XCTAssertEqual(harness.messages.count(type: "tap"), 0)
     }
 
-    func testOptInRapidIndependentSingleClicksBothPostTaps() async throws {
+    func testOptInSyntheticIndependentClicksDoNotPostTaps() async throws {
         let harness = try ReaderScriptHarness.renderingLifecycle(bodyHTML: "<p id=\"text\">本文</p>")
         defer { harness.close() }
         try await harness.load()
@@ -306,6 +302,38 @@ final class ReaderScriptClickDispatchTests: XCTestCase {
             return true;
             """)
         try await harness.settleMessages()
-        XCTAssertEqual(harness.messages.count(type: "tap"), 2)
+        XCTAssertEqual(harness.messages.count(type: "tap"), 0)
+    }
+
+    /// Washi-7wi: ダブルクリック待ちの保留を経ても、実クリックは trusted なタップとして
+    /// 届く(保留オブジェクトが isTrusted を失うと native が全タップを捨てる)。
+    func testOptInDeferredRealClickPostsTrustedTap() async throws {
+        for deferTaps in [false, true] {
+            let harness = try ReaderScriptHarness.renderingLifecycle(
+                bodyHTML: "<p id=\"text\" style=\"margin:0;height:300px\">本文</p>")
+            defer { harness.close() }
+            try await harness.load()
+            try await harness.setupLifecycle(deferTaps: deferTaps)
+            harness.messages.reset()
+
+            let point = CGPoint(x: 100, y: harness.webView.bounds.height - 60)
+            let windowNumber = try XCTUnwrap(harness.webView.window).windowNumber
+            let down = try XCTUnwrap(NSEvent.mouseEvent(
+                with: .leftMouseDown, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: windowNumber,
+                context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            let up = try XCTUnwrap(NSEvent.mouseEvent(
+                with: .leftMouseUp, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime + 0.05,
+                windowNumber: windowNumber,
+                context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
+            harness.webView.mouseDown(with: down)
+            harness.webView.mouseUp(with: up)
+
+            let receivedTap = try await harness.waitForMessage(type: "tap")
+            XCTAssertTrue(receivedTap, "deferTaps=\(deferTaps)")
+            XCTAssertEqual(harness.messages.first(type: "tap")?["trusted"] as? Bool, true,
+                           "deferTaps=\(deferTaps)")
+        }
     }
 }

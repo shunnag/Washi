@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// メトリクスキーごとの census 実測失敗の台帳(2-strike + TTL)。
@@ -8,26 +9,39 @@ import Foundation
 /// キーがセッション中ずっと欠けたまま(N/M・ページバーが出ない)にならない
 /// よう、TTL 経過で勘定ごと赦して再挑戦させる。壊れた spine は再び 2 回失敗して
 /// 戻るだけで、期限内のタイムアウト・ループ護持は保たれる。
-/// (サムネイル生成の失敗記録と同じ「2-strike + 有効期限」方針。Washi は依存
-/// ゼロ設計のため外部の実装を import せず、この純値型として持つ。)
+/// 記録数には上限があり、古いものから追い出す。userCSS を含むキーはダイジェスト
+/// だけを保持し、巨大な文字列が台帳に残らないようにする。
 struct CensusFailureLedger {
+    static var defaultLimit: Int { 64 }
+
     private struct Record {
         var count = 0
         /// 恒久記録(strikeLimit 回失敗)へ昇格した時刻。ttl 経過で赦す
         var permanentAt: ContinuousClock.Instant?
     }
     private var records: [String: Record] = [:]
+    private var insertionOrder: [String] = []
     let ttl: Duration
+    let limit: Int
     let strikeLimit = 2
 
-    init(ttl: Duration = .seconds(300)) { self.ttl = ttl }
+    init(ttl: Duration = .seconds(300), limit: Int = CensusFailureLedger.defaultLimit) {
+        self.ttl = ttl
+        self.limit = max(1, limit)
+    }
+
+    var count: Int { records.count }
+    var retainedKeyByteCount: Int {
+        records.keys.reduce(0) { $0 + $1.utf8.count }
+    }
 
     /// 恒久記録済みで期限内なら true(再スケジュールしない)。期限切れは赦す
     mutating func shouldSkip(_ key: String,
                              now: ContinuousClock.Instant = .now) -> Bool {
-        guard let record = records[key], let at = record.permanentAt else { return false }
+        let storageKey = Self.storageKey(for: key)
+        guard let record = records[storageKey], let at = record.permanentAt else { return false }
         if now - at >= ttl {
-            records[key] = nil
+            removeRecord(forKey: storageKey)
             return false
         }
         return true
@@ -35,13 +49,32 @@ struct CensusFailureLedger {
 
     mutating func recordFailure(_ key: String,
                                 now: ContinuousClock.Instant = .now) {
-        var record = records[key] ?? Record()
+        let storageKey = Self.storageKey(for: key)
+        var record = records[storageKey] ?? Record()
         record.count += 1
         if record.count >= strikeLimit, record.permanentAt == nil {
             record.permanentAt = now
         }
-        records[key] = record
+        if records[storageKey] == nil {
+            while records.count >= limit, let oldest = insertionOrder.first {
+                removeRecord(forKey: oldest)
+            }
+            insertionOrder.append(storageKey)
+        }
+        records[storageKey] = record
     }
 
-    mutating func clear() { records.removeAll() }
+    mutating func clear() {
+        records.removeAll()
+        insertionOrder.removeAll()
+    }
+
+    private static func storageKey(for key: String) -> String {
+        SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private mutating func removeRecord(forKey storageKey: String) {
+        records[storageKey] = nil
+        insertionOrder.removeAll { $0 == storageKey }
+    }
 }

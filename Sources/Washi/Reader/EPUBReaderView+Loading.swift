@@ -155,7 +155,8 @@ extension EPUBReaderView {
         self.schemeHandler = handler
 
         let configuration = WebViewConfiguration.makeHardened(
-            allowsScriptedContent: settings.allowsScriptedContent)
+            allowsScriptedContent: settings.allowsScriptedContent,
+            allowsMediaAutoplay: settings.allowsMediaAutoplay)
         configuration.setURLSchemeHandler(handler, forURLScheme: EPUBSchemeHandler.scheme)
 
         let proxy = MessageProxy(owner: self)
@@ -367,7 +368,8 @@ extension EPUBReaderView {
         for overlay in turn.turnOverlays where overlay !== survivor {
             foldTurnCover(overlay)
         }
-        loadedScrollGroup = effectiveFlow == .scrolledContinuous
+        // 縮退後の scrolled-doc もコンテナ文書が発行する位置通知を受け取る。
+        loadedScrollGroup = publication.renderingFlow(at: index) == .scrolledContinuous
             ? publication.scrollGroup(containing: index) : nil
         isFixedLayoutItem =
             publication.package.effectiveLayout(for: entry.itemRef) == .prePaginated

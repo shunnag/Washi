@@ -81,6 +81,26 @@ final class CensusPoolWebKitTests: XCTestCase {
         XCTAssertEqual(pool.liveWebViewCount, 0)
     }
 
+    /// Washi-4fd: 並列プールでも、上限を超える本は WebView を作らずに未完で返す。
+    func testPoolOverLimitBookReturnsIncompleteWithoutMeasuring() async throws {
+        try requireOptIn()
+        let publication = try makePublication()
+        let metrics = makeMetrics()
+        let pool = EPUBPaginationCensus(
+            maximumMeasuredItems: 6, resourceBudget: Self.budget,
+            poolExpansionThreshold: .zero)
+        defer { pool.invalidate() }
+        XCTAssertGreaterThan(publication.readingOrder.count, 6)
+
+        let outcome = await pool.measure(
+            publication: publication, optionsJSON: metrics.censusOptionsJSON,
+            contentSize: metrics.contentSize, resuming: [])
+
+        XCTAssertEqual(outcome, .init(counts: [], isComplete: false))
+        XCTAssertEqual(pool.loadedItemCount, 0)
+        XCTAssertEqual(pool.liveWebViewCount, 0)
+    }
+
     func testConcurrentMeasuresDoNotShareInFlightNavigation() async throws {
         try requireOptIn()
         let publication = try makePublication()

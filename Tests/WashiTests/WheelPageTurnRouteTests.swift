@@ -10,6 +10,7 @@ import XCTest
 final class WheelPageTurnRouteTests: XCTestCase {
     // MARK: 右綴じの横書き(dir=rtl)
 
+    /// Washi-j61: 右綴じでも論理時刻の 1 ジェスチャを 1 ページに対応づける。
     func testRTLHorizontalPaginatedTurnsInReadingDirection() async throws {
         let single = try await WheelHarness.make(
             try WheelFixtures.rtlPublication(name: "rtl-single"), double: false)

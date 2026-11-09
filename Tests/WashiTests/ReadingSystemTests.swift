@@ -68,11 +68,11 @@ final class ReadingSystemTests: XCTestCase {
                         String(rs.hasFeature('dom-manipulation')),
                         String(rs.hasFeature('touch-events')),
                         String(rs.hasFeature('nonexistent-feature')),
-                        String(rs.version.length > 0)];
+                        String(rs.version)];
                 """, arguments: [:], in: nil, contentWorld: .page)
             return (result as? [String]) ?? ["not-an-array"]
         }.value
-        XCTAssertEqual(report, ["Washi", "paginated", "true", "false", "false", "true"],
+        XCTAssertEqual(report, ["Washi", "paginated", "true", "false", "false", "1.27.0"],
                        "epubReadingSystem の内容が期待と違う: \(report)")
     }
 

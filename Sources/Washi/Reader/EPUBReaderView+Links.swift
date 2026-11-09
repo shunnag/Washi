@@ -130,10 +130,13 @@ extension EPUBReaderView {
         guard let publication,
               publication.readingOrder.indices.contains(currentSpineIndex),
               let href = message["href"] as? String else { return }
-        // 外部リンク(スキーム付き)
+        // 外部リンク(スキーム付き)は実ユーザーの操作だけを既定アプリで開く。
+        // 著者スクリプトが合成した click をホストの操作と誤認しない。
         if let url = URL(string: href), let scheme = url.scheme?.lowercased(),
            Self.externalLinkSchemes.contains(scheme) {
-            openExternalURLIfAllowed(url)
+            if message["trusted"] as? Bool == true {
+                openExternalURLIfAllowed(url)
+            }
             return
         }
         let currentPath = publication.readingOrder[currentSpineIndex]

@@ -70,6 +70,26 @@ public enum ContainerPath {
         collapse(path) ?? ""
     }
 
+    /// コンテナの読み取り・列挙でそのまま使えるパスか。正規化で別名に
+    /// 畳まれる成分や、ログ・ファイルシステムへ危険な制御文字を拒否する。
+    /// Washi-gc0: 拒否するのは一般カテゴリ Cc だけ。`CharacterSet.controlCharacters`
+    /// は Cf(ZWNJ・ZWJ・ソフトハイフン等)も含み、ペルシア語・インド系文字・絵文字の
+    /// 正当なファイル名まで読めなくなる。
+    static func isSafeContainerPath(_ path: String) -> Bool {
+        guard !path.isEmpty, !path.hasPrefix("/"),
+              !path.unicodeScalars.contains(where: isControlCharacter)
+        else { return false }
+        let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        return !components.isEmpty && components.allSatisfy {
+            !$0.isEmpty && $0 != "." && $0 != ".."
+        }
+    }
+
+    /// Unicode の一般カテゴリ Cc(C0・DEL・C1)の制御文字か。
+    static func isControlCharacter(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.properties.generalCategory == .control
+    }
+
     static func directory(of path: String) -> String {
         guard let slash = path.lastIndex(of: "/") else { return "" }
         return String(path[..<slash])

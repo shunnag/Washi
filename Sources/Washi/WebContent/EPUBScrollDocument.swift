@@ -52,6 +52,26 @@ enum EPUBScrollDocument {
         let height = (options[.height] as? Double) ?? 600
         var remainingItems = maximumExactDimensionItems
         var remainingBytes = maximumDimensionBytes
+        var dimensions: [Int: FixedLayoutPageInfo] = [:]
+        // 先頭から予算を使い切らず、実際に表示する項目の近傍を先に実測する。
+        let measurementOrder = range.sorted {
+            let leftDistance = abs($0 - index), rightDistance = abs($1 - index)
+            return leftDistance == rightDistance ? $0 < $1 : leftDistance < rightDistance
+        }
+        for itemIndex in measurementOrder {
+            let entry = publication.readingOrder[itemIndex]
+            let layout = publication.package.effectiveLayout(for: entry.itemRef)
+            guard layout == .roll || layout == .prePaginated else { continue }
+            if let cached = publication.cachedFixedLayoutInfo(forSpineIndex: itemIndex) {
+                dimensions[itemIndex] = cached
+            } else if remainingItems > 0, remainingBytes > 0 {
+                remainingItems -= 1
+                if let info = try? publication.fixedLayoutInfo(
+                    forSpineIndex: itemIndex, remainingByteCount: &remainingBytes) {
+                    dimensions[itemIndex] = info
+                }
+            }
+        }
         options[.spineIndex] = index
         options[.continuousItems] = range.compactMap { itemIndex -> [String: Any]? in
             let entry = publication.readingOrder[itemIndex]
@@ -63,12 +83,7 @@ enum EPUBScrollDocument {
                 "renderable": publication.canRenderSpineResource(entry)
             ]
             if roll {
-                var info = publication.cachedFixedLayoutInfo(forSpineIndex: itemIndex)
-                if info == nil, remainingItems > 0, remainingBytes > 0 {
-                    remainingItems -= 1
-                    info = try? publication.fixedLayoutInfo(
-                        forSpineIndex: itemIndex, remainingByteCount: &remainingBytes)
-                }
+                let info = dimensions[itemIndex]
                 let size = info?.viewportIsDeviceSized == true
                     ? CGSize(width: width, height: height)
                     : (info?.viewportSize ?? CGSize(width: 1200, height: 1600))

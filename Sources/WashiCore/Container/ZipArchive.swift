@@ -51,20 +51,32 @@ public enum ZipError: Error, Sendable, Equatable, LocalizedError {
         case .notAZipFile:
             return "Not a ZIP/EPUB file."
         case .truncated(let detail):
-            return "Truncated or broken ZIP: \(detail)"
+            return "Truncated or broken ZIP: \(Self.displayEntryName(detail))"
         case .unsupportedCompressionMethod(let method, let entry):
-            return "Unsupported compression method \(method) in entry: \(entry)"
+            return "Unsupported compression method \(method) in entry: \(Self.displayEntryName(entry))"
         case .encryptedEntryUnsupported(let entry):
-            return "ZIP-level encrypted entry is not supported: \(entry)"
+            return "ZIP-level encrypted entry is not supported: \(Self.displayEntryName(entry))"
         case .multiDiskUnsupported:
             return "Multi-volume ZIP archives are not supported."
         case .entryNotFound(let entry):
-            return "Entry not found: \(entry)"
+            return "Entry not found: \(Self.displayEntryName(entry))"
         case .corruptEntry(let entry):
-            return "Corrupt entry (size or CRC mismatch): \(entry)"
+            return "Corrupt entry (size or CRC mismatch): \(Self.displayEntryName(entry))"
         case .entryTooLarge(let entry, let size):
-            return "Entry exceeds the size limit (\(size) bytes declared): \(entry)"
+            return "Entry exceeds the size limit (\(size) bytes declared): \(Self.displayEntryName(entry))"
         }
+    }
+
+    /// 公開エラーを alert・ログへ安全に出せる長さと文字集合に制限する。
+    private static func displayEntryName(_ name: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        // Washi-gc0: 正当な名前の ZWJ 等(Cf)は残し、Cc と行区切りだけを除く。
+        for scalar in name.unicodeScalars
+        where !ContainerPath.isControlCharacter(scalar)
+            && scalar.value != 0x2028 && scalar.value != 0x2029 {
+            scalars.append(scalar)
+        }
+        return String(scalars.prefix(128))
     }
 }
 

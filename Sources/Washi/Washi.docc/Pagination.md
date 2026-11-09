@@ -77,6 +77,20 @@ and does not prevent the remaining items from being measured. Cancellation,
 timeout, or WebContent process termination aborts that measurement instead of
 publishing an incomplete record.
 
+自動実測の対象は、spine が 8,192 項目以下の出版物です。これを超える本は実測せずに
+未完として扱い、総ページ数や画面計画を自動実測からは返しません。
+``EPUBReaderView/importCensus(_:)`` で完全な記録を供給する場合には、この実測上限は
+適用しません。実測結果・中断控え・画面計画のキャッシュと失敗台帳にも保持予算があり、
+巨大なユーザー CSS を含むキーが無制限に蓄積されることはありません。
+
+Automatic measurement covers publications with at most 8,192 spine items. Larger
+books are not measured and remain incomplete: their total page count and screen plan
+are not returned from automatic measurement.
+This measurement limit does not apply when a complete record is supplied through
+``EPUBReaderView/importCensus(_:)``. Completed results, partial results, screen-plan
+caches, and the failure ledger also have retention budgets, so keys containing large
+user CSS strings cannot accumulate without bound.
+
 ## リーダーの外で画面構成を計画する / Plan screens outside the reader
 
 atlas は、コレクション表示やサムネイルブラウザ向けに、リーダーと同じ

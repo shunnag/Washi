@@ -144,6 +144,23 @@ final class ReaderViewKeyForwardingTests: XCTestCase {
         XCTAssertTrue(delegate.keys.isEmpty)
     }
 
+    /// Washi-94p: 合成キーは delegate へ届けず、実入力の中継だけを許可する。
+    func testScriptKeysRequireTrustedEvent() throws {
+        let view = EPUBReaderView(frame: .zero)
+        let delegate = ReaderViewDelegateSpy()
+        view.delegate = delegate
+        var message: [String: Any] = ["type": "key", "key": "X", "code": "KeyX"]
+
+        view.handleScriptMessage(message)
+        message["trusted"] = false
+        view.handleScriptMessage(message)
+        XCTAssertTrue(delegate.keys.isEmpty)
+
+        message["trusted"] = true
+        view.handleScriptMessage(message)
+        XCTAssertEqual(delegate.keys.map(\.key), ["X"])
+    }
+
     /// WebKit から返るまでに設定が変わっても、再入を delegate へ重複配送しない。
     func testKeyReentryDoesNotRedispatchAfterKeyboardSettingChanges() throws {
         let view = EPUBReaderView(frame: .zero)

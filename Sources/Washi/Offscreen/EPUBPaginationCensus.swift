@@ -20,6 +20,9 @@ final class EPUBPaginationCensus {
     private var hosts: [EPUBOffscreenWebViewHost] = []
     private let queue = EPUBOffscreenJobQueue()
     private let maximumWorkers: Int
+    /// 公開コーパスの最大 2,014 項目の約 4 倍。spine がこれを超える本は実測しない。
+    static let defaultMaximumMeasuredItems = 8_192
+    private let maximumMeasuredItems: Int
     private let resourceBudget: @MainActor () -> (physicalMemory: UInt64, isUnderPressure: Bool)
     private let poolExpansionThreshold: Duration
     private let idleReleaseTimer: EPUBOffscreenIdleReleaseTimer
@@ -50,6 +53,7 @@ final class EPUBPaginationCensus {
             EPUBOffscreenIdleReleaseTimer.continuousScheduler,
         energyPacer: EPUBOffscreenEnergyPacer = EPUBOffscreenEnergyPacer(),
         maximumWorkers: Int = 4,
+        maximumMeasuredItems: Int = EPUBPaginationCensus.defaultMaximumMeasuredItems,
         resourceBudget: @escaping @MainActor () -> (physicalMemory: UInt64, isUnderPressure: Bool) = {
             (ProcessInfo.processInfo.physicalMemory, CensusMemoryPressure.shared.isUnderPressure)
         },
@@ -61,6 +65,7 @@ final class EPUBPaginationCensus {
         self.javaScriptTimeoutScheduler = javaScriptTimeoutScheduler
         self.energyPacer = energyPacer
         self.maximumWorkers = maximumWorkers
+        self.maximumMeasuredItems = max(0, maximumMeasuredItems)
         self.resourceBudget = resourceBudget
         self.poolExpansionThreshold = poolExpansionThreshold
     }
@@ -86,7 +91,8 @@ final class EPUBPaginationCensus {
 
     /// 実測の結果。完走すれば `counts` は全 spine 項目ぶん、一過性の中断なら
     /// spine 先頭から連続して測り終えた項目ぶんだけ(同じ本・同じ optionsJSON
-    /// での次回の `resuming:` に渡せば続きから測れる)。
+    /// での次回の `resuming:` に渡せば続きから測れる)。spine が実測上限を超える
+    /// 本は測らず、渡された先頭部分のまま未完で返す。
     struct Outcome: Equatable, Sendable {
         var counts: [Int]
         var isComplete: Bool
@@ -113,6 +119,12 @@ final class EPUBPaginationCensus {
     /// (呼び出し側が責任を持つ)。
     func measure(publication: EPUBPublication, optionsJSON: String,
                  contentSize: NSSize, resuming prefix: [Int]) async -> Outcome {
+        // Washi-4fd: 上限を超える本は完走できず、未完の先頭部分は総ページ数に
+        // 使えない。上限まで WebKit で測ってから捨てず、何も測らずに未完で返す
+        // (再開分を含めても上限を越えて測らない)。
+        guard publication.readingOrder.count <= maximumMeasuredItems else {
+            return Outcome(counts: Array(prefix.prefix(maximumMeasuredItems)), isComplete: false)
+        }
         // cooViewer-oxr.68: actor の再入可能区間へ入る前に busy とし、古い
         // タイマを止める。各ワーカーが使い終えたホストだけをアイドル解放する。
         pendingMeasurementCount += 1

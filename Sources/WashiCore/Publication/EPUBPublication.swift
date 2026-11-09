@@ -342,12 +342,16 @@ public final class EPUBPublication: Sendable {
     public var metadata: EPUBMetadata { package.metadata }
     public var isFixedLayout: Bool { package.isFixedLayout }
 
-    /// コンテナ内の、ディレクトリを除く全リソースのパス。順序は不定。索引作成、
-    /// 抽出ツール、本の同梱内容の監査に使える。各リソースは ``resource(at:)`` で読む。
+    /// コンテナ内の、ディレクトリを除く読み取り可能な全リソースのパス。順序は不定。
+    /// 索引作成、抽出ツール、本の同梱内容の監査に使える。各リソースは ``resource(at:)``
+    /// で読める。`..` 成分・絶対パス・空の成分・制御文字を含み、読み取り側でも
+    /// 拒否される生の ZIP エントリ名は列挙しない。
     ///
-    /// Every non-directory resource path in the container, in no particular
+    /// Every readable non-directory resource path in the container, in no particular
     /// order. Useful for indexing, extraction tools, or auditing what a book
-    /// ships. Read individual resources with ``resource(at:)``.
+    /// ships. Read individual resources with ``resource(at:)``. Raw ZIP entry
+    /// names that are also rejected when read are omitted: parent or empty path
+    /// components, absolute paths, and names containing control characters.
     public var resourcePaths: [String] { container.reader.allPaths }
     public var readingDirection: PageProgressionDirection {
         package.readingDirection

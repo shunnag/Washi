@@ -224,6 +224,57 @@ final class EPUBPaginationCensusTests: XCTestCase {
         XCTAssertFalse(census.hasLiveWebView)
     }
 
+    /// Washi-w9k / Washi-4fd: spine が上限を超える本は完走できないので、先頭部分を
+    /// 渡した再開も含めて WebView を作らずに未完で返す(上限まで測ってから捨てない)。
+    func testOverLimitBookReturnsIncompleteWithoutMeasuring() async throws {
+        let publication = try makeTwoItemReflowPublication()
+        let census = EPUBPaginationCensus(maximumMeasuredItems: 1)
+        defer { census.invalidate() }
+        let metrics = makeMetrics()
+
+        let first = await census.measure(
+            publication: publication, optionsJSON: metrics.censusOptionsJSON,
+            contentSize: metrics.contentSize, resuming: [])
+        XCTAssertEqual(first, .init(counts: [], isComplete: false))
+
+        let resumed = await census.measure(
+            publication: publication, optionsJSON: metrics.censusOptionsJSON,
+            contentSize: metrics.contentSize, resuming: [3, 4])
+        XCTAssertEqual(resumed, .init(counts: [3], isComplete: false))
+        XCTAssertEqual(census.loadedItemCount, 0)
+        XCTAssertFalse(census.hasLiveWebView)
+        XCTAssertEqual(EPUBPaginationCensus.defaultMaximumMeasuredItems, 8_192)
+    }
+
+    /// Washi-4fd: 上限ちょうどの本は従来どおり完走する。
+    func testBookAtMeasurementLimitStillCompletes() async throws {
+        let publication = try makeTwoItemReflowPublication()
+        let census = EPUBPaginationCensus(maximumMeasuredItems: 2)
+        defer { census.invalidate() }
+        let metrics = makeMetrics()
+
+        let outcome = await census.measure(
+            publication: publication, optionsJSON: metrics.censusOptionsJSON,
+            contentSize: metrics.contentSize, resuming: [5, 6])
+        XCTAssertEqual(outcome, .init(counts: [5, 6], isComplete: true))
+        XCTAssertEqual(census.loadedItemCount, 0)
+    }
+
+    func testZeroMeasurementLimitReturnsBeforeCreatingWebView() async throws {
+        let publication = try makeTwoItemReflowPublication()
+        let census = EPUBPaginationCensus(maximumMeasuredItems: 0)
+        defer { census.invalidate() }
+        let metrics = makeMetrics()
+
+        let outcome = await census.measure(
+            publication: publication, optionsJSON: metrics.censusOptionsJSON,
+            contentSize: metrics.contentSize, resuming: [])
+
+        XCTAssertEqual(outcome, .init(counts: [], isComplete: false))
+        XCTAssertEqual(census.loadedItemCount, 0)
+        XCTAssertFalse(census.hasLiveWebView)
+    }
+
     /// cooViewer-oxr.22/53: WebKit の load 中断・プロセス終了は壊れた項目の
     /// 1 ページ縮退ではなく、census 全体を中断する一過性エラーとして扱う。
     func testTransientWebKitFailuresAbortMeasurement() {

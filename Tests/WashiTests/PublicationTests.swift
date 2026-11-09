@@ -123,6 +123,32 @@ final class PublicationTests: XCTestCase {
         XCTAssertEqual(publication.resolvedCoverImagePath, "OEBPS/images/cover.png")
     }
 
+    /// Washi-6yx: 宣言画素数の巨大な画像はデコードせず、生バイト取得は変えない。
+    func testCoverImageRejectsExcessiveDeclaredPixelCount() throws {
+        var png = EPUBFixtures.tinyPNG
+        func setUInt32(_ value: UInt32, at offset: Int) {
+            var bigEndian = value.bigEndian
+            withUnsafeBytes(of: &bigEndian) { bytes in
+                png.replaceSubrange(offset..<(offset + 4), with: bytes)
+            }
+        }
+        setUInt32(9_000, at: 16)
+        setUInt32(9_000, at: 20)
+        let crc = CRC32.checksum(Data(png[12..<25]))
+        setUInt32(crc, at: 25)
+        var entries = EPUBFixtures.verticalNovelEntries()
+        let coverIndex = try XCTUnwrap(entries.firstIndex {
+            $0.name == "OEBPS/images/cover.png"
+        })
+        entries[coverIndex].data = png
+        let publication = try EPUBFixtures.publication(
+            entries, name: "washi-cover-pixel-budget")
+
+        XCTAssertNil(publication.coverImage())
+        XCTAssertNil(publication.coverImage(maxPixelSize: 64))
+        XCTAssertEqual(publication.coverImageData()?.data, png)
+    }
+
     /// 表紙 API: 宣言も cover 名もない FXL は先頭ページの単一画像へフォールバック
     func testCoverImageFallsBackToFirstFXLPage() throws {
         var entries = EPUBFixtures.fxlComicEntries()
@@ -334,6 +360,44 @@ final class PublicationTests: XCTestCase {
         XCTAssertTrue(paths.contains("OEBPS/package.opf"))
         XCTAssertTrue(paths.contains("OEBPS/images/cover.png"))
         XCTAssertTrue(paths.contains("OEBPS/text/ch1.xhtml"))
+    }
+
+    /// Washi-nrp: 列挙できるのに読めない危険な生エントリ名を利用側へ渡さない。
+    func testResourcePathsRejectUnsafeZIPEntryNames() throws {
+        let unsafe = [
+            "../escape.txt", "/absolute.txt", "./dot.txt", "double//slash.txt",
+            "nul\u{0}name.txt", "line\ninjection.txt",
+        ]
+        var entries = EPUBFixtures.verticalNovelEntries()
+        for name in unsafe { entries.append((name, Data("unsafe".utf8))) }
+        entries.append(("safe.txt", Data("safe".utf8)))
+        let publication = try EPUBPublication(
+            data: ZipBuilder.build(entries),
+            displayURL: URL(fileURLWithPath: "/tmp/washi-unsafe-entry-names.epub"))
+
+        for name in unsafe { XCTAssertFalse(publication.resourcePaths.contains(name), name) }
+        XCTAssertTrue(publication.resourcePaths.contains("safe.txt"))
+        for path in publication.resourcePaths {
+            XCTAssertNoThrow(try publication.resource(at: path), path)
+        }
+    }
+
+    /// Washi-gc0: ZWNJ・ZWJ を含む正当なエントリ名は列挙され、読み取れる。
+    func testResourcePathsKeepEntryNamesWithFormatCharacters() throws {
+        let names = [
+            "OEBPS/\u{0645}\u{06CC}\u{200C}\u{062E}\u{0648}\u{0627}\u{0647}\u{0645}.txt",
+            "OEBPS/images/\u{1F469}\u{200D}\u{1F4BB}.txt",
+        ]
+        var entries = EPUBFixtures.verticalNovelEntries()
+        for name in names { entries.append((name, Data(name.utf8))) }
+        let publication = try EPUBPublication(
+            data: ZipBuilder.build(entries),
+            displayURL: URL(fileURLWithPath: "/tmp/washi-format-entry-names.epub"))
+
+        for name in names {
+            XCTAssertTrue(publication.resourcePaths.contains(name), name)
+            XCTAssertEqual(try publication.resource(at: name).data, Data(name.utf8), name)
+        }
     }
 
     /// エラーは LocalizedError で人間可読な errorDescription を返す

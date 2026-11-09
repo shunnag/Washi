@@ -132,4 +132,16 @@ final class ReaderScriptHarness {
                     pagesPerScreen:s.pagesPerScreen, verticalRL:Number(s.mode === 'vrl')};
             """)
     }
+
+    /// 実際の AppKit キー入力を WebView へ送り、isTrusted の DOM keydown を発生させる。
+    func sendKey(_ characters: String, keyCode: UInt16,
+                 modifiers: NSEvent.ModifierFlags = []) throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: modifiers,
+            timestamp: 1, windowNumber: window.windowNumber, context: nil,
+            characters: characters, charactersIgnoringModifiers: characters,
+            isARepeat: false, keyCode: keyCode))
+        _ = window.makeFirstResponder(webView)
+        window.sendEvent(event)
+    }
 }

@@ -32,10 +32,11 @@ Each sample stores positions in its own UserDefaults.
 
 Sandbox 版の権限は [Sandbox.entitlements](Sandbox.entitlements) にまとめてある。
 ユーザー選択ファイルの読み取りと、WKWebView を動作させるための Outgoing Connections
-を有効にする。EPUB 本文の外部通信は Washi が引き続き遮断する。
+を有効にする。EPUB 本文の外部通信は Washi の CSP・遷移拒否・content rule list で抑止する。
 
 The sandboxed apps use Sandbox.entitlements: user-selected read access and outgoing
-connections required by WKWebView. Washi continues to block external requests from EPUB content.
+connections required by WKWebView. External requests from EPUB content are limited by
+Washi's CSP, navigation refusal, and content rule list.
 
 ## コードの読み方 / Code map
 

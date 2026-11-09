@@ -83,19 +83,25 @@ extension EPUBPublication {
     /// ヘッドレスの索引作成ツールでも動く)。maxPixelSize を渡すと、EXIF の回転を
     /// 適用したうえで、長辺がそのピクセル数以下のサムネイルに縮小する。
     /// 表紙を解決できない、デコードできない(SVG など)、DRM により読めない、
-    /// または ZIP 展開中に呼び出し元 Task の取消しを検出した場合は nil を返す
-    /// (取消し時は表紙を解決できる本でも nil になり、`CancellationError` は投げない)。
+    /// 宣言画素数が 8,192 × 8,192 を超える、または ZIP 展開中に呼び出し元 Task の
+    /// 取消しを検出した場合は nil を返す(取消し時は表紙を解決できる本でも nil になり、
+    /// `CancellationError` は投げない)。
     ///
     /// Decodes and returns the cover image (ImageIO only, no WebKit/AppKit, so
     /// it works from headless indexing tools too). Passing maxPixelSize scales
     /// it down to a thumbnail whose long edge is at most that many pixels (with
     /// EXIF rotation applied). Returns nil when the cover cannot be resolved,
-    /// cannot be decoded (e.g. SVG), is unreadable due to DRM, or cancellation of
-    /// the calling task is detected during ZIP decompression; cancellation returns
-    /// nil without throwing `CancellationError` even for a book with a resolvable cover.
+    /// cannot be decoded (e.g. SVG), is unreadable due to DRM, declares more than
+    /// 8,192 × 8,192 pixels, or cancellation of the calling task is detected during
+    /// ZIP decompression; cancellation returns nil without throwing
+    /// `CancellationError` even for a book with a resolvable cover.
+    static let maximumCoverPixelCount = 8_192 * 8_192
+
     public func coverImage(maxPixelSize: Int? = nil) -> CGImage? {
         guard let path = resolvedCoverImagePath,
               let (data, _) = try? resource(at: path),
+              let pixelSize = Self.imagePixelSize(data),
+              pixelSize.width * pixelSize.height <= Double(Self.maximumCoverPixelCount),
               let source = CGImageSourceCreateWithData(data as CFData, nil)
         else { return nil }
         if let maxPixelSize {

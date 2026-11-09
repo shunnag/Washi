@@ -8,6 +8,16 @@ import WebKit
 /// Custom scheme handler that serves resources inside an EPUB container to a WKWebView.
 /// URL form: washi-epub://<instance ID>/<container path (percent-encoded)>
 ///
+/// このハンドラ単体で構成されるのは応答 CSP だけで、`washi-epub` 以外の遷移拒否、
+/// `WKContentRuleList`、隔離された content world、著者スクリプトの硬化は含まない。
+/// 通常は `EPUBReaderView` を使う。自前の WKWebView に接続する場合は、これらの層も
+/// ホストが個別に構成する必要がある。
+///
+/// Only the response CSP is configured by this handler alone. It does not include
+/// navigation refusal, `WKContentRuleList`, an isolated content world, or scripted
+/// content hardening. Use `EPUBReaderView` for the complete setup; a custom web view
+/// requires the host to provide those layers separately.
+///
 /// 実運用の経験に基づく設計上の判断:
 ///
 /// Design decisions (grounded in real-world operational experience):
@@ -48,13 +58,27 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
     private typealias ResourcePayload = (data: Data, mediaType: String)
     // Washi-1mg: detached は外側の取消しを継がないため、stop で両方を止める。
     private var extractionTasks: [ObjectIdentifier: Task<ResourcePayload?, Never>] = [:]
+    private enum ExtractionKind {
+        case document, media
+
+        static func forPath(_ path: String) -> ExtractionKind {
+            let mediaType = EPUBMediaType.normalized(EPUBMediaType.guessed(fromPath: path))
+            return EPUBMediaType.isTextual(mediaType) ? .document : .media
+        }
+    }
     // Washi-1mg: 画像・CSS 等を並行して読みつつ、最大 512 MiB の展開が要求数だけ
     // 同時確保されないよう 4 本に絞る。枠は取消要求時でなく背景処理の終了時に返す。
     /// Washi-1mg: 構成時に設定し、要求の処理中は変更しない。
     var extractionLimit = 4
+    /// 文書を優先し、メディアだけで全枠を占有させない。戻らない展開は打ち切る。
+    var extractionTimeout: Duration = .seconds(30)
+    /// テスト用: 展開枠を確保した直後の停止を同期で再現する。
+    var extractionWillStartForTest: (() -> Void)?
     private var activeExtractionCount = 0
+    private var activeMediaExtractionCount = 0
     private var extractionWaiters: [
-        (id: ObjectIdentifier, continuation: CheckedContinuation<Bool, Never>)
+        (id: ObjectIdentifier, kind: ExtractionKind,
+         continuation: CheckedContinuation<Bool, Never>)
     ] = []
 
     /// 直近に Range 要求で展開したリソース(1件)。audio/video のシークは同じ
@@ -172,10 +196,12 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
                            mediaType: cached.mediaType, rangeHeader: rangeHeader)
                 return
             }
-            guard let self, await self.acquireExtractionSlot(for: id) else { return }
+            let kind = ExtractionKind.forPath(path)
+            guard let self, await self.acquireExtractionSlot(for: id, kind: kind) else { return }
+            self.extractionWillStartForTest?()
             // 待機中に stop された場合は、予約された枠を返して展開を始めない。
             guard self.liveTasks[id] != nil, !Task.isCancelled else {
-                self.releaseExtractionSlot()
+                self.releaseExtractionSlot(for: kind)
                 return
             }
             // Washi-1mg: CSS も同じ背景処理で補い、Range キャッシュには適用済みの
@@ -193,9 +219,26 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
                 return Task.isCancelled ? nil : payload
             }
             self.extractionTasks[id] = extraction
-            let payload = await extraction.value
+            var payload: ResourcePayload?
+            let completed = await TimeoutRace.run({
+                payload = await extraction.value
+            }, timeout: self.extractionTimeout)
+            if !completed {
+                // Washi-s76: 期限切れは要求をすぐ失敗させて次の読み込みへ進めるが、
+                // 枠は stop と同じく detached 実処理の終了まで返さない。取消しに
+                // 即応しない展開が枠の外で走り、同時展開の上限を崩さないようにする。
+                extraction.cancel()
+                if !Task.isCancelled, self.liveTasks[id] != nil {
+                    self.liveTasks[id] = nil
+                    urlSchemeTask.didFailWithError(URLError(.timedOut))
+                }
+                _ = await extraction.value
+                self.extractionTasks[id] = nil
+                self.releaseExtractionSlot(for: kind)
+                return
+            }
             self.extractionTasks[id] = nil
-            self.releaseExtractionSlot()
+            self.releaseExtractionSlot(for: kind)
             guard self.liveTasks[id] != nil else { return }  // stop 済み
             self.liveTasks[id] = nil
             guard let payload else {
@@ -225,24 +268,41 @@ public final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
-    private func acquireExtractionSlot(for id: ObjectIdentifier) async -> Bool {
+    private func acquireExtractionSlot(for id: ObjectIdentifier,
+                                       kind: ExtractionKind) async -> Bool {
         guard liveTasks[id] != nil, !Task.isCancelled else { return false }
-        if activeExtractionCount < extractionLimit {
-            activeExtractionCount += 1
+        if canStartExtraction(kind) {
+            reserveExtractionSlot(kind)
             return true
         }
         return await withCheckedContinuation { continuation in
-            extractionWaiters.append((id, continuation))
+            extractionWaiters.append((id, kind, continuation))
         }
     }
 
-    private func releaseExtractionSlot() {
+    private func canStartExtraction(_ kind: ExtractionKind) -> Bool {
+        switch kind {
+        case .document:
+            return activeExtractionCount < extractionLimit
+        case .media:
+            return activeExtractionCount < extractionLimit
+                && activeMediaExtractionCount < max(1, extractionLimit - 1)
+        }
+    }
+
+    private func reserveExtractionSlot(_ kind: ExtractionKind) {
+        activeExtractionCount += 1
+        if kind == .media { activeMediaExtractionCount += 1 }
+    }
+
+    private func releaseExtractionSlot(for kind: ExtractionKind) {
         activeExtractionCount -= 1
-        // Washi-1mg: MainActor 上で FIFO の先頭へ枠を予約してから再開する。
-        // 再開待ちの間に新しい要求が割り込んでも、同時数と順番を保つ。
-        if !extractionWaiters.isEmpty {
-            activeExtractionCount += 1
-            extractionWaiters.removeFirst().continuation.resume(returning: true)
+        if kind == .media { activeMediaExtractionCount -= 1 }
+        // 文書を先に再開し、メディアの待ちだけで全枠を占有させない。
+        if let index = extractionWaiters.firstIndex(where: { canStartExtraction($0.kind) }) {
+            let waiter = extractionWaiters.remove(at: index)
+            reserveExtractionSlot(waiter.kind)
+            waiter.continuation.resume(returning: true)
         }
     }
 

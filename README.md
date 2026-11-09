@@ -150,13 +150,15 @@ the latest GitHub Release. MIT-licensed, with no third-party package dependencie
   ライト/ダークテーマ(`EPUBReaderTheme`、`color-scheme` 注入、`invertsGlyphImagesInDark`
   による外字画像の反転)。電書連(DPFJ)EPUB 3 制作ガイド ver.1.1.4 の抽象フォント名
   (`serif-ja` 等)をヒラギノへ結ぶ `@font-face` ポリフィル。
-  `WKURLSchemeHandler` によるコンテナ内配信(MIME / CSP / Range)、外部ネットワーク遮断、
-  本の JavaScript は既定で無効(有効化時も WebRTC コンストラクタを使用不能にする)。
+  `WKURLSchemeHandler` によるコンテナ内配信(MIME / CSP / Range)。外部通信は
+  全応答の CSP・`washi-epub` 以外の遷移拒否・初回ナビゲーション前の
+  `WKContentRuleList` で抑止する。コンパイル失敗は error ログへ記録する。
+  システムメニューやホストの動作はこれらの層の対象外で、ホストにも境界の設計が必要。
   画面上の媒体再生にも利用者の操作を要求するため、悪意ある EPUB の `<audio autoplay>` /
   `<video autoplay>` は本を開いただけでは再生されず、`<audio controls>` を利用者が
   押す再生は引き続き利用できる。朗読(media overlay)は AVAudioPlayer を使うため変わらない。
-  現状の制限として、正規の本の `<video autoplay muted loop>` のような装飾も画面上で
-  自動再生されず、ホストが opt-in する手段はない。
+  信頼できる本では `EPUBReaderSettings.allowsMediaAutoplay = true` を設定して、
+  `<video autoplay muted loop>` などの自動再生をホストが opt-in できる。
 
   **Reflowable renderer** `EPUBReaderView` (AppKit / WKWebView): pagination with standard
   CSS multicol; vertical writing uses stacked columns and non-animated jumps (the Bibi /
@@ -166,14 +168,17 @@ the latest GitHub Release. MIT-licensed, with no third-party package dependencie
   pages stay centered. Light and dark themes (`EPUBReaderTheme`, injected `color-scheme`,
   `invertsGlyphImagesInDark` for glyph images). An `@font-face` polyfill maps the DPFJ
   EPUB 3 guide (ver. 1.1.4) abstract font names such as `serif-ja` to Hiragino.
-  Container resources are served through `WKURLSchemeHandler` (MIME / CSP / Range);
-  external network access is blocked; book JavaScript is off by default and, when
-  enabled, WebRTC constructors are disabled. Onscreen media playback also requires
+  Container resources are served through `WKURLSchemeHandler` (MIME / CSP / Range).
+  External communication is limited by CSP on every response, refusal of navigations
+  outside `washi-epub`, and a `WKContentRuleList` installed before the first navigation.
+  Compilation failures are logged as errors. System menus and host actions fall outside
+  these layers, so hosts must design their own trust boundaries. Book JavaScript is off
+  by default and, when enabled, WebRTC constructors are disabled. Onscreen media playback also requires
   user interaction, so malicious EPUBs cannot play `<audio autoplay>` / `<video autoplay>`
   merely by being opened; playback initiated by pressing `<audio controls>` remains available.
-  Media overlay narration uses AVAudioPlayer and is unchanged. As a current limitation,
-  decorative media in legitimate books, such as `<video autoplay muted loop>`, also cannot
-  autoplay onscreen, and hosts have no way to opt in.
+  Media overlay narration uses AVAudioPlayer and is unchanged. For trusted books, hosts can
+  set `EPUBReaderSettings.allowsMediaAutoplay = true` to opt into decorative playback such as
+  `<video autoplay muted loop>`.
 
 - **設定・位置・履歴**: `EPUBReaderSettings` でフォント倍率・行間・横組み字間・段落間隔・
   著者フォント上書き・ルビ表示・配色・余白・ユーザー CSS。`EPUBLocator`(spine index +
@@ -205,12 +210,14 @@ the latest GitHub Release. MIT-licensed, with no third-party package dependencie
 
 - **アクセシビリティと census**: VoiceOver への確定ページ通知と accessibility label/value、
   システムのコントラスト増加・色以外での区別へ追従。全文ページ数の census は、欠落や決定的に
-  読めない spine 項目を 1 ページとして計測を続け、部分的な結果も利用可能
+  読めない spine 項目を 1 ページとして計測を続け、部分的な結果も利用可能。自動実測の
+  対象は spine 8,192 項目までで、それを超える本は実測せず未完として扱う
 
   **Accessibility and census**: announces settled pages to VoiceOver, provides labels and
   values, and follows Increase Contrast and Differentiate Without Color. The whole-book
   census counts a missing or deterministically unloadable spine item as one page and
-  keeps measuring, so partial results stay usable.
+  keeps measuring, so partial results stay usable. Automatic measurement covers books
+  of up to 8,192 spine items; larger books are not measured and remain incomplete.
 
 - **ピンチでフォント倍率**(0.5〜3.0 倍): ジェスチャ中は `WKWebView.magnification` で追従し、
   指を離すと進行率を保って再ページ割り。`adjustFontScale(by:)` で段階調整、変更は delegate へ通知

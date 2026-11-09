@@ -1847,7 +1847,7 @@ enum ReaderScripts {
         function postTap(event) {
             const w = window.innerWidth || 1;
             const h = window.innerHeight || 1;
-            post({ type: 'tap',
+            post({ type: 'tap', trusted: event.isTrusted,
                    x: Math.min(1, Math.max(0, event.clientX / w)),
                    y: Math.min(1, Math.max(0, event.clientY / h)),
                    button: event.button || 0,
@@ -1884,7 +1884,9 @@ enum ReaderScripts {
             }
             // cooViewer-oxr.27: 二回目の click/dblclick が届く猶予を置き、
             // ダブルクリックの一回目をページ送りとして確定しない。
+            // Washi-7wi: postTap は元イベントの isTrusted を送るため、保留にも写す。
             pendingPrimaryTap = {
+                isTrusted: event.isTrusted,
                 clientX: event.clientX, clientY: event.clientY,
                 button: event.button, shiftKey: event.shiftKey,
                 altKey: event.altKey, ctrlKey: event.ctrlKey,
@@ -2003,11 +2005,11 @@ enum ReaderScripts {
                 return null;
             }
         }
-        function internalLinkMessage(anchor, href) {
+        function internalLinkMessage(anchor, href, trusted) {
             const rect = anchor.getBoundingClientRect();
             const anchorID = anchor.getAttribute('id') || null;
             const message = {
-                type: 'link', href: href,
+                type: 'link', href: href, trusted: trusted,
                 epubType: epubTypeOf(anchor),
                 role: anchor.getAttribute('role') || null,
                 anchorId: anchorID,
@@ -2028,8 +2030,8 @@ enum ReaderScripts {
             return message;
         }
         document.addEventListener('click', function (event) {
-            const synthesized = event.detail === 0;
-            const repeatedClick = !synthesized && event.detail >= 2;
+            const synthesized = !event.isTrusted;
+            const repeatedClick = event.detail >= 2;
             if (synthesized) {
                 // cooViewer-oxr.27: 合成 click は座標をタップとして扱わない。
                 pressT = 0;
@@ -2059,7 +2061,9 @@ enum ReaderScripts {
                     event.stopPropagation();
                     // cooViewer-oxr.27: 二回目も既定遷移は止めるが、同じ
                     // native リンク通知を重複させない。
-                    if (!repeatedClick) { post(internalLinkMessage(anchor, href)); }
+                    if (!repeatedClick) {
+                        post(internalLinkMessage(anchor, href, event.isTrusted));
+                    }
                     return;
                 }
             }
@@ -2078,7 +2082,7 @@ enum ReaderScripts {
         // コンテキストメニューに委ねる。サイドボタンの既定動作(履歴移動等)は
         // 止めてホストの割当(戻る/進む相当)へ渡す
         document.addEventListener('auxclick', function (event) {
-            if (event.button === 2) { return; }
+            if (!event.isTrusted || event.button === 2) { return; }
             if (targetsInteractiveControl(event)) { return; }
             event.preventDefault();
             event.stopPropagation();
@@ -2100,9 +2104,11 @@ enum ReaderScripts {
         }, { passive: false });
 
         document.addEventListener('keydown', function (event) {
+            if (!event.isTrusted) { return; }
             if (!keysEnabled) {
                 // ホストアプリがキーを扱う: native へ転送して既定動作は止める
                 post({ type: 'key', key: event.key, code: event.code,
+                       trusted: event.isTrusted,
                        shift: event.shiftKey, alt: event.altKey,
                        ctrl: event.ctrlKey, meta: event.metaKey });
                 if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',

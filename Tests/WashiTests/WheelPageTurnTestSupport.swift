@@ -144,7 +144,8 @@ struct WheelHarness {
     /// 既定の長さ(移動量のあるイベントは began と changed 5 回の 6 つ)なら、12 px ずつで
     /// 5 イベント目に閾値 50 を超えて送り、残りは 12 px で閾値に届かない(送った後に
     /// MainActor が 0.25 秒止まってラッチが外れても、もう 1 ページ送らない)。
-    /// `to` は配る先(既定は WebView)。`startingAt` を渡すと 16ms 刻みの時刻を付ける。
+    /// `to` は配る先(既定は WebView)。16ms 刻みの論理時刻を付け、MainActor の
+    /// 実時間の遅延で一つのジェスチャが 0.25 秒の静穏で分割されないようにする(Washi-j61)。
     /// 最後のイベントの時刻を返す
     @discardableResult
     func gesture(dx: Int32 = 0, dy: Int32 = 0, changes: Int = 5,
@@ -152,11 +153,12 @@ struct WheelHarness {
                  startingAt start: TimeInterval? = nil,
                  file: StaticString = #filePath, line: UInt = #line) async throws -> TimeInterval {
         let phases: [Int64] = [1] + Array(repeating: 2, count: changes) + [4]
+        let start = start ?? ProcessInfo.processInfo.systemUptime
         var last: TimeInterval = 0
         for (index, phase) in phases.enumerated() {
             let event = try XCTUnwrap(scrollEvent(
                 dx: phase == 4 ? 0 : dx, dy: phase == 4 ? 0 : dy, phase: phase,
-                timestamp: start.map { $0 + 0.016 * Double(index) }, file: file, line: line),
+                timestamp: start + 0.016 * Double(index), file: file, line: line),
                 file: file, line: line)
             (target ?? webView).scrollWheel(with: event)
             last = event.timestamp
@@ -173,8 +175,11 @@ struct WheelHarness {
               file: StaticString = #filePath, line: UInt = #line) async throws {
         try await gesture(dx: dx, dy: dy, to: target, file: file, line: line)
         let landed = await waitUntil(timeout: .seconds(3)) { view.pageInItem == expected }
-        XCTAssertTrue(landed, "\(message): pageInItem=\(view.pageInItem) 期待 \(expected)",
-                      file: file, line: line)
+        guard landed else {
+            XCTFail("\(message): pageInItem=\(view.pageInItem) 期待 \(expected)",
+                    file: file, line: line)
+            return
+        }
         try await Task.sleep(for: .milliseconds(400))
         XCTAssertEqual(view.pageInItem, expected, "\(message): 1 ジェスチャで 2 ページ以上送った",
                        file: file, line: line)
@@ -184,7 +189,8 @@ struct WheelHarness {
         for _ in 0..<times {
             let before = view.pageInItem
             view.goForward()
-            _ = await waitUntil(timeout: .seconds(5)) { view.pageInItem != before }
+            let moved = await waitUntil(timeout: .seconds(5)) { view.pageInItem != before }
+            XCTAssertTrue(moved, "初期位置への移動が完了しない: \(before) → \(view.pageInItem)")
         }
         try? await Task.sleep(for: .milliseconds(400))
     }

@@ -112,6 +112,9 @@ extension EPUBPublication {
     /// A `CancellationError` during ZIP decompression is also handled without
     /// throwing; the interrupted item is omitted and the hits found so far are returned.
     ///
+    /// 1 章の抽出本文が 1,000,000 文字を超える場合、その章は検索対象外とする。
+    /// Chapters whose extracted text exceeds 1,000,000 characters are skipped.
+    ///
     /// - Parameters:
     ///   - query: 探すテキスト。空または空白だけなら一致結果は返さない。
     ///     the text to find. Empty or whitespace-only returns no hits.
@@ -145,6 +148,9 @@ extension EPUBPublication {
     /// Cancellation of the calling task returns the hits found so far; a
     /// `CancellationError` during ZIP decompression is handled without throwing,
     /// and the interrupted item is omitted from the results.
+    ///
+    /// 1 章の抽出本文が 1,000,000 文字を超える場合、その章は検索対象外とする。
+    /// Chapters whose extracted text exceeds 1,000,000 characters are skipped.
     ///
     /// - Parameters:
     ///   - query: 探すテキスト。空または空白だけなら一致結果は返さない。
@@ -181,6 +187,10 @@ extension EPUBPublication {
 
     // MARK: - 実装
 
+    /// 1 章の本文長の上限。これを超える章は、全半角畳み込みと位置写像の
+    /// 一時配列が本文の数十倍に膨らむのを防ぐため検索しない。
+    static let maximumSearchTextLength = 1_000_000
+
     /// cooViewer-oxr.11: 検索用の 1 文字畳み込み。半角濁点カナ(ｶﾞ 等)は 1 書記素で、
     /// widthInsensitive では全角(ガ)に畳まれず取りこぼす。全角/半角形ブロック
     /// (U+FF00–FFEF)を含む文字だけ NFKC で畳んで全角化する(1 文字に畳める
@@ -200,7 +210,7 @@ extension EPUBPublication {
                                 spineIndex: Int,
                                 options searchOptions: EPUBSearchOptions,
                                 snippetRadius: Int) -> [EPUBSearchHit] {
-        guard !Task.isCancelled else { return [] }
+        guard !Task.isCancelled, text.count <= Self.maximumSearchTextLength else { return [] }
         let widthSensitive = searchOptions.contains(.widthSensitive)
         // 全角/半角形の UTF-8 は必ず 0xEF で始まる。不在なら畳み込みと配列化を省く。
         let foldedChars: [Character]?
