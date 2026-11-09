@@ -655,8 +655,10 @@ final class EPUBScrollDocumentTests: XCTestCase {
             ("OEBPS/package.opf", Data(opf.utf8))
         ]
         if let chapters {
+            // Washi-clb: Swift 6.0/6.1 はラベル無しタプルを (name:data:) の配列へ
+            // 暗黙変換しないため、ラベルを明示する。
             entries.append(contentsOf: chapters.enumerated().map {
-                ("OEBPS/page\($0.offset).xhtml", $0.element)
+                (name: "OEBPS/page\($0.offset).xhtml", data: $0.element)
             })
         } else {
             entries.append(("OEBPS/page.xhtml", chapter ?? dimensionChapter()))
