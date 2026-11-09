@@ -233,6 +233,45 @@ final class MediaOverlaySkippingTests: XCTestCase {
         }
     }
 
+    /// Washi-dwr: 同じ音声で隣接するクリップの間にある長さのないクリップは、
+    /// 連続再生を切らない(巻き戻して再生し直さない)。
+    func testEmptyClipBetweenContiguousClipsKeepsAudioRunning() throws {
+        var entries = EPUBFixtures.silentMediaOverlayEntries(parCount: 3)
+        let smilIndex = try XCTUnwrap(entries.firstIndex { $0.name.hasSuffix(".smil") })
+        entries[smilIndex].data = Data("""
+        <smil xmlns="http://www.w3.org/ns/SMIL"><body><seq>
+          <par><text src="c.xhtml#s0"/>
+            <audio src="narration.wav" clipBegin="0s" clipEnd="1s"/></par>
+          <par><text src="c.xhtml#s1"/>
+            <audio src="narration.wav" clipBegin="1s" clipEnd="1s"/></par>
+          <par><text src="c.xhtml#s2"/>
+            <audio src="narration.wav" clipBegin="1s" clipEnd="2s"/></par>
+        </seq></body></smil>
+        """.utf8)
+        entries.append(("OEBPS/text/narration.wav", silentPCM()))
+        let book = try EPUBFixtures.publication(entries, name: "washi-contiguous-empty-clip")
+        let reader = EPUBReaderView(frame: .zero)
+        reader.load(publication: book)
+        let player = FakeMediaOverlayAudioPlayer()
+        let controller = MediaOverlayController(
+            reader: reader, publication: book, activeClass: "x",
+            makeAudioPlayer: { _ in player })
+        reader.mediaOverlayController = controller
+        controller.continuesToNextItem = false
+        controller.play(fromSpineIndex: 0)
+        defer { controller.stop() }
+        player.currentTime = 1.01
+
+        let deadline = Date().addingTimeInterval(0.5)
+        while Date() < deadline, controller.parIndex == 0 {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertEqual(controller.parIndex, 2)
+        XCTAssertEqual(player.currentTime, 1.01, accuracy: 0.001,
+                       "A contiguous clip after an empty clip must not seek back")
+        XCTAssertEqual(player.playCount, 1)
+    }
+
     /// Washi-dwr: 長さのないクリップが大量に続いても、再帰せず 1 回でまとめて飛ばす。
     func testManyEmptyClipsAreSkippedWithoutTicks() throws {
         let count = 20_000
@@ -471,6 +510,38 @@ final class MediaOverlaySkippingTests: XCTestCase {
         }
 
         XCTAssertEqual(created, ["a.wav", "b.wav", "a.wav"])
+    }
+
+    /// Washi-wdl: 停止すると再利用用の player を手放し、次の再生で作り直す。
+    /// 読めなかった音声の記録も消え、利用者が再生し直せば再挑戦する。
+    func testStopReleasesCachedPlayersAndRejections() throws {
+        let book = try audioBook(paths: ["a.wav", "b.wav"])
+        let reader = EPUBReaderView(frame: .zero)
+        reader.load(publication: book)
+        var created: [String] = []
+        var failsDecoding = true
+        struct DecodeFailure: Error {}
+        let controller = MediaOverlayController(
+            reader: reader, publication: book, activeClass: "x",
+            makeAudioPlayer: { data in
+                let name = String(decoding: data, as: UTF8.self)
+                created.append(name)
+                if name == "b.wav", failsDecoding { throw DecodeFailure() }
+                return FakeMediaOverlayAudioPlayer()
+            })
+        reader.mediaOverlayController = controller
+        defer { controller.stop() }
+
+        controller.play(fromSpineIndex: 0, parIndex: 0)
+        controller.play(fromSpineIndex: 0, parIndex: 1)
+        controller.play(fromSpineIndex: 0, parIndex: 1)
+        XCTAssertEqual(created, ["a.wav", "b.wav"])
+
+        controller.stop()
+        failsDecoding = false
+        controller.play(fromSpineIndex: 0, parIndex: 0)
+        controller.play(fromSpineIndex: 0, parIndex: 1)
+        XCTAssertEqual(created, ["a.wav", "b.wav", "a.wav", "b.wav"])
     }
 
     /// Washi-wdl: デコードできなかった音声は覚えておき、par や再生のたびに

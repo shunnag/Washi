@@ -17,18 +17,22 @@ struct ZipContainerReader: ContainerReader {
     /// Washi-bgz: 先頭の "/" と "./" だけが余分な梱包ミスのエントリ名を、剥がした
     /// 安全な名前で列挙・読み取りするための別名(剥がした名前 → 実際の名前)。
     /// 1.26 まではルート接頭辞の救済で開けていた。".." を含む名前や、同じ名前の
-    /// エントリが既にある・別名が衝突する場合は作らない。
+    /// エントリが既にある(大文字小文字の違いだけのものを含む。大小文字の救済で
+    /// 実在のエントリへ届く経路を奪わない)・別名どうしが衝突する場合は作らない。
     private let prefixedAliases: [String: String]
 
     init(archive: ZipArchive) {
         self.archive = archive
         var aliases: [String: String] = [:]
         var ambiguous: Set<String> = []
+        let safeLowercasedNames = Set(archive.entries.lazy
+            .filter { ContainerPath.isSafeContainerPath($0.name) }
+            .map { $0.name.lowercased() })
         for entry in archive.entries
         where !entry.isDirectory && !ContainerPath.isSafeContainerPath(entry.name) {
             guard let stripped = Self.strippingLeadingRootMarkers(entry.name),
                   ContainerPath.isSafeContainerPath(stripped),
-                  !archive.contains(stripped) else { continue }
+                  !safeLowercasedNames.contains(stripped.lowercased()) else { continue }
             if aliases.updateValue(entry.name, forKey: stripped) != nil {
                 ambiguous.insert(stripped)
             }

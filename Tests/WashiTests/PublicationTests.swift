@@ -412,6 +412,8 @@ final class PublicationTests: XCTestCase {
         entries.append(("/twice.txt", Data("slash".utf8)))
         entries.append(("./../escape.txt", Data("escape".utf8)))
         entries.append(("./single.txt", Data("single".utf8)))
+        entries.append(("OEBPS/Case.txt", Data("real".utf8)))
+        entries.append(("./OEBPS/case.txt", Data("stray".utf8)))
         let publication = try EPUBPublication(
             data: ZipBuilder.build(entries),
             displayURL: URL(fileURLWithPath: "/tmp/washi-prefixed-collisions.epub"))
@@ -423,6 +425,9 @@ final class PublicationTests: XCTestCase {
         XCTAssertFalse(publication.resourcePaths.contains { $0.contains("escape") })
         XCTAssertThrowsError(try publication.resource(at: "../escape.txt"))
         XCTAssertEqual(publication.resourcePaths.filter { $0 == "safe.txt" }.count, 1)
+        // 大小文字の違いだけの実在エントリがある別名は作らず、救済は実在のものへ届く。
+        XCTAssertFalse(publication.resourcePaths.contains("OEBPS/case.txt"))
+        XCTAssertEqual(try publication.resource(at: "OEBPS/case.txt").data, Data("real".utf8))
     }
 
     /// Washi-gc0: ZWNJ・ZWJ を含む正当なエントリ名は列挙され、読み取れる。

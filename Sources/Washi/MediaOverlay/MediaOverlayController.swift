@@ -135,6 +135,7 @@ final class MediaOverlayController {
     func stop() {
         playbackGeneration &+= 1
         stopAudio()
+        releaseAudioCache()
         clearHighlight()
         overlay = nil
         setPlaying(false)
@@ -169,11 +170,16 @@ final class MediaOverlayController {
             if let candidateOverlay,
                candidateParIndex < candidateOverlay.parallels.count {
                 let candidate = candidateOverlay.parallels[candidateParIndex]
-                if Self.isSkipped(candidate, types: skippedTypes)
-                    || Self.hasEmptyClip(candidate) {
+                if Self.isSkipped(candidate, types: skippedTypes) {
                     candidateParIndex += 1
                     shouldSeek = true
                     mayContinueAudio = false
+                    continue
+                }
+                // Washi-dwr: 長さのないクリップは鳴らす区間が無いだけなので、前後の
+                // クリップが同じ音声で隣接していれば連続再生を切らない(巻き戻さない)。
+                if Self.hasEmptyClip(candidate) {
+                    candidateParIndex += 1
                     continue
                 }
                 break
@@ -330,15 +336,22 @@ final class MediaOverlayController {
         // 宣言サイズの無いフォルダ等は、展開後の data.count で同じ上限を適用する。
         let declaredSize = publication.declaredResourceSize(at: path)
         // Washi-wdl: 上限は ZIP の 1 エントリ上限と同じ 512 MiB(本 1 冊分の朗読も通す)。
-        guard declaredSize.map({ $0 <= UInt64(max(0, audioResourceByteLimit)) }) ?? true,
-              let (data, _) = try? publication.resource(at: path),
-              data.count <= audioResourceByteLimit,
-              let newPlayer = try? makeAudioPlayer(data) else {
-            // 一過性の取消し(ZIP 展開中の Task 取消し)だけは次の par で再挑戦する。
-            if !Task.isCancelled { rejectedAudioPaths.insert(path) }
+        // 覚えるのは何度読んでも変わらない失敗(上限超過・デコード不能)だけ。
+        // 読み取りの失敗(取消し・一時的な I/O・欠落)は次の par で再挑戦する。
+        func reject(remembering: Bool) {
+            if remembering { rejectedAudioPaths.insert(path) }
             player = nil
             loadedAudioPath = nil
-            return
+        }
+        guard declaredSize.map({ $0 <= UInt64(max(0, audioResourceByteLimit)) }) ?? true else {
+            return reject(remembering: true)
+        }
+        guard let (data, _) = try? publication.resource(at: path) else {
+            return reject(remembering: false)
+        }
+        guard data.count <= audioResourceByteLimit,
+              let newPlayer = try? makeAudioPlayer(data) else {
+            return reject(remembering: true)
         }
         newPlayer.prepareToPlay()
         // 直近 2 件までを再利用する。保持する音声データの合計も上限内に収め、
@@ -355,6 +368,17 @@ final class MediaOverlayController {
         audioPlayerOrder.append(path)
         player = newPlayer
         loadedAudioPath = path
+    }
+
+    /// Washi-wdl: 停止・完了では再利用用の player(最大で上限ぶんの音声データ)を
+    /// 手放し、読めなかった音声の記録も消して、次の再生で読み直せるようにする。
+    /// play どうしの切り替えでは保持し、再展開を避ける。
+    private func releaseAudioCache() {
+        for cached in audioPlayers.values { cached.stop() }
+        audioPlayers.removeAll()
+        audioPlayerBytes.removeAll()
+        audioPlayerOrder.removeAll()
+        rejectedAudioPaths.removeAll()
     }
 
     private func startTicker() {
@@ -397,6 +421,7 @@ final class MediaOverlayController {
     private func finish() {
         let generation = playbackGeneration
         stopAudio()
+        releaseAudioCache()
         clearHighlight()
         overlay = nil
         setPlaying(false)
